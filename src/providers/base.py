@@ -19,11 +19,14 @@ class LLMProvider(ABC):
         system_prompt: str,
         user_prompt: str,
         context_chunks: list[str] | None = None,
+        json_output: bool = False,
     ) -> str:
         """Sistem + kullanıcı promptu (ve varsa retrieve edilmiş bağlam) verilir,
-        modelin ham metin yanıtı döner. Yapılandırılmış çıktı üreten çağrılar
-        (örn. JSON şeması) bu metnin üzerine ayrıca şema doğrulaması yapar —
-        doğrulama burada değil, çağıran katmanda (bkz. §11 Rule Engine)."""
+        modelin ham metin yanıtı döner. ``json_output=True`` çağıran katmana
+        modelin (destekliyorsa) JSON-uyumlu çıktı üretmesini ister — bu, extraction
+        görevleri için hem gecikmeyi hem tutarlılığı önemli ölçüde iyileştirdiği
+        ölçülen bir ayar (bkz. FoundryLocalProvider). Şema doğrulaması yine de
+        burada değil, çağıran katmanda yapılır (bkz. §11 Rule Engine)."""
 
     @abstractmethod
     def is_available(self) -> bool:
