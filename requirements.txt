@@ -1,0 +1,29 @@
+# Web / API
+fastapi
+uvicorn[standard]
+jinja2
+python-multipart
+
+# Data / validation
+pydantic>=2
+email-validator
+numpy
+
+# Google (Gmail + Google Calendar)
+google-auth
+google-auth-oauthlib
+google-auth-httplib2
+google-api-python-client
+
+# Local LLM runtime
+# NOTE: paket adi PDF'teki "pip install foundry-local-sdk" talimatina dayanir,
+# Hafta 1'de resmi kurulumla dogrulanacak (bkz. docs/architecture-plan.md SS14).
+foundry-local-sdk
+
+# Config
+python-dotenv
+
+# Test
+pytest
+pytest-mock
+httpx
