@@ -36,6 +36,9 @@ def _intent_system_prompt() -> str:
         "- query_calendar: kullanıcı takviminde ne olduğunu SORUYOR, uygunluk/boşluk soruyor "
         "(örn. 'yarın takvimimde neler var', 'bu hafta ne kadar boşum').\n"
         "- update_event: kullanıcı VAR OLAN bir etkinliği değiştirmek/taşımak/iptal etmek istiyor.\n"
+        "- define_policy: kullanıcı gelecekteki etkinlikler için genel bir KURAL/TERCİH tanımlıyor "
+        "(örn. 'toplantılar için varsayılan süre 60 dakikadır', 'sınavlara 1 gün önce hatırlatıcı "
+        "ekle') — belirli TEK bir etkinlik değil, genel bir davranış kuralı.\n"
         "- other: yukarıdakilerin hiçbiri değil (sohbet, alakasız soru, vb.).\n"
         "query_calendar ise, sorulan tarih aralığını query_range_start/query_range_end olarak "
         "ISO 8601 hesapla. Göreceli ifadeleri yukarıdaki bugünün tarihine göre çöz — 'yarın' "
@@ -43,7 +46,7 @@ def _intent_system_prompt() -> str:
         "DAHİL ETME), range_end = yukarıdaki hafta sonu tarihi. Gün belirtilmemişse bugünden "
         "başlayan makul bir aralık seç (örn. tüm gün).\n"
         "SADECE geçerli JSON döndür, başka hiçbir açıklama ekleme. Şema:\n"
-        '{"intent": "create_event|query_calendar|update_event|other", '
+        '{"intent": "create_event|query_calendar|update_event|define_policy|other", '
         '"query_range_start": "YYYY-MM-DDTHH:MM:SS" veya null, '
         '"query_range_end": "YYYY-MM-DDTHH:MM:SS" veya null}'
     )

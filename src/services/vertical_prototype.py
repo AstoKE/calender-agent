@@ -1,12 +1,14 @@
-"""Hafta 1 dikey prototipi (bkz. docs/architecture-plan.md §20).
+"""Hafta 1-2 dikey prototipi (bkz. docs/architecture-plan.md §20).
 
 Elle girilen bir mesaj metnini candidate_event'e çevirir, SQLite'a yazar,
 bir önizleme gösterir ve yalnızca kullanıcı onayı sonrası Google Calendar'a
-yazar. Basit bir niyet tespiti (src/services/intent.py) mesajı create_event/
-query_calendar/update_event/other olarak yönlendirir. RAG/Policy Store ve
-tam Conversation Layer (çok turlu diyalog durumu) bu prototipte hâlâ YOK —
-bunlar Hafta 2-3'ün geri kalanı; burada tek bir kural (toplantı için
-varsayılan 60dk süre) doğrudan koda gömülü, RAG'dan retrieve edilmiyor.
+yazar. Niyet tespiti (src/services/intent.py) mesajı create_event/
+query_calendar/update_event/define_policy/other olarak yönlendirir.
+Policy Store + RAG retrieval (src/policies, src/rag) artık bağlı: eksik
+süre önce kullanıcının tanımladığı kurallardan retrieve edilir, bulunamazsa
+DEFAULT_MEETING_DURATION_MINUTES'a (sistem varsayılanı, en düşük öncelik —
+bkz. §9 politika önceliği) düşer. Tam Conversation Layer (çok turlu diyalog
+durum makinesi) hâlâ yok — bu Hafta 3'ün kapsamı.
 """
 
 from __future__ import annotations
@@ -17,7 +19,10 @@ from datetime import datetime, timedelta, timezone
 
 from src.connectors.google_calendar import GoogleCalendarConnector
 from src.core.models import CandidateEvent, CandidateStatus, EventType, IntentType, SourceType
-from src.providers.foundry_local import FoundryLocalProvider
+from src.policies.store import add_policy
+from src.providers.base import EmbeddingProvider, LLMProvider
+from src.providers.foundry_local import FoundryLocalEmbeddingProvider, FoundryLocalProvider
+from src.rag.policy_retrieval import embed_and_store_policy, retrieve_policies_for_event
 from src.services.availability import find_conflicts, suggest_alternative_slots
 from src.services.intent import classify_intent
 from src.services.timeutil import (
@@ -29,7 +34,7 @@ from src.services.timeutil import (
 )
 from src.storage.db import get_connection, init_db
 
-DEFAULT_MEETING_DURATION_MINUTES = 60  # sabit kural örneği; Hafta 2'de RAG/Policy Store'dan gelecek
+DEFAULT_MEETING_DURATION_MINUTES = 60  # sistem varsayılanı (§9: en düşük öncelik, politika yoksa devreye girer)
 
 
 def _extraction_system_prompt() -> str:
@@ -96,15 +101,59 @@ def extract_candidate_event(llm: FoundryLocalProvider, user_text: str) -> Candid
 MAX_CLARIFICATION_ATTEMPTS = 3
 
 
+def apply_retrieved_policies(candidate: CandidateEvent, embedding_provider: EmbeddingProvider) -> None:
+    """Rule Engine adımı: RAG'ın getirdiği politikaları deterministik olarak
+    uygular (LLM'e "hangi değer" kararını bırakmaz, bkz. §9/§11). Yalnızca
+    hâlâ eksik olan alanlara dokunur — kullanıcının bu mesajda açıkça verdiği
+    bilgiyi asla ezmez."""
+    policies = retrieve_policies_for_event(embedding_provider, candidate.event_type, top_k=5)
+
+    if candidate.duration_minutes is None:
+        for policy in policies:
+            minutes = policy.structured_action.get("default_duration_minutes")
+            if minutes:
+                candidate.duration_minutes = int(minutes)
+                candidate.missing_fields = [f for f in candidate.missing_fields if f != "duration_minutes"]
+                candidate.retrieved_policy_ids.append(policy.policy_id)
+                print(f"(Kural uygulandı: \"{policy.natural_language_rule}\")")
+                break
+
+    if not candidate.reminders:
+        for policy in policies:
+            minutes_before = policy.structured_action.get("reminder_minutes_before")
+            if minutes_before:
+                candidate.reminders = [{"minutes_before": int(minutes_before)}]
+                candidate.retrieved_policy_ids.append(policy.policy_id)
+                print(f"(Kural uygulandı: \"{policy.natural_language_rule}\")")
+                break
+
+    if candidate.importance is None:
+        for policy in policies:
+            importance = policy.structured_action.get("importance")
+            if importance:
+                candidate.importance = importance
+                candidate.retrieved_policy_ids.append(policy.policy_id)
+                print(f"(Kural uygulandı: \"{policy.natural_language_rule}\")")
+                break
+
+
 def fill_missing_fields_interactively(candidate: CandidateEvent) -> None:
-    """Minimal, tek adımlı soru döngüsü. Tam Conversation Layer Hafta 2 kapsamı."""
+    """Minimal, tek adımlı soru döngüsü. Tam Conversation Layer Hafta 3 kapsamı.
+    Politika uygulaması (apply_retrieved_policies) buradan ÖNCE, main()'de,
+    koşulsuz çalıştırılır — böylece süre zaten biliniyor olsa bile hatırlatıcı/
+    önem gibi diğer politikalar devreye girer."""
     if "title" in candidate.missing_fields:
         candidate.title = input("Etkinliğin başlığı ne olsun? ").strip()
 
     if "duration_minutes" in candidate.missing_fields:
-        if candidate.event_type == EventType.MEETING.value or candidate.event_type == EventType.MEETING:
+        if candidate.duration_minutes is not None:
+            pass  # RAG/Policy Store'dan geldi (apply_retrieved_policies main()'de çalıştı)
+        elif candidate.event_type == EventType.MEETING.value or candidate.event_type == EventType.MEETING:
             candidate.duration_minutes = DEFAULT_MEETING_DURATION_MINUTES
-            print(f"(Kural: toplantılar için varsayılan süre {DEFAULT_MEETING_DURATION_MINUTES} dakika uygulandı.)")
+            print(
+                f"(Sistem varsayılanı: toplantılar için {DEFAULT_MEETING_DURATION_MINUTES} dakika — "
+                "henüz kendi kuralınızı tanımlamadınız.)"
+            )
         else:
             for _ in range(MAX_CLARIFICATION_ATTEMPTS):
                 raw = input("Süre ne kadar? (örn: 30, 1 saat) ").strip()
@@ -234,12 +283,20 @@ def print_preview(candidate: CandidateEvent, conflict_note: str = "Yok") -> None
         start_dt = start if isinstance(start, datetime) else datetime.fromisoformat(start)
         end = start_dt + timedelta(minutes=candidate.duration_minutes)
 
+    reminders_desc = (
+        ", ".join(f"{r.minutes_before} dk önce" for r in candidate.reminders)
+        if candidate.reminders
+        else "(yok)"
+    )
+
     print("\n--- Önizleme ---")
-    print(f"Başlık:   {candidate.title}")
-    print(f"Zaman:    {start} -> {end}")
-    print(f"Konum:    {candidate.location or '(belirtilmedi)'}")
-    print(f"Tür:      {candidate.event_type}")
-    print(f"Çakışma:  {conflict_note}")
+    print(f"Başlık:     {candidate.title}")
+    print(f"Zaman:      {start} -> {end}")
+    print(f"Konum:      {candidate.location or '(belirtilmedi)'}")
+    print(f"Tür:        {candidate.event_type}")
+    print(f"Önem:       {candidate.importance or '(belirtilmedi)'}")
+    print(f"Hatırlatıcı: {reminders_desc}")
+    print(f"Çakışma:    {conflict_note}")
     print("----------------\n")
 
 
@@ -279,6 +336,47 @@ def resolve_conflicts_interactively(calendar: GoogleCalendarConnector, candidate
     return "Var (iptal edilecek)"
 
 
+def _policy_extraction_system_prompt() -> str:
+    return (
+        "Sen bir takvim asistanısın. Kullanıcı doğal dilde kişisel bir kural "
+        "tanımlıyor. Bunu yapılandırılmış hale getir.\n"
+        "SADECE geçerli JSON döndür, başka hiçbir açıklama ekleme. Alanlar:\n"
+        '{"event_type": "meeting|appointment|exam|deadline|travel|reservation|'
+        'personal_commitment|other" veya null (kural TÜM etkinlik türleri için '
+        "geçerliyse null bırak), "
+        '"default_duration_minutes": integer veya null, '
+        '"reminder_minutes_before": integer veya null, '
+        '"importance": "low|normal|high" veya null}\n'
+        "Yalnızca kuralda AÇIKÇA belirtilen alanı doldur, diğerlerini null bırak — uydurma."
+    )
+
+
+def handle_define_policy(llm: LLMProvider, embedding_provider: EmbeddingProvider, user_text: str) -> None:
+    raw = llm.generate(_policy_extraction_system_prompt(), user_text, json_output=True)
+    fields = json.loads(raw)
+
+    structured_action = {
+        k: fields[k]
+        for k in ("default_duration_minutes", "reminder_minutes_before", "importance")
+        if fields.get(k) is not None
+    }
+    if not structured_action:
+        print("Bu kuraldan somut bir davranış çıkaramadım — biraz daha net ifade eder misiniz?")
+        return
+
+    category = next(iter(structured_action))
+    policy = add_policy(
+        category=category,
+        natural_language_rule=user_text,
+        structured_action=structured_action,
+        event_type=fields.get("event_type"),
+    )
+    embed_and_store_policy(embedding_provider, policy)
+
+    scope_desc = f"'{fields['event_type']}' türü etkinlikler" if fields.get("event_type") else "tüm etkinlikler"
+    print(f"Kaydettim: {scope_desc} için '{user_text}' kuralı artık aktif.")
+
+
 def handle_query_calendar(account_id: str, range_start: datetime | None, range_end: datetime | None) -> None:
     if range_start is None or range_end is None:
         print("Hangi tarih aralığını merak ediyorsunuz, tam olarak söyler misiniz?")
@@ -304,6 +402,7 @@ def handle_query_calendar(account_id: str, range_start: datetime | None, range_e
 def main() -> None:
     init_db()
     llm = FoundryLocalProvider(model_alias="qwen3-4b")
+    embedding_provider = FoundryLocalEmbeddingProvider()
     account_id = "astokrappersteam"
 
     user_text = input("Ne planlamak istiyorsunuz? ").strip()
@@ -315,11 +414,15 @@ def main() -> None:
     if intent.intent == IntentType.UPDATE_EVENT:
         print("Var olan etkinlikleri güncellemeyi henüz desteklemiyorum, bu yakında eklenecek.")
         return
+    if intent.intent == IntentType.DEFINE_POLICY:
+        handle_define_policy(llm, embedding_provider, user_text)
+        return
     if intent.intent == IntentType.OTHER:
         print("Bunu tam anlayamadım. Şu an yeni etkinlik eklemek ve takviminizi sormak için kullanılabilirim.")
         return
 
     candidate = extract_candidate_event(llm, user_text)
+    apply_retrieved_policies(candidate, embedding_provider)
 
     if candidate.missing_fields or candidate.ambiguous_fields:
         fill_missing_fields_interactively(candidate)

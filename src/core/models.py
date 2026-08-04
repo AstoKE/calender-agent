@@ -90,6 +90,7 @@ class IntentType(str, Enum):
     CREATE_EVENT = "create_event"
     QUERY_CALENDAR = "query_calendar"
     UPDATE_EVENT = "update_event"
+    DEFINE_POLICY = "define_policy"
     OTHER = "other"
 
 
