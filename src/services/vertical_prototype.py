@@ -18,6 +18,7 @@ from datetime import datetime, timedelta, timezone
 from src.connectors.google_calendar import GoogleCalendarConnector
 from src.core.models import CandidateEvent, CandidateStatus, EventType, IntentType, SourceType
 from src.providers.foundry_local import FoundryLocalProvider
+from src.services.availability import find_conflicts, suggest_alternative_slots
 from src.services.intent import classify_intent
 from src.services.timeutil import DEFAULT_TIMEZONE, ensure_timezone, format_date_tr
 from src.storage.db import get_connection, init_db
@@ -201,7 +202,7 @@ def record_audit(conn, action: str, entity_id: str, reason: str) -> None:
     )
 
 
-def print_preview(candidate: CandidateEvent) -> None:
+def print_preview(candidate: CandidateEvent, conflict_note: str = "Yok") -> None:
     start = candidate.start_datetime
     end = None
     if start and candidate.duration_minutes:
@@ -213,7 +214,44 @@ def print_preview(candidate: CandidateEvent) -> None:
     print(f"Zaman:    {start} -> {end}")
     print(f"Konum:    {candidate.location or '(belirtilmedi)'}")
     print(f"Tür:      {candidate.event_type}")
+    print(f"Çakışma:  {conflict_note}")
     print("----------------\n")
+
+
+def resolve_conflicts_interactively(calendar: GoogleCalendarConnector, candidate: CandidateEvent) -> str:
+    """Çakışma varsa alternatif saatler önerir, kullanıcı seçimine göre
+    candidate.start_datetime'ı günceller. Dönüş: preview'da gösterilecek not."""
+    start_dt = candidate.start_datetime
+    if isinstance(start_dt, str):
+        start_dt = datetime.fromisoformat(start_dt)
+    end_dt = start_dt + timedelta(minutes=candidate.duration_minutes)
+
+    conflicts = find_conflicts(calendar, start_dt, end_dt)
+    if not conflicts:
+        return "Yok"
+
+    print(f"\n⚠ Çakışma bulundu: {start_dt:%H:%M}-{end_dt:%H:%M} aralığında zaten bir etkinliğiniz var.")
+    alternatives = suggest_alternative_slots(calendar, candidate.duration_minutes, end_dt)
+
+    if not alternatives:
+        print("Yakın zamanda uygun bir alternatif bulamadım.")
+        choice = input("Yine de bu saatte devam edelim mi? [e/h] ").strip().lower()
+        return "Var (kullanıcı yine de onayladı)" if choice == "e" else "Var (çözülmedi)"
+
+    print("Alternatif uygun saatler:")
+    for i, alt in enumerate(alternatives, 1):
+        print(f"  {i}. {format_date_tr(alt)}, {alt:%H:%M}")
+    choice = input(
+        f"Bir alternatif seçin (1-{len(alternatives)}), yine de bu saatte devam edin (d), veya iptal edin (i): "
+    ).strip().lower()
+
+    if choice.isdigit() and 1 <= int(choice) <= len(alternatives):
+        chosen = alternatives[int(choice) - 1]
+        candidate.start_datetime = chosen
+        return f"Vardı, {chosen:%d.%m %H:%M}'e taşındı"
+    if choice == "d":
+        return "Var (kullanıcı yine de onayladı)"
+    return "Var (iptal edilecek)"
 
 
 def handle_query_calendar(account_id: str, range_start: datetime | None, range_end: datetime | None) -> None:
@@ -261,10 +299,22 @@ def main() -> None:
     if candidate.missing_fields or candidate.ambiguous_fields:
         fill_missing_fields_interactively(candidate)
 
+    calendar = GoogleCalendarConnector(account_id=account_id)
+    conflict_note = "Yok"
+    if candidate.start_datetime and candidate.duration_minutes:
+        conflict_note = resolve_conflicts_interactively(calendar, candidate)
+
     with get_connection() as conn:
         save_candidate(conn, candidate)
 
-    print_preview(candidate)
+    if conflict_note == "Var (iptal edilecek)":
+        with get_connection() as conn:
+            update_candidate_status(conn, candidate.candidate_id, CandidateStatus.REJECTED)
+            record_audit(conn, "reject", candidate.candidate_id, "Çözülmeyen çakışma nedeniyle iptal.")
+        print("İptal edildi, takvime yazılmadı.")
+        return
+
+    print_preview(candidate, conflict_note)
     approval = input("Onaylıyor musunuz? [e/h] ").strip().lower()
 
     with get_connection() as conn:
@@ -279,7 +329,6 @@ def main() -> None:
             start_dt = datetime.fromisoformat(start_dt)
         end_dt = start_dt + timedelta(minutes=candidate.duration_minutes or DEFAULT_MEETING_DURATION_MINUTES)
 
-        calendar = GoogleCalendarConnector(account_id=account_id)
         event_id = calendar.create_event(
             {
                 "summary": candidate.title,
