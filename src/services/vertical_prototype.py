@@ -2,9 +2,11 @@
 
 Elle girilen bir mesaj metnini candidate_event'e çevirir, SQLite'a yazar,
 bir önizleme gösterir ve yalnızca kullanıcı onayı sonrası Google Calendar'a
-yazar. RAG/Policy Store ve tam Conversation Layer bu prototipte YOK —
-bunlar Hafta 2-3 kapsamı; burada tek bir kural (toplantı için varsayılan
-60dk süre) doğrudan koda gömülü, RAG'dan retrieve edilmiyor.
+yazar. Basit bir niyet tespiti (src/services/intent.py) mesajı create_event/
+query_calendar/update_event/other olarak yönlendirir. RAG/Policy Store ve
+tam Conversation Layer (çok turlu diyalog durumu) bu prototipte hâlâ YOK —
+bunlar Hafta 2-3'ün geri kalanı; burada tek bir kural (toplantı için
+varsayılan 60dk süre) doğrudan koda gömülü, RAG'dan retrieve edilmiyor.
 """
 
 from __future__ import annotations
@@ -14,11 +16,12 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from src.connectors.google_calendar import GoogleCalendarConnector
-from src.core.models import CandidateEvent, CandidateStatus, EventType, SourceType
+from src.core.models import CandidateEvent, CandidateStatus, EventType, IntentType, SourceType
 from src.providers.foundry_local import FoundryLocalProvider
+from src.services.intent import classify_intent
+from src.services.timeutil import DEFAULT_TIMEZONE, ensure_timezone, format_date_tr
 from src.storage.db import get_connection, init_db
 
-DEFAULT_TIMEZONE = "Europe/Istanbul"  # MVP basitleştirmesi; bkz. localization_preferences tablosu
 DEFAULT_MEETING_DURATION_MINUTES = 60  # sabit kural örneği; Hafta 2'de RAG/Policy Store'dan gelecek
 
 
@@ -60,7 +63,7 @@ def extract_candidate_event(llm: FoundryLocalProvider, user_text: str) -> Candid
         if not fields.get(name) and name not in ambiguous_fields
     ]
 
-    return CandidateEvent(
+    candidate = CandidateEvent(
         candidate_id=str(uuid.uuid4()),
         source_type=SourceType.CONVERSATION,
         source_references=[],
@@ -79,6 +82,8 @@ def extract_candidate_event(llm: FoundryLocalProvider, user_text: str) -> Candid
         ),
         extraction_reason="Kullanıcı mesajından doğrudan çıkarıldı (konuşma akışı).",
     )
+    candidate.start_datetime = ensure_timezone(candidate.start_datetime)
+    return candidate
 
 
 def fill_missing_fields_interactively(candidate: CandidateEvent) -> None:
@@ -97,6 +102,7 @@ def fill_missing_fields_interactively(candidate: CandidateEvent) -> None:
     if "start_datetime" in candidate.missing_fields:
         raw = input("Tarih/saat (YYYY-MM-DDTHH:MM:SS)? ").strip()
         candidate.start_datetime = raw or None
+        candidate.start_datetime = ensure_timezone(candidate.start_datetime)
 
     if "start_datetime" in candidate.ambiguous_fields:
         raw = input("Saat belirsiz görünüyor — tam olarak kaçta? (örn: 13:00) ").strip()
@@ -106,6 +112,7 @@ def fill_missing_fields_interactively(candidate: CandidateEvent) -> None:
             else:
                 date_part = (candidate.start_datetime or datetime.now().date().isoformat())[:10]
             candidate.start_datetime = f"{date_part}T{raw}:00" if len(raw) == 5 else raw
+            candidate.start_datetime = ensure_timezone(candidate.start_datetime)
 
     candidate.missing_fields = [
         name
@@ -209,11 +216,46 @@ def print_preview(candidate: CandidateEvent) -> None:
     print("----------------\n")
 
 
+def handle_query_calendar(account_id: str, range_start: datetime | None, range_end: datetime | None) -> None:
+    if range_start is None or range_end is None:
+        print("Hangi tarih aralığını merak ediyorsunuz, tam olarak söyler misiniz?")
+        return
+
+    calendar = GoogleCalendarConnector(account_id=account_id)
+    events = calendar.list_events(range_start, range_end)
+
+    if not events:
+        print(
+            f"{format_date_tr(range_start)}, {range_start:%H:%M} - "
+            f"{format_date_tr(range_end)}, {range_end:%H:%M} arasında hiç etkinliğiniz yok."
+        )
+        return
+
+    print(f"\n{format_date_tr(range_start)} tarihinde {len(events)} etkinliğiniz var:")
+    for e in events:
+        start = e.get("start", {}).get("dateTime") or e.get("start", {}).get("date")
+        print(f"  - {e.get('summary', '(başlıksız)')} | {start}")
+    print()
+
+
 def main() -> None:
     init_db()
     llm = FoundryLocalProvider(model_alias="qwen3-4b")
+    account_id = "astokrappersteam"
 
     user_text = input("Ne planlamak istiyorsunuz? ").strip()
+    intent = classify_intent(llm, user_text)
+
+    if intent.intent == IntentType.QUERY_CALENDAR:
+        handle_query_calendar(account_id, intent.query_range_start, intent.query_range_end)
+        return
+    if intent.intent == IntentType.UPDATE_EVENT:
+        print("Var olan etkinlikleri güncellemeyi henüz desteklemiyorum, bu yakında eklenecek.")
+        return
+    if intent.intent == IntentType.OTHER:
+        print("Bunu tam anlayamadım. Şu an yeni etkinlik eklemek ve takviminizi sormak için kullanılabilirim.")
+        return
+
     candidate = extract_candidate_event(llm, user_text)
 
     if candidate.missing_fields or candidate.ambiguous_fields:
@@ -237,7 +279,7 @@ def main() -> None:
             start_dt = datetime.fromisoformat(start_dt)
         end_dt = start_dt + timedelta(minutes=candidate.duration_minutes or DEFAULT_MEETING_DURATION_MINUTES)
 
-        calendar = GoogleCalendarConnector(account_id="astokrappersteam")
+        calendar = GoogleCalendarConnector(account_id=account_id)
         event_id = calendar.create_event(
             {
                 "summary": candidate.title,

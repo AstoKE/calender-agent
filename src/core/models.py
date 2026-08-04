@@ -83,6 +83,16 @@ class SourceType(str, Enum):
     EMAIL = "email"
 
 
+class IntentType(str, Enum):
+    """Conversation Layer'ın kullanıcı mesajına atadığı üst düzey niyet
+    (bkz. docs/architecture-plan.md §6/§20 Hafta2)."""
+
+    CREATE_EVENT = "create_event"
+    QUERY_CALENDAR = "query_calendar"
+    UPDATE_EVENT = "update_event"
+    OTHER = "other"
+
+
 class Attachment(BaseModel):
     filename: str
     content_type: Optional[str] = None
