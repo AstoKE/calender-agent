@@ -84,6 +84,11 @@ class FoundryLocalProvider(LLMProvider):
     ) -> str:
         if self._is_reasoning_model:
             system_prompt = f"{system_prompt}\n/no_think"
+        # Ölçüm: json_output=True (extraction görevleri) sıcaklık varsayılanıyla
+        # çalıştırıldığında aynı girdi için tutarsız sonuçlar (örn. belirsizlik
+        # tespiti bir seferinde çalışıp bir seferinde çalışmıyor) üretiyor. Düşük
+        # sıcaklık örnekleme rastgeleliğini azaltıp tutarlılığı artırır.
+        self._chat_client.settings.temperature = 0.1 if json_output else None
         self._chat_client.settings.response_format = (
             {"type": "json_object"} if json_output else None
         )

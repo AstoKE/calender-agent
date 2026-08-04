@@ -28,13 +28,24 @@ def _extraction_system_prompt() -> str:
         "Sen bir takvim asistanısın. Kullanıcının mesajından bir etkinlik bilgisi çıkar.\n"
         f"Bugünün tarihi ve saati: {today.isoformat()} (zaman dilimi: {DEFAULT_TIMEZONE}).\n"
         "Göreceli ifadeleri (yarın, önümüzdeki cuma, vb.) bu tarihe göre çöz.\n"
+        "KRİTİK KURALLAR:\n"
+        "1. Mesajda AÇIKÇA belirtilmeyen hiçbir bilgiyi UYDURMA. Konum, kişi gibi "
+        "alanlar mesajda geçmiyorsa null bırak — tahmin etme.\n"
+        "2. Saat belirsizse (örn: 'saat 1', 'saat 3' — sabah mı öğleden sonra mı "
+        "belirtilmemiş ve bağlamdan da açıkça çıkarılamıyor): tarihi yine de doğru "
+        "hesapla ve start_datetime'a yaz (saat kısmı için en olası tahmini kullan, "
+        "tarihi KAYBETME), AYRICA ambiguous_fields listesine \"start_datetime\" ekle "
+        "— kullanıcıya saati tekrar soracağız. Sadece net bağlamdan (örn. 'akşam "
+        "saat 8', 'sabah 9') çıkarım yaparsan ambiguous_fields'a ekleme.\n"
+        "3. Emin olmadığın her alan için tahmin yerine null + ambiguous_fields tercih et.\n"
         "SADECE geçerli JSON döndür, başka hiçbir açıklama ekleme. Alanlar:\n"
         '{"event_type": "meeting|appointment|exam|deadline|travel|reservation|'
         'personal_commitment|other", '
         '"title": string veya null, '
         '"start_datetime": "YYYY-MM-DDTHH:MM:SS" veya null, '
         '"duration_minutes": integer veya null, '
-        '"location": string veya null}'
+        '"location": string veya null, '
+        '"ambiguous_fields": [string]}'
     )
 
 
@@ -42,8 +53,11 @@ def extract_candidate_event(llm: FoundryLocalProvider, user_text: str) -> Candid
     raw = llm.generate(_extraction_system_prompt(), user_text, json_output=True)
     fields = json.loads(raw)
 
+    ambiguous_fields = fields.get("ambiguous_fields") or []
     missing_fields = [
-        name for name in ("title", "start_datetime", "duration_minutes") if not fields.get(name)
+        name
+        for name in ("title", "start_datetime", "duration_minutes")
+        if not fields.get(name) and name not in ambiguous_fields
     ]
 
     return CandidateEvent(
@@ -57,7 +71,12 @@ def extract_candidate_event(llm: FoundryLocalProvider, user_text: str) -> Candid
         duration_minutes=fields.get("duration_minutes"),
         location=fields.get("location"),
         missing_fields=missing_fields,
-        status=CandidateStatus.NEEDS_INFORMATION if missing_fields else CandidateStatus.READY_FOR_CONFIRMATION,
+        ambiguous_fields=ambiguous_fields,
+        status=(
+            CandidateStatus.NEEDS_INFORMATION
+            if (missing_fields or ambiguous_fields)
+            else CandidateStatus.READY_FOR_CONFIRMATION
+        ),
         extraction_reason="Kullanıcı mesajından doğrudan çıkarıldı (konuşma akışı).",
     )
 
@@ -79,13 +98,27 @@ def fill_missing_fields_interactively(candidate: CandidateEvent) -> None:
         raw = input("Tarih/saat (YYYY-MM-DDTHH:MM:SS)? ").strip()
         candidate.start_datetime = raw or None
 
+    if "start_datetime" in candidate.ambiguous_fields:
+        raw = input("Saat belirsiz görünüyor — tam olarak kaçta? (örn: 13:00) ").strip()
+        if raw:
+            if isinstance(candidate.start_datetime, datetime):
+                date_part = candidate.start_datetime.date().isoformat()
+            else:
+                date_part = (candidate.start_datetime or datetime.now().date().isoformat())[:10]
+            candidate.start_datetime = f"{date_part}T{raw}:00" if len(raw) == 5 else raw
+
     candidate.missing_fields = [
         name
         for name in ("title", "start_datetime", "duration_minutes")
         if not getattr(candidate, name)
     ]
+    candidate.ambiguous_fields = [
+        name for name in candidate.ambiguous_fields if not getattr(candidate, name, None)
+    ]
     candidate.status = (
-        CandidateStatus.NEEDS_INFORMATION if candidate.missing_fields else CandidateStatus.READY_FOR_CONFIRMATION
+        CandidateStatus.NEEDS_INFORMATION
+        if (candidate.missing_fields or candidate.ambiguous_fields)
+        else CandidateStatus.READY_FOR_CONFIRMATION
     )
 
 
@@ -183,7 +216,7 @@ def main() -> None:
     user_text = input("Ne planlamak istiyorsunuz? ").strip()
     candidate = extract_candidate_event(llm, user_text)
 
-    if candidate.missing_fields:
+    if candidate.missing_fields or candidate.ambiguous_fields:
         fill_missing_fields_interactively(candidate)
 
     with get_connection() as conn:

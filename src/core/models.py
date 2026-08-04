@@ -122,7 +122,11 @@ class UnifiedEmail(BaseModel):
 
 
 class CandidateEvent(BaseModel):
-    model_config = ConfigDict(use_enum_values=True)
+    # validate_assignment: eksik/belirsiz alanlar doldurulurken (bkz.
+    # src/services/vertical_prototype.py fill_missing_fields_interactively)
+    # candidate.start_datetime gibi alanlara doğrudan atama yapılıyor; bu
+    # olmadan atanan ham string bir daha datetime'a çevrilmeden kalıyordu.
+    model_config = ConfigDict(use_enum_values=True, validate_assignment=True)
 
     candidate_id: str
     source_type: SourceType
