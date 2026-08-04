@@ -43,10 +43,44 @@ def _save_sync_cursor(account_id: str, cursor: str) -> None:
         )
 
 
+def _upsert_email_thread(account_id: str, email: UnifiedEmail) -> None:
+    """email_messages.thread_id, email_threads(thread_id)'e foreign key ile
+    bağlı — mesajı kaydetmeden önce thread kaydının var olması gerekir
+    (canlı testte FOREIGN KEY constraint failed hatasıyla ortaya çıktı)."""
+    with get_connection() as conn:
+        existing = conn.execute(
+            "SELECT languages_seen FROM email_threads WHERE thread_id = ?",
+            (email.thread_id,),
+        ).fetchone()
+        if existing:
+            languages = set(json.loads(existing["languages_seen"] or "[]"))
+            if email.detected_language:
+                languages.add(email.detected_language)
+            conn.execute(
+                "UPDATE email_threads SET languages_seen = ?, last_message_at = ? WHERE thread_id = ?",
+                (json.dumps(sorted(languages)), email.received_at.isoformat(), email.thread_id),
+            )
+        else:
+            conn.execute(
+                """
+                INSERT INTO email_threads (thread_id, account_id, participants, languages_seen, last_message_at)
+                VALUES (?,?,?,?,?)
+                """,
+                (
+                    email.thread_id,
+                    account_id,
+                    json.dumps([email.sender, *email.recipients]),
+                    json.dumps([email.detected_language] if email.detected_language else []),
+                    email.received_at.isoformat(),
+                ),
+            )
+
+
 def _upsert_email_message(account_id: str, email: UnifiedEmail) -> tuple[str, bool]:
     """Döner: (email_messages.id, already_processed). Aynı (account_id,
     message_id) daha önce kaydedilmişse INSERT sessizce yok sayılır, mevcut
     satırın id'si ve processed durumu döner."""
+    _upsert_email_thread(account_id, email)
     excerpt = (email.body_text or "")[:BODY_EXCERPT_MAX_CHARS]
     candidate_row_id = str(uuid.uuid4())
     with get_connection() as conn:
