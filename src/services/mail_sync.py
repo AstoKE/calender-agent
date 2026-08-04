@@ -117,20 +117,53 @@ def mark_email_processed(email_row_id: str) -> None:
         conn.execute("UPDATE email_messages SET processed = 1 WHERE id = ?", (email_row_id,))
 
 
-def sync_new_emails(account_id: str) -> list[tuple[str, UnifiedEmail]]:
-    """Yeni mailleri çeker ve email_messages'a kaydeder.
+def _row_to_unified_email(row) -> UnifiedEmail:
+    """Daha önce senkronize edilmiş bir email_messages satırından UnifiedEmail
+    yeniden kurar. body_text burada body_excerpt'ten gelir — zaten LLM
+    çağrılarına gönderilirken de kısaltılıyor, bu yüzden yeterli."""
+    return UnifiedEmail(
+        provider=row["provider"],
+        account_id=row["account_id"],
+        message_id=row["message_id"],
+        thread_id=row["thread_id"] or "",
+        subject=row["subject"] or "",
+        sender=row["sender"] or "",
+        recipients=json.loads(row["recipients"] or "[]"),
+        received_at=row["received_at"],
+        detected_language=row["detected_language"],
+        body_text=row["body_excerpt"],
+    )
 
-    Dönüş: daha önce işlenmemiş [(email_messages.id, UnifiedEmail), ...] —
-    ilk senkronizasyonda son ~25 mesaj, sonrakilerde yalnızca historyId
-    cursor'ından beri gelenler (bkz. GmailConnector.list_new_messages)."""
+
+def get_unprocessed_emails(account_id: str) -> list[tuple[str, UnifiedEmail]]:
+    """Daha önce senkronize edilip henüz analiz edilmemiş (processed=0)
+    mailleri döner. Bu, önceki bir çalıştırma tarama bitmeden kesilirse
+    (örn. kullanıcı programı kapatırsa) o maillerin bir daha asla
+    görünmemesini önler — Gmail'in incremental sync'i (historyId cursor)
+    onları ikinci kez "yeni" olarak döndürmez, bu yüzden yalnızca API'den
+    gelen mesajlara güvenmek yetmiyordu (canlı testte fark edildi)."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM email_messages WHERE account_id = ? AND processed = 0",
+            (account_id,),
+        ).fetchall()
+    return [(row["id"], _row_to_unified_email(row)) for row in rows]
+
+
+def sync_new_emails(account_id: str) -> list[tuple[str, UnifiedEmail]]:
+    """Yeni mailleri çeker, email_messages'a kaydeder, ve hâlâ analiz
+    edilmemiş TÜM mailleri döner (bu çalıştırmada yeni gelenler + önceki bir
+    çalıştırmadan kalan işlenmemişler — bkz. get_unprocessed_emails).
+
+    İlk senkronizasyonda Gmail'den son ~25 mesaj çekilir, sonrakilerde
+    yalnızca historyId cursor'ından beri gelenler (bkz.
+    GmailConnector.list_new_messages)."""
     gmail = GmailConnector(account_id=account_id)
     cursor = _get_sync_cursor(account_id)
     messages, new_cursor = gmail.list_new_messages(cursor)
     _save_sync_cursor(account_id, new_cursor)
 
-    unprocessed: list[tuple[str, UnifiedEmail]] = []
     for email in messages:
-        row_id, already_processed = _upsert_email_message(account_id, email)
-        if not already_processed:
-            unprocessed.append((row_id, email))
-    return unprocessed
+        _upsert_email_message(account_id, email)
+
+    return get_unprocessed_emails(account_id)
