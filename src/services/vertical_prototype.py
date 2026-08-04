@@ -20,7 +20,13 @@ from src.core.models import CandidateEvent, CandidateStatus, EventType, IntentTy
 from src.providers.foundry_local import FoundryLocalProvider
 from src.services.availability import find_conflicts, suggest_alternative_slots
 from src.services.intent import classify_intent
-from src.services.timeutil import DEFAULT_TIMEZONE, ensure_timezone, format_date_tr
+from src.services.timeutil import (
+    DEFAULT_TIMEZONE,
+    ensure_timezone,
+    format_date_tr,
+    parse_clock_time,
+    parse_duration_minutes,
+)
 from src.storage.db import get_connection, init_db
 
 DEFAULT_MEETING_DURATION_MINUTES = 60  # sabit kural örneği; Hafta 2'de RAG/Policy Store'dan gelecek
@@ -87,6 +93,9 @@ def extract_candidate_event(llm: FoundryLocalProvider, user_text: str) -> Candid
     return candidate
 
 
+MAX_CLARIFICATION_ATTEMPTS = 3
+
+
 def fill_missing_fields_interactively(candidate: CandidateEvent) -> None:
     """Minimal, tek adımlı soru döngüsü. Tam Conversation Layer Hafta 2 kapsamı."""
     if "title" in candidate.missing_fields:
@@ -97,23 +106,39 @@ def fill_missing_fields_interactively(candidate: CandidateEvent) -> None:
             candidate.duration_minutes = DEFAULT_MEETING_DURATION_MINUTES
             print(f"(Kural: toplantılar için varsayılan süre {DEFAULT_MEETING_DURATION_MINUTES} dakika uygulandı.)")
         else:
-            raw = input("Süre kaç dakika? ").strip()
-            candidate.duration_minutes = int(raw) if raw else None
+            for _ in range(MAX_CLARIFICATION_ATTEMPTS):
+                raw = input("Süre ne kadar? (örn: 30, 1 saat) ").strip()
+                minutes = parse_duration_minutes(raw)
+                if minutes:
+                    candidate.duration_minutes = minutes
+                    break
+                print("Anlayamadım, bir sayı içeren şekilde tekrar dener misiniz? (örn: 45 veya '1 saat')")
 
     if "start_datetime" in candidate.missing_fields:
-        raw = input("Tarih/saat (YYYY-MM-DDTHH:MM:SS)? ").strip()
-        candidate.start_datetime = raw or None
-        candidate.start_datetime = ensure_timezone(candidate.start_datetime)
+        for _ in range(MAX_CLARIFICATION_ATTEMPTS):
+            raw = input("Tarih/saat (YYYY-MM-DDTHH:MM:SS)? ").strip()
+            try:
+                candidate.start_datetime = ensure_timezone(raw or None)
+                break
+            except Exception:
+                print("Bu formatı anlayamadım, YYYY-MM-DDTHH:MM:SS biçiminde tekrar dener misiniz?")
 
     if "start_datetime" in candidate.ambiguous_fields:
-        raw = input("Saat belirsiz görünüyor — tam olarak kaçta? (örn: 13:00) ").strip()
-        if raw:
+        for _ in range(MAX_CLARIFICATION_ATTEMPTS):
+            raw = input("Saat belirsiz görünüyor — tam olarak kaçta? (örn: 13:00) ").strip()
+            clock = parse_clock_time(raw) if raw else None
+            if not clock:
+                print("Saati anlayamadım, tekrar dener misiniz? (örn: 13:00, 13.30, 'saat 9')")
+                continue
             if isinstance(candidate.start_datetime, datetime):
                 date_part = candidate.start_datetime.date().isoformat()
             else:
                 date_part = (candidate.start_datetime or datetime.now().date().isoformat())[:10]
-            candidate.start_datetime = f"{date_part}T{raw}:00" if len(raw) == 5 else raw
-            candidate.start_datetime = ensure_timezone(candidate.start_datetime)
+            try:
+                candidate.start_datetime = ensure_timezone(f"{date_part}T{clock}:00")
+                break
+            except Exception:
+                print("Bir sorun oldu, tekrar dener misiniz?")
 
     candidate.missing_fields = [
         name
@@ -298,6 +323,10 @@ def main() -> None:
 
     if candidate.missing_fields or candidate.ambiguous_fields:
         fill_missing_fields_interactively(candidate)
+
+    if candidate.missing_fields or candidate.ambiguous_fields:
+        print("Gerekli bilgileri tamamlayamadım, baştan denemek ister misiniz?")
+        return
 
     calendar = GoogleCalendarConnector(account_id=account_id)
     conflict_note = "Yok"
