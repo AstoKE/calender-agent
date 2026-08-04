@@ -31,8 +31,18 @@ def main() -> None:
     print(f"{len(new_emails)} yeni mail bulundu.\n")
 
     candidates_found = 0
+    skipped_errors = 0
     for email_row_id, email in new_emails:
-        worthy, reason = is_calendar_worthy(llm, email)
+        try:
+            worthy, reason = is_calendar_worthy(llm, email)
+        except Exception as e:
+            # Model bazen boş/geçersiz JSON döndürüyor (canlı testte görüldü).
+            # Tek bir sorunlu mail tüm taramayı çökertmemeli — bu maili
+            # işlenmemiş bırakıp (sonraki taramada tekrar denenir) devam et.
+            print(f"[atlandı] {email.subject[:60]!r} sınıflandırılamadı: {e}")
+            skipped_errors += 1
+            continue
+
         if not worthy:
             mark_email_processed(email_row_id)
             continue
@@ -43,12 +53,21 @@ def main() -> None:
         print(f"Gönderen:        {email.sender}")
         print(f"Neden önerildi:  {reason}\n")
 
-        candidate = extract_candidate_from_email(llm, email)
+        try:
+            candidate = extract_candidate_from_email(llm, email)
+        except Exception as e:
+            print(f"[atlandı] \"{email.subject[:60]}\" çıkarımı başarısız oldu: {e}\n")
+            skipped_errors += 1
+            continue
+
         review_and_confirm_candidate(
             candidate, calendar, embedding_provider, source_email_row_id=email_row_id
         )
         mark_email_processed(email_row_id)
         print()
+
+    if skipped_errors:
+        print(f"({skipped_errors} mail işlenemedi, sonraki taramada tekrar denenecek.)\n")
 
     if candidates_found == 0:
         print("Takvime eklenmeye değer bir şey bulamadım.")
