@@ -31,11 +31,18 @@ from foundry_local_sdk.imodel import IModel
 from src.providers.base import EmbeddingProvider, LLMProvider
 
 _THINK_BLOCK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
+_UNCLOSED_THINK_RE = re.compile(r"^\s*<think>\s*")
 
 
 def _strip_think_block(text: str) -> str:
-    """Reasoning modellerinin (bkz. §20) sızdırdığı <think> bloklarını temizler."""
-    return _THINK_BLOCK_RE.sub("", text).strip()
+    """Reasoning modellerinin (bkz. §20) sızdırdığı <think> bloklarını temizler.
+
+    Ölçümde bazen kapanış etiketi olmadan (yalnızca baştaki "<think>") üretildiği
+    görüldü — bu da JSON ayrıştırmasını bozuyordu. İkinci regex bu durumu da
+    (metnin başındaki kapanmamış <think> etiketini) ayrıca temizler."""
+    text = _THINK_BLOCK_RE.sub("", text)
+    text = _UNCLOSED_THINK_RE.sub("", text)
+    return text.strip()
 
 
 _UNTRUSTED_CONTEXT_PREAMBLE = (

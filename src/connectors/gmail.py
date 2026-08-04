@@ -131,4 +131,5 @@ class GmailConnector(EmailConnector):
             received_at=received_at,
             body_text=_extract_body_text(payload),
             source_url_or_reference=f"https://mail.google.com/mail/u/0/#inbox/{msg['id']}",
+            labels=msg.get("labelIds", []),
         )

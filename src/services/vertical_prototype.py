@@ -24,6 +24,7 @@ from src.providers.base import EmbeddingProvider, LLMProvider
 from src.providers.foundry_local import FoundryLocalEmbeddingProvider, FoundryLocalProvider
 from src.rag.policy_retrieval import embed_and_store_policy, retrieve_policies_for_event
 from src.services.availability import find_conflicts, suggest_alternative_slots
+from src.services.extraction import build_candidate_from_fields
 from src.services.intent import classify_intent
 from src.services.timeutil import (
     DEFAULT_TIMEZONE,
@@ -67,35 +68,13 @@ def _extraction_system_prompt() -> str:
 def extract_candidate_event(llm: FoundryLocalProvider, user_text: str) -> CandidateEvent:
     raw = llm.generate(_extraction_system_prompt(), user_text, json_output=True)
     fields = json.loads(raw)
-
-    ambiguous_fields = fields.get("ambiguous_fields") or []
-    missing_fields = [
-        name
-        for name in ("title", "start_datetime", "duration_minutes")
-        if not fields.get(name) and name not in ambiguous_fields
-    ]
-
-    candidate = CandidateEvent(
-        candidate_id=str(uuid.uuid4()),
+    return build_candidate_from_fields(
+        fields,
         source_type=SourceType.CONVERSATION,
         source_references=[],
         source_languages=[],
-        event_type=EventType(fields.get("event_type") or "other"),
-        title=fields.get("title"),
-        start_datetime=fields.get("start_datetime"),
-        duration_minutes=fields.get("duration_minutes"),
-        location=fields.get("location"),
-        missing_fields=missing_fields,
-        ambiguous_fields=ambiguous_fields,
-        status=(
-            CandidateStatus.NEEDS_INFORMATION
-            if (missing_fields or ambiguous_fields)
-            else CandidateStatus.READY_FOR_CONFIRMATION
-        ),
         extraction_reason="Kullanıcı mesajından doğrudan çıkarıldı (konuşma akışı).",
     )
-    candidate.start_datetime = ensure_timezone(candidate.start_datetime)
-    return candidate
 
 
 MAX_CLARIFICATION_ATTEMPTS = 3
@@ -399,45 +378,41 @@ def handle_query_calendar(account_id: str, range_start: datetime | None, range_e
     print()
 
 
-def main() -> None:
-    init_db()
-    llm = FoundryLocalProvider(model_alias="qwen3-4b")
-    embedding_provider = FoundryLocalEmbeddingProvider()
-    account_id = "astokrappersteam"
-
-    user_text = input("Ne planlamak istiyorsunuz? ").strip()
-    intent = classify_intent(llm, user_text)
-
-    if intent.intent == IntentType.QUERY_CALENDAR:
-        handle_query_calendar(account_id, intent.query_range_start, intent.query_range_end)
-        return
-    if intent.intent == IntentType.UPDATE_EVENT:
-        print("Var olan etkinlikleri güncellemeyi henüz desteklemiyorum, bu yakında eklenecek.")
-        return
-    if intent.intent == IntentType.DEFINE_POLICY:
-        handle_define_policy(llm, embedding_provider, user_text)
-        return
-    if intent.intent == IntentType.OTHER:
-        print("Bunu tam anlayamadım. Şu an yeni etkinlik eklemek ve takviminizi sormak için kullanılabilirim.")
-        return
-
-    candidate = extract_candidate_event(llm, user_text)
+def review_and_confirm_candidate(
+    candidate: CandidateEvent,
+    calendar: GoogleCalendarConnector,
+    embedding_provider: EmbeddingProvider,
+    source_email_row_id: str | None = None,
+) -> None:
+    """Politika uygulama + eksik/belirsiz alan tamamlama + çakışma kontrolü +
+    önizleme + onay + (onaylanırsa) takvime yazma. Konuşma akışı (main()) ve
+    mail taraması (scan_inbox.py) tarafından ortak kullanılır."""
     apply_retrieved_policies(candidate, embedding_provider)
 
     if candidate.missing_fields or candidate.ambiguous_fields:
         fill_missing_fields_interactively(candidate)
 
     if candidate.missing_fields or candidate.ambiguous_fields:
-        print("Gerekli bilgileri tamamlayamadım, baştan denemek ister misiniz?")
+        print("Gerekli bilgileri tamamlayamadım, atlıyorum.")
         return
 
-    calendar = GoogleCalendarConnector(account_id=account_id)
     conflict_note = "Yok"
     if candidate.start_datetime and candidate.duration_minutes:
         conflict_note = resolve_conflicts_interactively(calendar, candidate)
 
     with get_connection() as conn:
         save_candidate(conn, candidate)
+        if source_email_row_id:
+            conn.execute(
+                "INSERT INTO candidate_sources (candidate_id, email_message_id, relation_type, created_at) "
+                "VALUES (?,?,?,?)",
+                (
+                    candidate.candidate_id,
+                    source_email_row_id,
+                    "origin",
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
 
     if conflict_note == "Var (iptal edilecek)":
         with get_connection() as conn:
@@ -474,6 +449,33 @@ def main() -> None:
         record_audit(conn, "approve_and_write", candidate.candidate_id, f"Google Calendar event_id={event_id}")
 
     print(f"Takvime eklendi. event_id={event_id}")
+
+
+def main() -> None:
+    init_db()
+    llm = FoundryLocalProvider(model_alias="qwen3-4b")
+    embedding_provider = FoundryLocalEmbeddingProvider()
+    account_id = "astokrappersteam"
+
+    user_text = input("Ne planlamak istiyorsunuz? ").strip()
+    intent = classify_intent(llm, user_text)
+
+    if intent.intent == IntentType.QUERY_CALENDAR:
+        handle_query_calendar(account_id, intent.query_range_start, intent.query_range_end)
+        return
+    if intent.intent == IntentType.UPDATE_EVENT:
+        print("Var olan etkinlikleri güncellemeyi henüz desteklemiyorum, bu yakında eklenecek.")
+        return
+    if intent.intent == IntentType.DEFINE_POLICY:
+        handle_define_policy(llm, embedding_provider, user_text)
+        return
+    if intent.intent == IntentType.OTHER:
+        print("Bunu tam anlayamadım. Şu an yeni etkinlik eklemek ve takviminizi sormak için kullanılabilirim.")
+        return
+
+    candidate = extract_candidate_event(llm, user_text)
+    calendar = GoogleCalendarConnector(account_id=account_id)
+    review_and_confirm_candidate(candidate, calendar, embedding_provider)
 
 
 if __name__ == "__main__":

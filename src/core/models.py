@@ -130,6 +130,14 @@ class UnifiedEmail(BaseModel):
     body_text: Optional[str] = None
     attachments: list[Attachment] = Field(default_factory=list)
     source_url_or_reference: Optional[str] = None
+    labels: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Sağlayıcının kendi kategorileri (örn. Gmail'in CATEGORY_PROMOTIONS/"
+            "CATEGORY_SOCIAL etiketleri). Reklam/bülten filtrelemesinde deterministik "
+            "bir ön kontrol için kullanılır — bkz. src/services/mail_analysis.py."
+        ),
+    )
 
 
 class CandidateEvent(BaseModel):
