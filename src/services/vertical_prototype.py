@@ -23,6 +23,7 @@ from src.core.models import CandidateEvent, CandidateStatus, EventType, IntentTy
 from src.policies.store import add_policy
 from src.providers.base import EmbeddingProvider, LLMProvider
 from src.providers.foundry_local import FoundryLocalEmbeddingProvider, FoundryLocalProvider
+from src.providers.json_generation import JsonGenerationError, generate_json
 from src.rag.policy_retrieval import embed_and_store_policy, retrieve_policies_for_event
 from src.services.availability import find_conflicts, suggest_alternative_slots
 from src.services.extraction import build_candidate_from_fields
@@ -67,8 +68,7 @@ def _extraction_system_prompt() -> str:
 
 
 def extract_candidate_event(llm: FoundryLocalProvider, user_text: str) -> CandidateEvent:
-    raw = llm.generate(_extraction_system_prompt(), user_text, json_output=True)
-    fields = json.loads(raw)
+    fields = generate_json(llm, _extraction_system_prompt(), user_text)
     return build_candidate_from_fields(
         fields,
         source_type=SourceType.CONVERSATION,
@@ -111,7 +111,10 @@ def apply_retrieved_policies(candidate: CandidateEvent, embedding_provider: Embe
         for policy in policies:
             importance = policy.structured_action.get("importance")
             if importance:
-                candidate.importance = importance
+                try:
+                    candidate.importance = importance
+                except Exception:
+                    continue  # eski/bozuk bir politika kaydı olabilir, sonraki adaya geç
                 candidate.retrieved_policy_ids.append(policy.policy_id)
                 print(f"(Kural uygulandı: \"{policy.natural_language_rule}\")")
                 break
@@ -331,9 +334,19 @@ def _policy_extraction_system_prompt() -> str:
     )
 
 
+VALID_IMPORTANCE_VALUES = {"low", "normal", "high"}
+
+
 def handle_define_policy(llm: LLMProvider, embedding_provider: EmbeddingProvider, user_text: str) -> None:
-    raw = llm.generate(_policy_extraction_system_prompt(), user_text, json_output=True)
-    fields = json.loads(raw)
+    fields = generate_json(llm, _policy_extraction_system_prompt(), user_text)
+
+    # importance için model bazen "low|normal|high" seçenek listesini olduğu
+    # gibi döndürüyor (event_type'ta görülen aynı hata sınıfı, bkz.
+    # src/services/extraction.py _coerce_event_type) — geçersiz değeri burada,
+    # politika kaydedilmeden önce ele alıyoruz ki daha sonra (politika
+    # uygulanırken) candidate.importance atamasında çökmesin.
+    if fields.get("importance") not in VALID_IMPORTANCE_VALUES:
+        fields["importance"] = None
 
     structured_action = {
         k: fields[k]
@@ -469,13 +482,20 @@ def main() -> None:
         print("Var olan etkinlikleri güncellemeyi henüz desteklemiyorum, bu yakında eklenecek.")
         return
     if intent.intent == IntentType.DEFINE_POLICY:
-        handle_define_policy(llm, embedding_provider, user_text)
+        try:
+            handle_define_policy(llm, embedding_provider, user_text)
+        except JsonGenerationError:
+            print("Bu kuralı işleyemedim, biraz daha net ifade edip tekrar dener misiniz?")
         return
     if intent.intent == IntentType.OTHER:
         print("Bunu tam anlayamadım. Şu an yeni etkinlik eklemek ve takviminizi sormak için kullanılabilirim.")
         return
 
-    candidate = extract_candidate_event(llm, user_text)
+    try:
+        candidate = extract_candidate_event(llm, user_text)
+    except JsonGenerationError:
+        print("Bu mesajı işleyemedim, tekrar ifade eder misiniz?")
+        return
     calendar = GoogleCalendarConnector(account_id=account_id)
     review_and_confirm_candidate(candidate, calendar, embedding_provider)
 

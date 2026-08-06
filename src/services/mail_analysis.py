@@ -8,11 +8,11 @@ alınacak, bkz. proje task listesi).
 
 from __future__ import annotations
 
-import json
 from datetime import datetime
 
 from src.core.models import CandidateEvent, SourceType, UnifiedEmail
 from src.providers.base import LLMProvider
+from src.providers.json_generation import generate_json
 from src.services.extraction import build_candidate_from_fields
 from src.services.timeutil import DEFAULT_TIMEZONE
 
@@ -60,8 +60,7 @@ def is_calendar_worthy(llm: LLMProvider, email: UnifiedEmail) -> tuple[bool, str
         f"Konu: {email.subject}\nGönderen: {email.sender}\n"
         f"İçerik:\n{(email.body_text or '')[:BODY_PREVIEW_MAX_CHARS]}"
     )
-    raw = llm.generate(_classification_system_prompt(), user_prompt, json_output=True)
-    data = json.loads(raw)
+    data = generate_json(llm, _classification_system_prompt(), user_prompt)
     return bool(data.get("is_calendar_worthy")), data.get("reason", "")
 
 
@@ -95,8 +94,7 @@ def extract_candidate_from_email(llm: LLMProvider, email: UnifiedEmail) -> Candi
         f"Konu: {email.subject}\nGönderen: {email.sender}\n"
         f"İçerik:\n{(email.body_text or '')[:BODY_PREVIEW_MAX_CHARS]}"
     )
-    raw = llm.generate(_event_extraction_system_prompt(), user_prompt, json_output=True)
-    fields = json.loads(raw)
+    fields = generate_json(llm, _event_extraction_system_prompt(), user_prompt)
     return build_candidate_from_fields(
         fields,
         source_type=SourceType.EMAIL,

@@ -13,6 +13,16 @@ from src.core.models import CandidateEvent, CandidateStatus, EventType, SourceTy
 from src.services.timeutil import ensure_timezone
 
 
+def _coerce_event_type(raw_value) -> EventType:
+    """Model, alan adının kendisini seçmek yerine bazen tüm enum seçenek
+    listesini ("meeting|appointment|...") olduğu gibi döndürüyor (canlı
+    testte görüldü) — bu durumda ValueError yerine güvenli varsayılana düş."""
+    try:
+        return EventType(raw_value) if raw_value else EventType.OTHER
+    except ValueError:
+        return EventType.OTHER
+
+
 def build_candidate_from_fields(
     fields: dict,
     source_type: SourceType,
@@ -32,7 +42,7 @@ def build_candidate_from_fields(
         source_type=source_type,
         source_references=source_references,
         source_languages=source_languages,
-        event_type=EventType(fields.get("event_type") or "other"),
+        event_type=_coerce_event_type(fields.get("event_type")),
         title=fields.get("title"),
         start_datetime=fields.get("start_datetime"),
         duration_minutes=fields.get("duration_minutes"),

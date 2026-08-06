@@ -88,8 +88,8 @@ def _upsert_email_message(account_id: str, email: UnifiedEmail) -> tuple[str, bo
             """
             INSERT OR IGNORE INTO email_messages (
                 id, account_id, provider, message_id, thread_id, subject, sender,
-                recipients, received_at, detected_language, body_excerpt, processed
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,0)
+                recipients, received_at, detected_language, body_excerpt, labels, processed
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,0)
             """,
             (
                 candidate_row_id,
@@ -103,6 +103,7 @@ def _upsert_email_message(account_id: str, email: UnifiedEmail) -> tuple[str, bo
                 email.received_at.isoformat(),
                 email.detected_language,
                 excerpt,
+                json.dumps(email.labels),
             ),
         )
         row = conn.execute(
@@ -132,6 +133,7 @@ def _row_to_unified_email(row) -> UnifiedEmail:
         received_at=row["received_at"],
         detected_language=row["detected_language"],
         body_text=row["body_excerpt"],
+        labels=json.loads(row["labels"] or "[]") if "labels" in row.keys() else [],
     )
 
 

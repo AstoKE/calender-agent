@@ -8,13 +8,13 @@ modül o boşluğu kapatır.
 
 from __future__ import annotations
 
-import json
 from datetime import datetime, timedelta
 
 from pydantic import BaseModel
 
 from src.core.models import IntentType
 from src.providers.base import LLMProvider
+from src.providers.json_generation import generate_json
 from src.services.timeutil import DEFAULT_TIMEZONE, ensure_timezone
 
 
@@ -53,9 +53,8 @@ def _intent_system_prompt() -> str:
 
 
 def classify_intent(llm: LLMProvider, user_text: str) -> IntentClassification:
-    raw = llm.generate(_intent_system_prompt(), user_text, json_output=True)
-    data = json.loads(raw)
     try:
+        data = generate_json(llm, _intent_system_prompt(), user_text)
         result = IntentClassification.model_validate(data)
     except Exception:
         return IntentClassification(intent=IntentType.OTHER)

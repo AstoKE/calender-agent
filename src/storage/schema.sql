@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS email_messages (
     received_at         TEXT,
     detected_language   TEXT,
     body_excerpt        TEXT,                   -- tam gövde değil; minimum retention (bkz. §13)
+    labels              TEXT,                   -- JSON dizi (örn. Gmail CATEGORY_PROMOTIONS) — deterministik filtre için
     processed           INTEGER NOT NULL DEFAULT 0,
     retention_expires_at TEXT,
     UNIQUE (account_id, message_id)
