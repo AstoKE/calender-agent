@@ -19,6 +19,7 @@ from datetime import datetime, timedelta, timezone
 
 from src.connectors.account_registry import ACCOUNT_EMAIL, ACCOUNT_ID, ensure_account_registered
 from src.connectors.google_calendar import GoogleCalendarConnector
+from src.core.logging_config import configure_logging, get_logger
 from src.core.models import CandidateEvent, CandidateStatus, EventType, IntentType, SourceType
 from src.policies.store import add_policy
 from src.providers.base import EmbeddingProvider, LLMProvider
@@ -38,6 +39,8 @@ from src.services.timeutil import (
 from src.storage.db import get_connection, init_db
 
 DEFAULT_MEETING_DURATION_MINUTES = 60  # sistem varsayılanı (§9: en düşük öncelik, politika yoksa devreye girer)
+
+logger = get_logger("vertical_prototype")
 
 
 def _extraction_system_prompt() -> str:
@@ -88,7 +91,7 @@ def apply_retrieved_policies(candidate: CandidateEvent, embedding_provider: Embe
     bilgiyi asla ezmez."""
     policies = retrieve_policies_for_event(embedding_provider, candidate.event_type, top_k=5)
 
-    if candidate.duration_minutes is None:
+    if not candidate.duration_minutes:  # None veya 0 — bkz. fill_missing_fields_interactively'deki not
         for policy in policies:
             minutes = policy.structured_action.get("default_duration_minutes")
             if minutes:
@@ -129,7 +132,14 @@ def fill_missing_fields_interactively(candidate: CandidateEvent) -> None:
         candidate.title = input("Etkinliğin başlığı ne olsun? ").strip()
 
     if "duration_minutes" in candidate.missing_fields:
-        if candidate.duration_minutes is not None:
+        if candidate.duration_minutes:
+            # NOT: "is not None" DEĞİL — model bazen duration_minutes=0
+            # döndürüyor (canlı testte görüldü), 0 dakikalık bir etkinlik
+            # anlamsız; "not getattr(...)" ile tutarlı olması için burada da
+            # 0'ı "eksik" sayan aynı truthy kontrolü kullanılıyor. Aksi halde
+            # bu blok sessizce hiçbir şey yapmadan geçiyor, fonksiyon sonunda
+            # missing_fields yeniden hesaplanırken duration_minutes yine
+            # "eksik" damgası yiyor ve mail hiç sorulmadan atlanıyordu.
             pass  # RAG/Policy Store'dan geldi (apply_retrieved_policies main()'de çalıştı)
         elif candidate.event_type == EventType.MEETING.value or candidate.event_type == EventType.MEETING:
             candidate.duration_minutes = DEFAULT_MEETING_DURATION_MINUTES
@@ -156,9 +166,13 @@ def fill_missing_fields_interactively(candidate: CandidateEvent) -> None:
                 print("Bu formatı anlayamadım, YYYY-MM-DDTHH:MM:SS biçiminde tekrar dener misiniz?")
 
     if "start_datetime" in candidate.ambiguous_fields:
-        for _ in range(MAX_CLARIFICATION_ATTEMPTS):
+        for attempt in range(MAX_CLARIFICATION_ATTEMPTS):
             raw = input("Saat belirsiz görünüyor — tam olarak kaçta? (örn: 13:00) ").strip()
             clock = parse_clock_time(raw) if raw else None
+            logger.debug(
+                "ambiguous-time clarification attempt %d: raw=%r parsed_clock=%r current_start=%r",
+                attempt + 1, raw, clock, candidate.start_datetime,
+            )
             if not clock:
                 print("Saati anlayamadım, tekrar dener misiniz? (örn: 13:00, 13.30, 'saat 9')")
                 continue
@@ -166,10 +180,13 @@ def fill_missing_fields_interactively(candidate: CandidateEvent) -> None:
                 date_part = candidate.start_datetime.date().isoformat()
             else:
                 date_part = (candidate.start_datetime or datetime.now().date().isoformat())[:10]
+            candidate_value = f"{date_part}T{clock}:00"
             try:
-                candidate.start_datetime = ensure_timezone(f"{date_part}T{clock}:00")
+                candidate.start_datetime = ensure_timezone(candidate_value)
+                logger.debug("ambiguous-time resolved: %r -> %r", candidate_value, candidate.start_datetime)
                 break
-            except Exception:
+            except Exception as e:
+                logger.warning("ambiguous-time assignment failed for %r: %s", candidate_value, e)
                 print("Bir sorun oldu, tekrar dener misiniz?")
 
     candidate.missing_fields = [
@@ -180,6 +197,10 @@ def fill_missing_fields_interactively(candidate: CandidateEvent) -> None:
     candidate.ambiguous_fields = [
         name for name in candidate.ambiguous_fields if not getattr(candidate, name, None)
     ]
+    logger.debug(
+        "fill_missing_fields_interactively done: missing_fields=%s ambiguous_fields=%s start_datetime=%r duration_minutes=%r",
+        candidate.missing_fields, candidate.ambiguous_fields, candidate.start_datetime, candidate.duration_minutes,
+    )
     candidate.status = (
         CandidateStatus.NEEDS_INFORMATION
         if (candidate.missing_fields or candidate.ambiguous_fields)
@@ -466,6 +487,7 @@ def review_and_confirm_candidate(
 
 
 def main() -> None:
+    configure_logging()
     init_db()
     ensure_account_registered(ACCOUNT_ID, provider="google", email=ACCOUNT_EMAIL)
     llm = FoundryLocalProvider(model_alias="qwen3-4b")

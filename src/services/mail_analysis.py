@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from src.core.logging_config import get_logger
 from src.core.models import CandidateEvent, SourceType, UnifiedEmail
 from src.providers.base import LLMProvider
 from src.providers.json_generation import generate_json
@@ -17,6 +18,8 @@ from src.services.extraction import build_candidate_from_fields
 from src.services.timeutil import DEFAULT_TIMEZONE
 
 BODY_PREVIEW_MAX_CHARS = 1500
+
+logger = get_logger("mail_analysis")
 
 # Gmail bu kategorileri kendisi atıyor (bkz. Gmail'in Promotions/Social sekmeleri).
 # Ölçümde LLM sınıflandırması bu tür açık pazarlama maillerinde bile yanlış
@@ -54,6 +57,10 @@ def _classification_system_prompt() -> str:
 def is_calendar_worthy(llm: LLMProvider, email: UnifiedEmail) -> tuple[bool, str]:
     matched_categories = NON_CALENDAR_GMAIL_CATEGORIES & set(email.labels)
     if matched_categories:
+        logger.debug(
+            "is_calendar_worthy: deterministic filter matched for %r (labels=%s)",
+            email.subject, email.labels,
+        )
         return False, f"Gmail bunu {', '.join(sorted(matched_categories))} kategorisine ayırmış."
 
     user_prompt = (
@@ -61,7 +68,9 @@ def is_calendar_worthy(llm: LLMProvider, email: UnifiedEmail) -> tuple[bool, str
         f"İçerik:\n{(email.body_text or '')[:BODY_PREVIEW_MAX_CHARS]}"
     )
     data = generate_json(llm, _classification_system_prompt(), user_prompt)
-    return bool(data.get("is_calendar_worthy")), data.get("reason", "")
+    worthy, reason = bool(data.get("is_calendar_worthy")), data.get("reason", "")
+    logger.info("is_calendar_worthy: %r -> worthy=%s reason=%r labels=%s", email.subject, worthy, reason, email.labels)
+    return worthy, reason
 
 
 def _event_extraction_system_prompt() -> str:
@@ -95,10 +104,15 @@ def extract_candidate_from_email(llm: LLMProvider, email: UnifiedEmail) -> Candi
         f"İçerik:\n{(email.body_text or '')[:BODY_PREVIEW_MAX_CHARS]}"
     )
     fields = generate_json(llm, _event_extraction_system_prompt(), user_prompt)
-    return build_candidate_from_fields(
+    candidate = build_candidate_from_fields(
         fields,
         source_type=SourceType.EMAIL,
         source_references=[email.message_id],
         source_languages=[email.detected_language] if email.detected_language else [],
         extraction_reason=f'Mailden çıkarıldı: "{email.subject}" ({email.sender})',
     )
+    logger.debug(
+        "extract_candidate_from_email: %r -> event_type=%s missing=%s ambiguous=%s",
+        email.subject, candidate.event_type, candidate.missing_fields, candidate.ambiguous_fields,
+    )
+    return candidate

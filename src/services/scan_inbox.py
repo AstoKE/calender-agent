@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from src.connectors.account_registry import ACCOUNT_EMAIL, ACCOUNT_ID, ensure_account_registered
 from src.connectors.google_calendar import GoogleCalendarConnector
+from src.core.logging_config import configure_logging
 from src.providers.foundry_local import FoundryLocalEmbeddingProvider, FoundryLocalProvider
 from src.services.mail_analysis import extract_candidate_from_email, is_calendar_worthy
 from src.services.mail_sync import mark_email_processed, sync_new_emails
@@ -20,6 +21,7 @@ from src.storage.db import init_db
 
 
 def main() -> None:
+    configure_logging()
     init_db()
     ensure_account_registered(ACCOUNT_ID, provider="google", email=ACCOUNT_EMAIL)
     llm = FoundryLocalProvider(model_alias="qwen3-4b")

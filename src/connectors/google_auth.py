@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -49,9 +50,20 @@ def get_google_credentials(
         creds = Credentials.from_authorized_user_file(str(token_path), scopes)
 
     if not creds or not creds.valid:
+        refreshed = False
         if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
+            try:
+                creds.refresh(Request())
+                refreshed = True
+            except RefreshError:
+                # Refresh token geçersiz/iptal edilmiş — örn. Google Cloud
+                # konsolunda uygulama "Testing" modundayken verilen refresh
+                # token'lar 7 gün sonra otomatik geçersiz oluyor (canlı testte
+                # görüldü). Çökmek yerine tarayıcı üzerinden yeniden
+                # yetkilendirmeye düş.
+                print("Google oturumunuzun süresi dolmuş, tarayıcıda tekrar giriş isteniyor...")
+
+        if not refreshed:
             if not client_secret_path.exists():
                 raise FileNotFoundError(
                     f"OAuth client dosyası bulunamadı: {client_secret_path}. "
