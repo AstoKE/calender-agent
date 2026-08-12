@@ -9,15 +9,17 @@ pydantic>=2
 email-validator
 numpy
 
+# zoneinfo (stdlib) has no IANA tz database on Windows by default; harmless
+# no-op on Linux/macOS where the OS already provides one.
+tzdata; sys_platform == "win32"
+
 # Google (Gmail + Google Calendar)
 google-auth
 google-auth-oauthlib
 google-auth-httplib2
 google-api-python-client
 
-# Local LLM runtime
-# NOTE: paket adi PDF'teki "pip install foundry-local-sdk" talimatina dayanir,
-# Hafta 1'de resmi kurulumla dogrulanacak (bkz. docs/architecture-plan.md SS14).
+# Local LLM runtime (verified working: foundry-local-sdk 1.2.4, see CLAUDE.md)
 foundry-local-sdk
 
 # Config
@@ -27,3 +29,6 @@ python-dotenv
 pytest
 pytest-mock
 httpx
+
+# Dev tools (optional)
+pyflakes
