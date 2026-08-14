@@ -1,15 +1,20 @@
 """LLM'den JSON çıktısı isteyip parse eden ortak yardımcı.
 
 Canlı testte (mail taraması) modelin bazen boş/geçersiz JSON döndürdüğü
-görüldü. İki kök neden tespit edildi:
+görüldü. Üç kök neden tespit edildi:
 1. Çıktı markdown kod bloğuna sarılmış (```json ... ```) — json.loads ilk
    karakterin backtick olmasından dolayı başarısız oluyor. Bu, reproducible
    bir formatlama alışkanlığı (aynı mail için tekrar tekrar oluyordu).
-2. Bazen tamamen geçici/boş çıktı (bkz. "Operation was cancelled" hatasının
-   da geçici olduğu bulgusu) — bunun için retry yeterli.
+2. Bazen tamamen geçici/boş çıktı — bunun için retry yeterli.
+3. Bazen `llm.generate()`'in kendisi bir istisna fırlatıyor (örn. Foundry
+   Local native çağrısından "Operation was cancelled" — geçici bir SDK
+   hatası, canlı testte görüldü). İlk sürümde retry yalnızca JSON parse
+   hatalarını kapsıyordu, bu tür çağrı-seviyesi istisnalar hiç
+   denenmeden çağırana sızıyordu; artık bunlar da retry kapsamında.
 
-Bu yüzden burada hem kod bloğu temizleme hem retry tek bir yerde uygulanıp
-tüm çağıranlar (mail_analysis, intent, extraction, policies) paylaşır.
+Bu yüzden burada hem kod bloğu temizleme hem retry (hem parse hem çağrı
+hatalarında) tek bir yerde uygulanıp tüm çağıranlar (mail_analysis, intent,
+extraction, policies) paylaşır.
 """
 
 from __future__ import annotations
@@ -43,7 +48,12 @@ def generate_json(
     logger.debug("generate_json call | system=%r | user=%r", system_prompt[:300], user_prompt[:500])
     last_error: Exception | None = None
     for attempt in range(1, max_attempts + 1):
-        raw = llm.generate(system_prompt, user_prompt, context_chunks=context_chunks, json_output=True)
+        try:
+            raw = llm.generate(system_prompt, user_prompt, context_chunks=context_chunks, json_output=True)
+        except Exception as e:
+            logger.warning("attempt %d/%d generate() call failed: %s", attempt, max_attempts, e)
+            last_error = e
+            continue
         logger.debug("attempt %d/%d raw output: %r", attempt, max_attempts, raw[:1000])
         try:
             parsed = json.loads(_strip_code_fence(raw))
