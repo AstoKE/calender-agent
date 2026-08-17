@@ -10,7 +10,7 @@ analizi özeti"); şu an ayrı bir CLI komutu (`python -m src.services.scan_inbo
 
 from __future__ import annotations
 
-from src.connectors.account_registry import ACCOUNT_EMAIL, ACCOUNT_ID, ensure_account_registered
+from src.connectors.account_registry import select_account
 from src.connectors.google_calendar import GoogleCalendarConnector
 from src.core.logging_config import configure_logging
 from src.providers.foundry_local import FoundryLocalEmbeddingProvider, FoundryLocalProvider
@@ -23,13 +23,13 @@ from src.storage.db import init_db
 def main() -> None:
     configure_logging()
     init_db()
-    ensure_account_registered(ACCOUNT_ID, provider="google", email=ACCOUNT_EMAIL)
+    account_id, _account_email = select_account()
     llm = FoundryLocalProvider(model_alias="qwen3-4b")
     embedding_provider = FoundryLocalEmbeddingProvider()
-    calendar = GoogleCalendarConnector(account_id=ACCOUNT_ID)
+    calendar = GoogleCalendarConnector(account_id=account_id)
 
     print("Yeni mailler kontrol ediliyor...")
-    new_emails = sync_new_emails(ACCOUNT_ID)
+    new_emails = sync_new_emails(account_id)
     print(f"{len(new_emails)} yeni mail bulundu.\n")
 
     candidates_found = 0

@@ -44,12 +44,19 @@ def generate_json(
     user_prompt: str,
     context_chunks: list[str] | None = None,
     max_attempts: int = 2,
+    allow_thinking: bool = False,
 ) -> dict:
     logger.debug("generate_json call | system=%r | user=%r", system_prompt[:300], user_prompt[:500])
     last_error: Exception | None = None
     for attempt in range(1, max_attempts + 1):
         try:
-            raw = llm.generate(system_prompt, user_prompt, context_chunks=context_chunks, json_output=True)
+            raw = llm.generate(
+                system_prompt,
+                user_prompt,
+                context_chunks=context_chunks,
+                json_output=True,
+                allow_thinking=allow_thinking,
+            )
         except Exception as e:
             logger.warning("attempt %d/%d generate() call failed: %s", attempt, max_attempts, e)
             last_error = e

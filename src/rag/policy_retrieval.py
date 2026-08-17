@@ -50,13 +50,18 @@ def semantic_search_policies(
     query_vector = np.array(embedding_provider.embed([query_text])[0], dtype=np.float32)
 
     with get_connection() as conn:
+        # e.model_name filtresi kritik: farklı bir embedding modeli/varyantı
+        # (örn. CPU<->GPU execution provider değişimi, bkz. providers/foundry_local.py)
+        # farklı bir vektör uzayı üretir — eşleşmeyen model_name'li embedding'leri
+        # query_vector ile karşılaştırmak anlamsız/yanıltıcı bir benzerlik skoru verir.
         rows = conn.execute(
             """
             SELECT p.*, e.embedding
             FROM personal_policies p
             JOIN policy_embeddings e ON e.policy_id = p.policy_id
-            WHERE p.active = 1
-            """
+            WHERE p.active = 1 AND e.model_name = ?
+            """,
+            (embedding_provider.model_name,),
         ).fetchall()
 
     scored: list[tuple[PersonalPolicy, float]] = []

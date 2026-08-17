@@ -20,13 +20,19 @@ class LLMProvider(ABC):
         user_prompt: str,
         context_chunks: list[str] | None = None,
         json_output: bool = False,
+        allow_thinking: bool = False,
     ) -> str:
         """Sistem + kullanıcı promptu (ve varsa retrieve edilmiş bağlam) verilir,
         modelin ham metin yanıtı döner. ``json_output=True`` çağıran katmana
         modelin (destekliyorsa) JSON-uyumlu çıktı üretmesini ister — bu, extraction
         görevleri için hem gecikmeyi hem tutarlılığı önemli ölçüde iyileştirdiği
         ölçülen bir ayar (bkz. FoundryLocalProvider). Şema doğrulaması yine de
-        burada değil, çağıran katmanda yapılır (bkz. §11 Rule Engine)."""
+        burada değil, çağıran katmanda yapılır (bkz. §11 Rule Engine).
+        ``allow_thinking=True``, reasoning modellerinde varsayılan `/no_think`
+        bastırmasını kaldırır — canlı testte (GPU'da) bunun, hızdan ödün
+        verilebilecek ama doğruluğun kritik olduğu görevlerde (örn. mail
+        sınıflandırma) yanlış pozitifleri azalttığı ölçüldü; extraction gibi
+        gecikmeye duyarlı görevlerde varsayılan False kalmalı."""
 
     @abstractmethod
     def is_available(self) -> bool:

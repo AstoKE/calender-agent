@@ -23,6 +23,18 @@ def _coerce_event_type(raw_value) -> EventType:
         return EventType.OTHER
 
 
+# fill_missing_fields_interactively (vertical_prototype.py) yalnızca bu üç
+# alan için nasıl soru soracağını biliyor. Model ambiguous_fields'e başka bir
+# alan adı (örn. "location", "duration_minutes" hem missing hem ambiguous)
+# koyarsa, o alan hiçbir zaman sorulmuyor ve candidate sonsuza kadar
+# "belirsiz" damgalı kalıp sessizce atlanıyordu (canlı testte görüldü —
+# kullanıcı sorulan tüm alanları doğru cevaplasa bile). Modelin
+# ambiguous_fields çıktısını bu üçle sınırlamak, arayüzün gerçekten
+# çözebileceği alanlar dışında hiçbir şeyin candidate'ı kilitlememesini
+# garanti eder.
+_CLARIFIABLE_FIELDS = ("title", "start_datetime", "duration_minutes")
+
+
 def build_candidate_from_fields(
     fields: dict,
     source_type: SourceType,
@@ -30,10 +42,10 @@ def build_candidate_from_fields(
     source_languages: list[str],
     extraction_reason: str,
 ) -> CandidateEvent:
-    ambiguous_fields = fields.get("ambiguous_fields") or []
+    ambiguous_fields = [f for f in (fields.get("ambiguous_fields") or []) if f in _CLARIFIABLE_FIELDS]
     missing_fields = [
         name
-        for name in ("title", "start_datetime", "duration_minutes")
+        for name in _CLARIFIABLE_FIELDS
         if not fields.get(name) and name not in ambiguous_fields
     ]
 

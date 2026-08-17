@@ -14,11 +14,17 @@ in-process çalışıyor. Doğrulanmış akış:
 hata fırlatır) — bu yüzden burada tek bir modül seviyesi yardımcı ile
 paylaşılıyor.
 
-NOT: ``discover_eps()`` bu ortamda (NVIDIA GPU + CUDA runtime mevcut olmasına
-rağmen) boş liste döndü; GPU hızlandırmalı variant'ların nasıl etkinleştirileceği
-doğrulanamadı ve ayrıca araştırılması gerekiyor. Bu yüzden şimdilik CPU
-variant'ları kullanılıyor (generic-cpu) — GPU ile hızlandırma sonraki bir
-adımda eklenecek.
+GPU hızlandırma (canlı testte doğrulandı, 2026-08-16): ``discover_eps()``
+artık ``CUDAExecutionProvider``'ı (kayıtsız durumda) listeliyor —
+önceki bulgunun ("boş liste dönüyor") aksine. ``manager.download_and_register_eps``
+ile kaydedilebiliyor; kayıt sonrası katalog, ilgili model için ayrı bir
+``<alias>-cuda-gpu`` varyantı (``IModel.variants``) sunuyor. İki önemli
+kısıt: (1) kayıt process başına ~45-90sn sürüyor, hiçbir yerde kalıcı
+değil — her process yeniden başlatıldığında tekrarlanmalı; (2) GPU
+varyantı CPU varyantından FARKLI bir model id'si, yani ayrıca (ilk
+seferde) indiriliyor. Bu yüzden GPU denemesi/kaydı best-effort: başarısız
+olursa (GPU yok, offline, VRAM yetersiz vb.) sessizce CPU varyantına
+düşülür — hiçbir durumda hata fırlatılmaz.
 """
 
 from __future__ import annotations
@@ -28,10 +34,19 @@ import re
 from foundry_local_sdk import Configuration, FoundryLocalManager
 from foundry_local_sdk.imodel import IModel
 
+from src.core.logging_config import get_logger
 from src.providers.base import EmbeddingProvider, LLMProvider
+
+logger = get_logger("foundry_local")
 
 _THINK_BLOCK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
 _UNCLOSED_THINK_RE = re.compile(r"^\s*<think>\s*")
+_CUDA_EP_NAME = "CUDAExecutionProvider"
+
+# Süreç başına bir kez denenir (kayıt ~45-90sn sürüyor, aynı process'te
+# birden fazla provider — chat + embedding — oluşturulduğunda tekrar
+# denenmemeli). None = henüz denenmedi, True/False = sonuç önbellekte.
+_gpu_registered: bool | None = None
 
 
 def _strip_think_block(text: str) -> str:
@@ -58,23 +73,77 @@ def _get_manager(app_name: str) -> FoundryLocalManager:
     return FoundryLocalManager.instance
 
 
-def _get_ready_model(manager: FoundryLocalManager, alias: str) -> IModel:
+def _ensure_gpu_registered(manager: FoundryLocalManager) -> bool:
+    """CUDA execution provider'ı bir kez kaydetmeyi dener, sonucu önbelleğe alır.
+
+    Best-effort: GPU yoksa/offline'sa/kayıt başarısız olursa False döner,
+    hiçbir istisna dışarı sızmaz — çağıran her zaman CPU'ya düşebilir."""
+    global _gpu_registered
+    if _gpu_registered is not None:
+        return _gpu_registered
+    try:
+        eps = manager.discover_eps()
+        cuda_ep = next((ep for ep in eps if ep.name == _CUDA_EP_NAME), None)
+        if cuda_ep is None:
+            _gpu_registered = False
+        elif cuda_ep.is_registered:
+            _gpu_registered = True
+        else:
+            print("GPU hızlandırma deneniyor (CUDA execution provider kaydediliyor, ilk seferde ~1 dakika sürebilir)...")
+            result = manager.download_and_register_eps(names=[_CUDA_EP_NAME])
+            _gpu_registered = bool(result.success)
+    except Exception as e:
+        logger.warning("GPU execution provider kaydı başarısız, CPU'ya düşülüyor: %s", e)
+        _gpu_registered = False
+    return _gpu_registered
+
+
+def _get_ready_model(manager: FoundryLocalManager, alias: str, prefer_gpu: bool) -> IModel:
+    # GPU kaydı, katalogdan model çekilmeden ÖNCE yapılmalı: kayıt öncesi
+    # alınan bir IModel referansı, kayıt sonrası eklenen GPU varyantını
+    # görmüyor (canlı testte doğrulandı — catalog._invalidate_cache() zaten
+    # önceden çekilmiş IModel nesnesini geriye dönük güncellemiyor).
+    gpu_ready = prefer_gpu and _ensure_gpu_registered(manager)
+
     model = manager.catalog.get_model(alias)
     if model is None:
         raise ValueError(f"Foundry Local kataloğunda '{alias}' adlı model bulunamadı.")
+
+    if gpu_ready:
+        gpu_variant = next(
+            (v for v in model.variants if v.info.runtime.execution_provider == _CUDA_EP_NAME),
+            None,
+        )
+        if gpu_variant is not None:
+            try:
+                if not gpu_variant.is_cached:
+                    print(f"GPU modeli ilk kez indiriliyor ({gpu_variant.id})...")
+                    gpu_variant.download()
+                if not gpu_variant.is_loaded:
+                    gpu_variant.load()
+                logger.info("Model '%s' GPU (CUDA) üzerinde çalışıyor.", gpu_variant.id)
+                return gpu_variant
+            except Exception as e:
+                logger.warning(
+                    "GPU model varyantı (%s) yüklenemedi, CPU'ya düşülüyor: %s", gpu_variant.id, e
+                )
+
     if not model.is_cached:
         model.download()
     if not model.is_loaded:
         model.load()
+    logger.info("Model '%s' CPU üzerinde çalışıyor.", model.id)
     return model
 
 
 class FoundryLocalProvider(LLMProvider):
     """Foundry Local üzerinden çalışan chat/completion sağlayıcısı."""
 
-    def __init__(self, model_alias: str = "qwen3-4b", app_name: str = "calendar-agent"):
+    def __init__(
+        self, model_alias: str = "qwen3-4b", app_name: str = "calendar-agent", prefer_gpu: bool = True
+    ):
         self._manager = _get_manager(app_name)
-        self._model = _get_ready_model(self._manager, model_alias)
+        self._model = _get_ready_model(self._manager, model_alias, prefer_gpu)
         self._chat_client = self._model.get_chat_client()
         # "reasoning" yetenekli modeller (örn. Qwen3 ailesi) varsayılan olarak uzun
         # <think>...</think> zincirleri üretir; ölçüm: bu, extraction görevlerinde
@@ -88,8 +157,9 @@ class FoundryLocalProvider(LLMProvider):
         user_prompt: str,
         context_chunks: list[str] | None = None,
         json_output: bool = False,
+        allow_thinking: bool = False,
     ) -> str:
-        if self._is_reasoning_model:
+        if self._is_reasoning_model and not allow_thinking:
             system_prompt = f"{system_prompt}\n/no_think"
         # Ölçüm: json_output=True (extraction görevleri) sıcaklık varsayılanıyla
         # çalıştırıldığında aynı girdi için tutarsız sonuçlar (örn. belirsizlik
@@ -122,9 +192,14 @@ class FoundryLocalProvider(LLMProvider):
 class FoundryLocalEmbeddingProvider(EmbeddingProvider):
     """Foundry Local üzerinden çalışan embedding sağlayıcısı."""
 
-    def __init__(self, model_alias: str = "qwen3-embedding-0.6b", app_name: str = "calendar-agent"):
+    def __init__(
+        self,
+        model_alias: str = "qwen3-embedding-0.6b",
+        app_name: str = "calendar-agent",
+        prefer_gpu: bool = True,
+    ):
         self._manager = _get_manager(app_name)
-        self._model = _get_ready_model(self._manager, model_alias)
+        self._model = _get_ready_model(self._manager, model_alias, prefer_gpu)
         self._embedding_client = self._model.get_embedding_client()
         self._dimension: int | None = None
 

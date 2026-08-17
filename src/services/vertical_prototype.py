@@ -17,7 +17,7 @@ import json
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from src.connectors.account_registry import ACCOUNT_EMAIL, ACCOUNT_ID, ensure_account_registered
+from src.connectors.account_registry import select_account
 from src.connectors.google_calendar import GoogleCalendarConnector
 from src.core.logging_config import configure_logging, get_logger
 from src.core.models import CandidateEvent, CandidateStatus, EventType, IntentType, SourceType
@@ -489,10 +489,9 @@ def review_and_confirm_candidate(
 def main() -> None:
     configure_logging()
     init_db()
-    ensure_account_registered(ACCOUNT_ID, provider="google", email=ACCOUNT_EMAIL)
+    account_id, _account_email = select_account()
     llm = FoundryLocalProvider(model_alias="qwen3-4b")
     embedding_provider = FoundryLocalEmbeddingProvider()
-    account_id = ACCOUNT_ID
 
     user_text = input("Ne planlamak istiyorsunuz? ").strip()
     intent = classify_intent(llm, user_text)

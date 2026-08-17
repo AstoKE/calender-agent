@@ -8,6 +8,7 @@ alınacak, bkz. proje task listesi).
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 
 from src.core.logging_config import get_logger
@@ -20,6 +21,19 @@ from src.services.timeutil import DEFAULT_TIMEZONE
 BODY_PREVIEW_MAX_CHARS = 1500
 
 logger = get_logger("mail_analysis")
+
+_LONG_URL_RE = re.compile(r"https?://\S{60,}")
+
+
+def _collapse_long_urls(text: str) -> str:
+    """Pazarlama/bildirim mailleri (LinkedIn iş ilanları dahil) genelde
+    500+ karakterlik tracking URL'leri içeriyor — bunlar modele hiçbir ek
+    bilgi katmıyor ama token bütçesini tüketip, model URL'yi olduğu gibi
+    (örn. online_meeting_url'e) kopyalamaya çalışırken JSON çıktısının
+    yarıda kesilmesine yol açıyordu (canlı testte görüldü, tekrarlayan
+    "Unterminated string" hatası — aynı mail her denemede aynı noktada
+    kesiliyordu)."""
+    return _LONG_URL_RE.sub("[link]", text)
 
 # Gmail bu kategorileri kendisi atıyor (bkz. Gmail'in Promotions/Social sekmeleri).
 # Ölçümde LLM sınıflandırması bu tür açık pazarlama maillerinde bile yanlış
@@ -56,6 +70,13 @@ def _classification_system_prompt() -> str:
         "- Genel reklam, kampanya, indirim duyurusu, yinelenen/tekrar mailler, "
         "aksiyon gerektirmeyen bilgilendirme, yalnızca geçmiş bir tarihten "
         "bahseden içerik, otomatik sistem bildirimi/güvenlik uyarısı.\n"
+        "- İŞ İLANI/KARİYER FIRSATI BİLDİRİMLERİ (LinkedIn 'İş İlanı "
+        "Uyarıları', Kariyer.net vb.): 'X şirketinde Y pozisyonu' türü "
+        "bildirimler yalnızca bir fırsatı DUYURUR — mailde AÇIKÇA bir "
+        "başvuru son tarihi, mülakat randevusu veya benzeri somut bir "
+        "tarih/saat YOKSA false. Pozisyon/şirket/konum bilgisi olması TEK "
+        "BAŞINA takvime değer katmaz; kullanıcı henüz başvurmamıştır, "
+        "yapması gereken zamana bağlı bir şey yoktur.\n"
         "Örnekler:\n"
         "- 'Proje toplantısı yarın 14:00, Zoom linki ektedir.' -> true "
         "(toplantı daveti)\n"
@@ -70,6 +91,11 @@ def _classification_system_prompt() -> str:
         "false (işlem bildirimi, teslimat tarihinde kullanıcının katılması "
         "gereken bir şey yok)\n"
         "- 'Yeni AI kursumuz başlıyor, hemen kaydolun!' -> false (reklam)\n"
+        "- 'Amadeus şirketinde Junior Software Development Engineer "
+        "pozisyonu ilginizi çekebilir.' -> false (iş ilanı bildirimi, "
+        "belirli bir tarih/saat yok)\n"
+        "- 'Başvurunuzu değerlendirdik, mülakatınız 25 Ağustos 14:00'te.' "
+        "-> true (somut bir randevu/tarih var)\n"
         "SADECE geçerli JSON döndür, başka hiçbir açıklama ekleme:\n"
         '{"is_calendar_worthy": true veya false, "reason": "kısa gerekçe (tek cümle)"}'
     )
@@ -86,16 +112,19 @@ def is_calendar_worthy(llm: LLMProvider, email: UnifiedEmail) -> tuple[bool, str
 
     user_prompt = (
         f"Konu: {email.subject}\nGönderen: {email.sender}\n"
-        f"İçerik:\n{(email.body_text or '')[:BODY_PREVIEW_MAX_CHARS]}"
+        f"İçerik:\n{_collapse_long_urls((email.body_text or '')[:BODY_PREVIEW_MAX_CHARS])}"
     )
-    data = generate_json(llm, _classification_system_prompt(), user_prompt)
+    # allow_thinking=True: /no_think ile hızlı ama canlı testte gözlenen yanlış
+    # pozitifler (örn. tarih içermeyen iş ilanlarını takvimlik sanma) çok daha
+    # sık çıkıyordu; GPU'da thinking'in maliyeti (~3-7sn) artık tolere edilebilir
+    # ve doğruluğu belirgin şekilde iyileştiriyor (bkz. json_generation.py notu).
+    data = generate_json(llm, _classification_system_prompt(), user_prompt, allow_thinking=True)
     worthy, reason = bool(data.get("is_calendar_worthy")), data.get("reason", "")
     logger.info("is_calendar_worthy: %r -> worthy=%s reason=%r labels=%s", email.subject, worthy, reason, email.labels)
     return worthy, reason
 
 
-def _event_extraction_system_prompt() -> str:
-    today = datetime.now().astimezone()
+def _event_extraction_system_prompt(today: datetime) -> str:
     return (
         "Sen bir takvim asistanısın. Aşağıdaki e-postadan bir etkinlik bilgisi çıkar.\n"
         f"Bugünün tarihi ve saati: {today.isoformat()} (zaman dilimi: {DEFAULT_TIMEZONE}).\n"
@@ -103,10 +132,20 @@ def _event_extraction_system_prompt() -> str:
         "KRİTİK KURALLAR:\n"
         "1. Mailde AÇIKÇA belirtilmeyen hiçbir bilgiyi UYDURMA — konum, kişi, "
         "bağlantı gibi alanlar mailde yoksa null bırak.\n"
-        "2. Saat belirsizse (sabah/öğleden sonra netliği yok): tarihi yine de "
-        "doğru hesapla, saat için en olası tahmini kullan, AYRICA "
-        'ambiguous_fields listesine "start_datetime" ekle.\n'
+        "2. AMBIGUOUS_FIELDS YALNIZCA SAATİN KENDİSİ NET DEĞİLSE kullanılır — "
+        "örn. mailde 'sabah', 'öğleden sonra' gibi belirsiz bir ifade var ya "
+        "da hiç saat yok. Mailde 'saat 15:00', '15.00'te', 'saat 9' gibi NET "
+        "bir saat açıkça belirtiliyorsa, bunu ambiguous SAYMA — tarihin "
+        "göreceli bir ifade olması ('yarın', 'gelecek hafta' gibi, bunu "
+        "yukarıdaki 'bugünün tarihi'ne göre kendin hesaplaman gerekmesi) TEK "
+        "BAŞINA belirsizlik değildir, doğru hesapladıktan sonra "
+        "ambiguous_fields'e ekleme.\n"
         "3. Emin olmadığın her alan için tahmin yerine null + ambiguous_fields tercih et.\n"
+        "4. Mailde HİÇBİR tarih/saat ifadesi yoksa (örn. bir iş ilanı sadece "
+        "pozisyon/şirket bilgisi veriyorsa) start_datetime'ı yukarıdaki "
+        "'bugünün tarihi'yle DOLDURMA — bu yalnızca göreceli ifadeleri "
+        "(örn. 'yarın', 'gelecek hafta') çözmek içindir, mailde tarih yoksa "
+        "sonuç null olmalı ve ambiguous_fields'e eklenmelidir.\n"
         "SADECE geçerli JSON döndür. Alanlar:\n"
         '{"event_type": "meeting|appointment|exam|deadline|travel|reservation|'
         'personal_commitment|other", '
@@ -120,11 +159,31 @@ def _event_extraction_system_prompt() -> str:
 
 
 def extract_candidate_from_email(llm: LLMProvider, email: UnifiedEmail) -> CandidateEvent:
+    today = datetime.now().astimezone()
     user_prompt = (
         f"Konu: {email.subject}\nGönderen: {email.sender}\n"
-        f"İçerik:\n{(email.body_text or '')[:BODY_PREVIEW_MAX_CHARS]}"
+        f"İçerik:\n{_collapse_long_urls((email.body_text or '')[:BODY_PREVIEW_MAX_CHARS])}"
     )
-    fields = generate_json(llm, _event_extraction_system_prompt(), user_prompt)
+    fields = generate_json(llm, _event_extraction_system_prompt(today), user_prompt)
+
+    # Prompttaki kural #4'e rağmen model bazen mailde hiç tarih olmadığında
+    # sistem promptundaki "bugünün tarihi" referansını start_datetime'a aynen
+    # kopyalıyor (canlı testte görüldü, mikrosaniye hassasiyetiyle "şu an") —
+    # talimata güvenmek yerine deterministik bir son kontrol: dönen değer
+    # "bugün" referansına birkaç dakikadan yakınsa, gerçek bir mailden
+    # çıkarılmış değer olma ihtimali neredeyse sıfırdır (bkz. §11: kritik
+    # doğrulama LLM'e değil koda bırakılır).
+    raw_start = fields.get("start_datetime")
+    if raw_start:
+        try:
+            if abs((datetime.fromisoformat(raw_start) - today).total_seconds()) < 120:
+                fields["start_datetime"] = None
+                ambiguous = set(fields.get("ambiguous_fields") or [])
+                ambiguous.add("start_datetime")
+                fields["ambiguous_fields"] = list(ambiguous)
+        except ValueError:
+            pass
+
     candidate = build_candidate_from_fields(
         fields,
         source_type=SourceType.EMAIL,
