@@ -21,6 +21,7 @@ def add_policy(
     event_type: str | None = None,
     language: str = "tr",
     priority: int = 0,
+    source: PolicySource = PolicySource.MANUAL,
 ) -> PersonalPolicy:
     scope = PolicyScope.EVENT_TYPE if event_type else PolicyScope.GLOBAL
     now = datetime.now(timezone.utc)
@@ -36,7 +37,7 @@ def add_policy(
         version=1,
         active=True,
         approved_by_user=True,
-        source=PolicySource.MANUAL,
+        source=source,
         created_at=now,
         updated_at=now,
     )
@@ -92,3 +93,41 @@ def get_active_policies() -> list[PersonalPolicy]:
     with get_connection() as conn:
         rows = conn.execute("SELECT * FROM personal_policies WHERE active = 1").fetchall()
     return [row_to_policy(r) for r in rows]
+
+
+def find_active_conflicting_policy(category: str, event_type: str | None) -> PersonalPolicy | None:
+    """Aynı `category` (structured_action anahtarı) ve aynı `event_type` kapsamında
+    (ikisi de global ise de eşleşir) aktif bir politika var mı arar (bkz. §9
+    çelişki tespiti). Bulunursa çağıran bunu `deactivate_policy` ile versiyonlayıp
+    yenisiyle değiştirmeli — aynı kural iki kez tanımlanınca iki ayrı aktif
+    politika birikmesin diye."""
+    for policy in get_active_policies():
+        if category not in policy.structured_action:
+            continue
+        if policy.structured_conditions.get("event_type") == event_type:
+            return policy
+    return None
+
+
+def deactivate_policy(policy: PersonalPolicy) -> None:
+    """Bir politikayı pasifleştirir (active=0) ve eski halini `policy_versions`'a
+    snapshot olarak yazar — silinmez, denetim/geri alma için saklanır (§9).
+
+    NOT: `policy_versions.superseded_by` şemada `policy_versions(version_id)`'ye
+    referans veriyor (yeni bir `personal_policies.policy_id`'ye değil) — burada
+    onu doldurmaya çalışmıyoruz (yeni aktif politika için ayrıca bir version_id
+    üretmiyoruz), NULL bırakılıyor. Eski versiyon yine de silinmeden saklanıyor,
+    sadece "hangi policy_id'nin yerini aldı" linki yok — MVP için yeterli."""
+    now = datetime.now(timezone.utc).isoformat()
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE personal_policies SET active = 0, updated_at = ? WHERE policy_id = ?",
+            (now, policy.policy_id),
+        )
+        conn.execute(
+            """
+            INSERT INTO policy_versions (version_id, policy_id, version, snapshot, created_at, superseded_by)
+            VALUES (?,?,?,?,?,NULL)
+            """,
+            (str(uuid.uuid4()), policy.policy_id, policy.version, policy.model_dump_json(), now),
+        )

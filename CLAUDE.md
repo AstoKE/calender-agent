@@ -20,10 +20,10 @@ Tam mimari, veri modeli, 26 başlıklı tasarım kararları için **[docs/archit
 - Mail analizi + Candidate Queue: Gmail tarama, takvimlik/değil sınıflandırma, candidate çıkarımı, mevcut onay akışının yeniden kullanılması (`src/services/mail_sync.py`, `src/services/mail_analysis.py`, `src/services/scan_inbox.py`)
 - Çoklu hesap desteği (CLI seviyesinde): `src/connectors/account_registry.py::select_account()` her çalıştırmada kayıtlı hesaplardan seçtiriyor veya yeni hesap ekletip OAuth'u tetikliyor; alt katman (connector'lar, `mail_sync.py`, `sync_states`/`email_messages`) zaten `account_id` parametreliydi, tek eksik CLI'daki sabit kodlanmış `ACCOUNT_ID`/`ACCOUNT_EMAIL`'di — canlı testte iki gerçek Gmail hesabıyla (ayrı ayrı OAuth + etkinlik ekleme) doğrulandı.
 - GPU (CUDA) hızlandırma: `FoundryLocalProvider`/`FoundryLocalEmbeddingProvider` artık `prefer_gpu=True` varsayılanıyla CUDA execution provider'ı deneyip modelin `-cuda-gpu` varyantını kullanıyor, başarısız olursa (GPU yok/offline/VRAM yetersiz) sessizce CPU'ya düşüyor — bkz. aşağıdaki "GPU/CUDA" notu.
+- Adaptive Correction Memory (§10) — İLK DİLİM: `review_and_confirm_candidate`'de kullanıcı önerideki son `[e/h]` onayında reddedince "neden reddettiniz?" sorup `user_corrections`'a kaydediyor (`src/memory/correction_memory.py`); "gelecekte de uygulayayım mı?" onayı alınırsa event_type/global scope seçtirip `src/policies/derivation.py::derive_and_save_policy` ile bir `PersonalPolicy` türetiyor. `add_policy`/policy tanımlama artık çelişki tespiti + versiyonlama yapıyor (aynı category+event_type'ta zaten aktif bir politika varsa eskisi pasifleştirilip `policy_versions`'a snapshot'lanıyor, silinmiyor) — bu, manuel kural tanımlamayı da (`handle_define_policy`) kapsıyor, aynı kuralı iki kez tanımlamak artık iki ayrı aktif politika biriktirmiyor. Scripted testlerle doğrulandı (conflict/versioning, correction capture, FK'ler); **interaktif reddet→düzelt→kural akışı henüz kullanıcı tarafından canlı test edilmedi**. Kapsam dışı bırakılanlar: sender/account scope (retrieval bunu henüz desteklemiyor), candidate "düzenle" seçeneği, mail sınıflandırma düzeltmesi.
 - Loglama sistemi: her LLM çağrısı + karar noktası `data/debug.log`'a yazılıyor (`src/core/logging_config.py`) — **bir şey beklenmedik davranırsa önce buraya bak, tahmin etmeye çalışma.**
 
 Henüz yok (plan §19/§25'e göre sıradaki adımlar):
-- Adaptive Correction Memory (kullanıcı düzeltmelerinden öğrenme, §7)
 - `update_event` gerçek implementasyonu (şu an sadece "henüz desteklemiyorum" mesajı)
 - Web UI (her şey CLI — `python -m src.services.vertical_prototype` / `scan_inbox`)
 - Formal pytest test suite (`tests/` klasörü var ama boş; şimdiye kadar tüm doğrulama scripted manuel testlerle yapıldı)
@@ -100,7 +100,10 @@ src/
                  # vertical_prototype.py (ana konuşma akışı + review_and_confirm_candidate
                  # — hem konuşma hem mail akışının paylaştığı ortak onay/yazma fonksiyonu),
                  # scan_inbox.py
-  policies/      # Policy Store (CRUD)
+  policies/      # store.py (CRUD + çelişki tespiti/versiyonlama), derivation.py
+                 # (doğal dil kural -> PersonalPolicy, manuel + ACM ortak)
+  memory/        # correction_memory.py (Adaptive Correction Memory: düzeltme
+                 # yakalama, onay akışı, politika türetmeyi derivation.py'ye devreder)
   rag/           # Embedding tabanlı policy retrieval
   storage/       # db.py (bağlantı+migration), schema.sql
 tests/           # Şu an boş — resmi test suite yazılmadı

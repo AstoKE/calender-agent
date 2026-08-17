@@ -21,11 +21,12 @@ from src.connectors.account_registry import select_account
 from src.connectors.google_calendar import GoogleCalendarConnector
 from src.core.logging_config import configure_logging, get_logger
 from src.core.models import CandidateEvent, CandidateStatus, EventType, IntentType, SourceType
-from src.policies.store import add_policy
+from src.memory.correction_memory import capture_correction_interactively
+from src.policies.derivation import derive_and_save_policy
 from src.providers.base import EmbeddingProvider, LLMProvider
 from src.providers.foundry_local import FoundryLocalEmbeddingProvider, FoundryLocalProvider
 from src.providers.json_generation import JsonGenerationError, generate_json
-from src.rag.policy_retrieval import embed_and_store_policy, retrieve_policies_for_event
+from src.rag.policy_retrieval import retrieve_policies_for_event
 from src.services.availability import find_conflicts, suggest_alternative_slots
 from src.services.extraction import build_candidate_from_fields
 from src.services.intent import classify_intent
@@ -340,54 +341,14 @@ def resolve_conflicts_interactively(calendar: GoogleCalendarConnector, candidate
     return "Var (iptal edilecek)"
 
 
-def _policy_extraction_system_prompt() -> str:
-    return (
-        "Sen bir takvim asistanısın. Kullanıcı doğal dilde kişisel bir kural "
-        "tanımlıyor. Bunu yapılandırılmış hale getir.\n"
-        "SADECE geçerli JSON döndür, başka hiçbir açıklama ekleme. Alanlar:\n"
-        '{"event_type": "meeting|appointment|exam|deadline|travel|reservation|'
-        'personal_commitment|other" veya null (kural TÜM etkinlik türleri için '
-        "geçerliyse null bırak), "
-        '"default_duration_minutes": integer veya null, '
-        '"reminder_minutes_before": integer veya null, '
-        '"importance": "low|normal|high" veya null}\n'
-        "Yalnızca kuralda AÇIKÇA belirtilen alanı doldur, diğerlerini null bırak — uydurma."
-    )
-
-
-VALID_IMPORTANCE_VALUES = {"low", "normal", "high"}
-
-
 def handle_define_policy(llm: LLMProvider, embedding_provider: EmbeddingProvider, user_text: str) -> None:
-    fields = generate_json(llm, _policy_extraction_system_prompt(), user_text)
-
-    # importance için model bazen "low|normal|high" seçenek listesini olduğu
-    # gibi döndürüyor (event_type'ta görülen aynı hata sınıfı, bkz.
-    # src/services/extraction.py _coerce_event_type) — geçersiz değeri burada,
-    # politika kaydedilmeden önce ele alıyoruz ki daha sonra (politika
-    # uygulanırken) candidate.importance atamasında çökmesin.
-    if fields.get("importance") not in VALID_IMPORTANCE_VALUES:
-        fields["importance"] = None
-
-    structured_action = {
-        k: fields[k]
-        for k in ("default_duration_minutes", "reminder_minutes_before", "importance")
-        if fields.get(k) is not None
-    }
-    if not structured_action:
+    policy = derive_and_save_policy(llm, embedding_provider, user_text)
+    if policy is None:
         print("Bu kuraldan somut bir davranış çıkaramadım — biraz daha net ifade eder misiniz?")
         return
 
-    category = next(iter(structured_action))
-    policy = add_policy(
-        category=category,
-        natural_language_rule=user_text,
-        structured_action=structured_action,
-        event_type=fields.get("event_type"),
-    )
-    embed_and_store_policy(embedding_provider, policy)
-
-    scope_desc = f"'{fields['event_type']}' türü etkinlikler" if fields.get("event_type") else "tüm etkinlikler"
+    event_type = policy.structured_conditions.get("event_type")
+    scope_desc = f"'{event_type}' türü etkinlikler" if event_type else "tüm etkinlikler"
     print(f"Kaydettim: {scope_desc} için '{user_text}' kuralı artık aktif.")
 
 
@@ -417,11 +378,13 @@ def review_and_confirm_candidate(
     candidate: CandidateEvent,
     calendar: GoogleCalendarConnector,
     embedding_provider: EmbeddingProvider,
+    llm: LLMProvider,
     source_email_row_id: str | None = None,
 ) -> None:
     """Politika uygulama + eksik/belirsiz alan tamamlama + çakışma kontrolü +
     önizleme + onay + (onaylanırsa) takvime yazma. Konuşma akışı (main()) ve
-    mail taraması (scan_inbox.py) tarafından ortak kullanılır."""
+    mail taraması (scan_inbox.py) tarafından ortak kullanılır. Reddedilirse
+    Adaptive Correction Memory'ye düşer (bkz. capture_correction_interactively)."""
     apply_retrieved_policies(candidate, embedding_provider)
 
     if candidate.missing_fields or candidate.ambiguous_fields:
@@ -463,25 +426,32 @@ def review_and_confirm_candidate(
         if approval != "e":
             update_candidate_status(conn, candidate.candidate_id, CandidateStatus.REJECTED)
             record_audit(conn, "reject", candidate.candidate_id, "Kullanıcı reddetti.")
-            print("Reddedildi, takvime yazılmadı.")
-            return
+        else:
+            start_dt = candidate.start_datetime
+            if isinstance(start_dt, str):
+                start_dt = datetime.fromisoformat(start_dt)
+            end_dt = start_dt + timedelta(minutes=candidate.duration_minutes or DEFAULT_MEETING_DURATION_MINUTES)
 
-        start_dt = candidate.start_datetime
-        if isinstance(start_dt, str):
-            start_dt = datetime.fromisoformat(start_dt)
-        end_dt = start_dt + timedelta(minutes=candidate.duration_minutes or DEFAULT_MEETING_DURATION_MINUTES)
+            event_id = calendar.create_event(
+                {
+                    "summary": candidate.title,
+                    "location": candidate.location,
+                    "start": {"dateTime": start_dt.isoformat(), "timeZone": DEFAULT_TIMEZONE},
+                    "end": {"dateTime": end_dt.isoformat(), "timeZone": DEFAULT_TIMEZONE},
+                }
+            )
 
-        event_id = calendar.create_event(
-            {
-                "summary": candidate.title,
-                "location": candidate.location,
-                "start": {"dateTime": start_dt.isoformat(), "timeZone": DEFAULT_TIMEZONE},
-                "end": {"dateTime": end_dt.isoformat(), "timeZone": DEFAULT_TIMEZONE},
-            }
-        )
+            update_candidate_status(conn, candidate.candidate_id, CandidateStatus.ADDED_TO_CALENDAR)
+            record_audit(conn, "approve_and_write", candidate.candidate_id, f"Google Calendar event_id={event_id}")
 
-        update_candidate_status(conn, candidate.candidate_id, CandidateStatus.ADDED_TO_CALENDAR)
-        record_audit(conn, "approve_and_write", candidate.candidate_id, f"Google Calendar event_id={event_id}")
+    # ACM yakalaması bu `with` bloğu KAPANDIKTAN sonra çağrılıyor: kendi
+    # get_connection() çağrılarını yapıyor (save_user_correction, add_policy,
+    # ...), yukarıdaki bağlantı hâlâ açıkken (bekleyen bir yazma işlemiyle)
+    # ikinci bir bağlantı açmak SQLite'ta kilitlenme riski taşır.
+    if approval != "e":
+        print("Reddedildi, takvime yazılmadı.")
+        capture_correction_interactively(llm, embedding_provider, candidate)
+        return
 
     print(f"Takvime eklendi. event_id={event_id}")
 
@@ -518,7 +488,7 @@ def main() -> None:
         print("Bu mesajı işleyemedim, tekrar ifade eder misiniz?")
         return
     calendar = GoogleCalendarConnector(account_id=account_id)
-    review_and_confirm_candidate(candidate, calendar, embedding_provider)
+    review_and_confirm_candidate(candidate, calendar, embedding_provider, llm)
 
 
 if __name__ == "__main__":
