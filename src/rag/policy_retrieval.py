@@ -11,7 +11,7 @@ from __future__ import annotations
 import numpy as np
 
 from src.core.models import PersonalPolicy
-from src.policies.store import row_to_policy
+from src.policies.store import get_active_policies_for_sender, row_to_policy
 from src.providers.base import EmbeddingProvider
 from src.storage.db import get_connection
 
@@ -76,14 +76,28 @@ def semantic_search_policies(
 
 
 def retrieve_policies_for_event(
-    embedding_provider: EmbeddingProvider, event_type: str, top_k: int = 5
+    embedding_provider: EmbeddingProvider, event_type: str, sender: str | None = None, top_k: int = 5
 ) -> list[PersonalPolicy]:
-    """event_type'a göre en alakalı politikaları getirir: embedding benzerliğiyle
-    aday havuzu genişletilir, sonra event_type'ı TAM eşleşen politikalar
-    global/diğer politikaların önüne alınır (bkz. §9 politika önceliği:
-    daha spesifik kural genel kuraldan önce gelir)."""
+    """event_type'a (ve varsa gönderene) göre en alakalı politikaları getirir.
+
+    Sender-scope'lu politikalar semantik aramaya BIRAKILMIYOR: bir düzeltme
+    metni ("LinkedIn'den gelenlere düşük önem ver") event_type açıklamasına
+    ("etkinlik türü: meeting") anlamsal olarak hiç benzemeyebilir, top_k*2
+    aday havuzuna hiç girmeyebilirdi. Gönderen adresi zaten bilindiği için
+    (mailden geliyorsa) bu deterministik bir eşleşmedir — RAG'a değil doğrudan
+    koda bırakılır (bkz. §11), ve en spesifik kural olduğu için sonuçların
+    başına konur (bkz. §9 politika önceliği: daha spesifik kural önce gelir).
+    """
+    sender_matches = get_active_policies_for_sender(sender) if sender else []
+
     query_text = f"etkinlik türü: {event_type}"
     candidates = semantic_search_policies(embedding_provider, query_text, top_k=top_k * 2)
+    # Sender-scope'lu politikalar semantik havuzdan çıkarılıyor: bunlar SADECE
+    # yukarıdaki deterministik sender_matches üzerinden gelmeli. Aksi halde bir
+    # politikanın metni ("LinkedIn'den gelenlere düşük önem ver") event_type
+    # sorgusuyla tesadüfen benzer çıkıp, göndereni hiç eşleşmeyen bir candidate'a
+    # da uygulanabilirdi (canlı testte doğrulandı — gerçek bir sızıntıydı).
+    candidates = [item for item in candidates if "sender" not in item[0].structured_conditions]
 
     def sort_key(item: tuple[PersonalPolicy, float]) -> tuple[bool, int, float]:
         policy, similarity = item
@@ -91,4 +105,12 @@ def retrieve_policies_for_event(
         return (exact_match, policy.priority, similarity)
 
     ranked = sorted(candidates, key=sort_key, reverse=True)
-    return [policy for policy, _ in ranked[:top_k]]
+
+    seen_ids: set[str] = set()
+    merged: list[PersonalPolicy] = []
+    for policy in [*sender_matches, *[p for p, _ in ranked]]:
+        if policy.policy_id in seen_ids:
+            continue
+        seen_ids.add(policy.policy_id)
+        merged.append(policy)
+    return merged[:top_k]

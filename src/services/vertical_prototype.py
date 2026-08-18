@@ -53,13 +53,25 @@ def _extraction_system_prompt() -> str:
         "KRİTİK KURALLAR:\n"
         "1. Mesajda AÇIKÇA belirtilmeyen hiçbir bilgiyi UYDURMA. Konum, kişi gibi "
         "alanlar mesajda geçmiyorsa null bırak — tahmin etme.\n"
-        "2. Saat belirsizse (örn: 'saat 1', 'saat 3' — sabah mı öğleden sonra mı "
-        "belirtilmemiş ve bağlamdan da açıkça çıkarılamıyor): tarihi yine de doğru "
-        "hesapla ve start_datetime'a yaz (saat kısmı için en olası tahmini kullan, "
-        "tarihi KAYBETME), AYRICA ambiguous_fields listesine \"start_datetime\" ekle "
-        "— kullanıcıya saati tekrar soracağız. Sadece net bağlamdan (örn. 'akşam "
-        "saat 8', 'sabah 9') çıkarım yaparsan ambiguous_fields'a ekleme.\n"
+        "2. AMBIGUOUS_FIELDS YALNIZCA SAATİN KENDİSİ NET DEĞİLSE kullanılır — "
+        "örn. mesajda 'saat 1', 'saat 3' gibi sabah/öğleden sonra netliği olmayan "
+        "bir ifade var ya da hiç saat yok. Mesajda '14:00', 'saat 14'te', 'akşam "
+        "8' gibi NET bir saat açıkça belirtiliyorsa, bunu ambiguous SAYMA — "
+        "tarihin göreceli bir ifade olması ('yarın', 'gelecek hafta' gibi, bunu "
+        "bugünün tarihine göre kendin hesaplaman gerekmesi) TEK BAŞINA "
+        "belirsizlik değildir, doğru hesapladıktan sonra ambiguous_fields'e "
+        "ekleme. Belirsiz durumda tarihi yine de doğru hesapla ve "
+        "start_datetime'a yaz (saat kısmı için en olası tahmini kullan, tarihi "
+        "KAYBETME), AYRICA ambiguous_fields listesine \"start_datetime\" ekle.\n"
         "3. Emin olmadığın her alan için tahmin yerine null + ambiguous_fields tercih et.\n"
+        "Örnekler:\n"
+        "- 'yarın 14:00'te diş randevum var' -> start_datetime hesaplanır, "
+        "ambiguous_fields EKLENMEZ (saat net).\n"
+        "- 'yarın saat 9'da toplantım var' -> ambiguous_fields EKLENMEZ (saat net).\n"
+        "- 'öğleden sonra randevum var' -> ambiguous_fields'e \"start_datetime\" "
+        "EKLENİR (saat net değil).\n"
+        "- 'gelecek hafta toplantım var' -> ambiguous_fields'e \"start_datetime\" "
+        "EKLENİR (saat hiç yok).\n"
         "SADECE geçerli JSON döndür, başka hiçbir açıklama ekleme. Alanlar:\n"
         '{"event_type": "meeting|appointment|exam|deadline|travel|reservation|'
         'personal_commitment|other", '
@@ -85,12 +97,15 @@ def extract_candidate_event(llm: FoundryLocalProvider, user_text: str) -> Candid
 MAX_CLARIFICATION_ATTEMPTS = 3
 
 
-def apply_retrieved_policies(candidate: CandidateEvent, embedding_provider: EmbeddingProvider) -> None:
+def apply_retrieved_policies(
+    candidate: CandidateEvent, embedding_provider: EmbeddingProvider, sender: str | None = None
+) -> None:
     """Rule Engine adımı: RAG'ın getirdiği politikaları deterministik olarak
     uygular (LLM'e "hangi değer" kararını bırakmaz, bkz. §9/§11). Yalnızca
     hâlâ eksik olan alanlara dokunur — kullanıcının bu mesajda açıkça verdiği
-    bilgiyi asla ezmez."""
-    policies = retrieve_policies_for_event(embedding_provider, candidate.event_type, top_k=5)
+    bilgiyi asla ezmez. ``sender`` verilirse (mail kaynaklı candidate'lar)
+    sender-scope'lu politikalar da retrieval'a dahil edilir."""
+    policies = retrieve_policies_for_event(embedding_provider, candidate.event_type, sender=sender, top_k=5)
 
     if not candidate.duration_minutes:  # None veya 0 — bkz. fill_missing_fields_interactively'deki not
         for policy in policies:
@@ -380,12 +395,15 @@ def review_and_confirm_candidate(
     embedding_provider: EmbeddingProvider,
     llm: LLMProvider,
     source_email_row_id: str | None = None,
+    source_sender: str | None = None,
 ) -> None:
     """Politika uygulama + eksik/belirsiz alan tamamlama + çakışma kontrolü +
     önizleme + onay + (onaylanırsa) takvime yazma. Konuşma akışı (main()) ve
     mail taraması (scan_inbox.py) tarafından ortak kullanılır. Reddedilirse
-    Adaptive Correction Memory'ye düşer (bkz. capture_correction_interactively)."""
-    apply_retrieved_policies(candidate, embedding_provider)
+    Adaptive Correction Memory'ye düşer (bkz. capture_correction_interactively).
+    ``source_sender`` yalnızca mail akışında verilir (email.sender) — hem
+    sender-scope'lu politika retrieval'ı hem ACM'nin scope seçimi için."""
+    apply_retrieved_policies(candidate, embedding_provider, sender=source_sender)
 
     if candidate.missing_fields or candidate.ambiguous_fields:
         fill_missing_fields_interactively(candidate)
@@ -450,7 +468,7 @@ def review_and_confirm_candidate(
     # ikinci bir bağlantı açmak SQLite'ta kilitlenme riski taşır.
     if approval != "e":
         print("Reddedildi, takvime yazılmadı.")
-        capture_correction_interactively(llm, embedding_provider, candidate)
+        capture_correction_interactively(llm, embedding_provider, candidate, sender=source_sender)
         return
 
     print(f"Takvime eklendi. event_id={event_id}")

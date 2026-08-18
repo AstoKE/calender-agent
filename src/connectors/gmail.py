@@ -12,10 +12,14 @@ import re
 from datetime import datetime, timezone
 
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 
 from src.connectors.base import EmailConnector
 from src.connectors.google_auth import GOOGLE_ACCOUNT_SCOPES, get_google_credentials
+from src.core.logging_config import get_logger
 from src.core.models import EmailProvider, UnifiedEmail
+
+logger = get_logger("gmail_connector")
 
 _TAG_RE = re.compile(r"<[^>]+>")
 
@@ -72,13 +76,28 @@ class GmailConnector(EmailConnector):
             return self._initial_sync()
         return self._incremental_sync(since_cursor)
 
+    def _get_message_if_exists(self, message_id: str) -> UnifiedEmail | None:
+        """`get_message` sarmalayıcısı: Gmail'in `history.list`'i bir mesajı
+        "eklendi" olarak bildirebiliyor ama mesaj sonradan silinmiş/taşınmışsa
+        gerçek çekme işlemi 404 ("Requested entity was not found") ile
+        başarısız oluyor (canlı testte görüldü, tüm taramayı çökertiyordu).
+        404'ü sessizce atla (o mesaj artık yok, işlenecek bir şey kalmadı);
+        başka bir hata (auth, rate limit) varsa olduğu gibi yükselt."""
+        try:
+            return self.get_message(message_id)
+        except HttpError as e:
+            if e.resp.status == 404:
+                logger.debug("Mesaj artık mevcut değil (404), atlanıyor: %s", message_id)
+                return None
+            raise
+
     def _initial_sync(self, max_results: int = 25) -> tuple[list[UnifiedEmail], str]:
         profile = self._service.users().getProfile(userId="me").execute()
         latest_history_id = profile["historyId"]
 
         list_resp = self._service.users().messages().list(userId="me", maxResults=max_results).execute()
         message_ids = [m["id"] for m in list_resp.get("messages", [])]
-        messages = [self.get_message(mid) for mid in message_ids]
+        messages = [m for mid in message_ids if (m := self._get_message_if_exists(mid)) is not None]
         return messages, latest_history_id
 
     def _incremental_sync(self, since_history_id: str) -> tuple[list[UnifiedEmail], str]:
@@ -108,7 +127,7 @@ class GmailConnector(EmailConnector):
             if not page_token:
                 break
 
-        messages = [self.get_message(mid) for mid in new_message_ids]
+        messages = [m for mid in new_message_ids if (m := self._get_message_if_exists(mid)) is not None]
         return messages, latest_history_id
 
     def get_message(self, message_id: str) -> UnifiedEmail:

@@ -79,21 +79,34 @@ def save_user_correction(candidate: CandidateEvent, user_feedback_text: str) -> 
     return correction
 
 
-def mark_correction_approved(correction_id: str, policy_id: str) -> None:
+def mark_correction_approved(
+    correction_id: str,
+    policy_id: str,
+    correction_scope: CorrectionScope = CorrectionScope.EVENT_TYPE,
+    sender_scope: str | None = None,
+) -> None:
     with get_connection() as conn:
         conn.execute(
-            "UPDATE user_corrections SET approved_for_future_use = 1, derived_policy_id = ? "
-            "WHERE correction_id = ?",
-            (policy_id, correction_id),
+            "UPDATE user_corrections SET approved_for_future_use = 1, derived_policy_id = ?, "
+            "correction_scope = ?, sender_scope = ? WHERE correction_id = ?",
+            (policy_id, correction_scope, sender_scope, correction_id),
         )
 
 
 def capture_correction_interactively(
-    llm: LLMProvider, embedding_provider: EmbeddingProvider, candidate: CandidateEvent
+    llm: LLMProvider,
+    embedding_provider: EmbeddingProvider,
+    candidate: CandidateEvent,
+    sender: str | None = None,
 ) -> None:
     """Kullanıcı bir öneriyi reddettikten hemen sonra çağrılır (bkz.
     review_and_confirm_candidate). Kullanıcı boş geçerse ya da "gelecekte de"
-    demezse yalnızca ham düzeltme kaydedilir, hiçbir politika oluşmaz."""
+    demezse yalnızca ham düzeltme kaydedilir, hiçbir politika oluşmaz.
+
+    ``sender`` yalnızca mail kaynaklı candidate'lar için verilir (konuşma
+    akışında None) — verilirse scope seçimine "bu göndericiden gelenler"
+    seçeneği eklenir (bkz. §9 scope hiyerarşisi: sender, event_type'tan daha
+    spesifiktir)."""
     feedback = input("Neden reddettiniz? (isterseniz boş bırakıp Enter'a basabilirsiniz) ").strip()
     if not feedback:
         return
@@ -104,10 +117,30 @@ def capture_correction_interactively(
     if apply_future != "e":
         return
 
-    scope_choice = input(
-        f"Yalnızca '{candidate.event_type}' türü etkinliklerde mi (1), yoksa her zaman mı (2)? [1/2] "
-    ).strip()
-    event_type_scope = None if scope_choice == "2" else candidate.event_type
+    if sender:
+        scope_choice = input(
+            f"Yalnızca '{candidate.event_type}' türü etkinliklerde mi (1), "
+            "yalnızca bu göndericiden gelen maillerde mi (2), yoksa her zaman mı (3)? [1/2/3] "
+        ).strip()
+    else:
+        scope_choice = input(
+            f"Yalnızca '{candidate.event_type}' türü etkinliklerde mi (1), yoksa her zaman mı (2)? [1/2] "
+        ).strip()
+
+    if sender and scope_choice == "2":
+        event_type_scope, sender_scope = None, sender
+        correction_scope = CorrectionScope.SENDER
+        scope_desc = f"'{sender}' göndericisinden gelen mailler"
+    elif scope_choice == ("3" if sender else "2"):
+        event_type_scope, sender_scope = None, None
+        # CorrectionScope'ta ayrı bir GLOBAL değeri yok; hesap genelinde
+        # (her zaman) anlamına en yakın değer ACCOUNT.
+        correction_scope = CorrectionScope.ACCOUNT
+        scope_desc = "tüm etkinlikler"
+    else:
+        event_type_scope, sender_scope = candidate.event_type, None
+        correction_scope = CorrectionScope.EVENT_TYPE
+        scope_desc = f"'{candidate.event_type}' türü etkinlikler"
 
     try:
         policy = derive_and_save_policy(
@@ -115,6 +148,7 @@ def capture_correction_interactively(
             embedding_provider,
             feedback,
             event_type=event_type_scope,
+            sender=sender_scope,
             infer_event_type=False,
             source=PolicySource.CORRECTION,
         )
@@ -126,6 +160,5 @@ def capture_correction_interactively(
         print("Bu düzeltmeden somut bir kural çıkaramadım.")
         return
 
-    mark_correction_approved(correction.correction_id, policy.policy_id)
-    scope_desc = f"'{event_type_scope}' türü etkinlikler" if event_type_scope else "tüm etkinlikler"
+    mark_correction_approved(correction.correction_id, policy.policy_id, correction_scope, sender_scope)
     print(f"Kaydettim: {scope_desc} için gelecekte '{feedback}' uygulanacak.")

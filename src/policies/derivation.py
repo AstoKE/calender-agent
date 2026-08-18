@@ -36,6 +36,7 @@ def derive_and_save_policy(
     embedding_provider: EmbeddingProvider,
     rule_text: str,
     event_type: str | None = None,
+    sender: str | None = None,
     infer_event_type: bool = True,
     source: PolicySource = PolicySource.MANUAL,
 ) -> PersonalPolicy | None:
@@ -47,10 +48,16 @@ def derive_and_save_policy(
     ``event_type`` AYNEN kullanılır (None ise kasıtlı olarak global demektir),
     LLM'in metinden tahmin ettiği değer YOK SAYILIR.
 
-    Aynı `category`+`event_type` kapsamında zaten aktif bir politika varsa,
-    yenisi oluşturulduktan sonra eskisi `deactivate_policy` ile versiyonlanır
-    (§9 çelişki tespiti/versiyonlama) — aynı kuralın iki kez tanımlanması artık
-    iki ayrı aktif politika biriktirmiyor.
+    ``sender`` verilirse politika sender-scope'lu olur ve ``event_type``'tan
+    (verilmiş olsa bile) ÖNCELİKLİDİR — bir düzeltme aynı anda hem "bu tür
+    etkinliklerde" hem "bu göndericiden gelenlerde" olamaz (bkz. §9 scope
+    hiyerarşisi, kullanıcı tek bir kapsam seçer).
+
+    Aynı `category`+kapsam (event_type/sender/global) kombinasyonunda zaten
+    aktif bir politika varsa, yenisi oluşturulduktan sonra eskisi
+    `deactivate_policy` ile versiyonlanır (§9 çelişki tespiti/versiyonlama) —
+    aynı kuralın iki kez tanımlanması artık iki ayrı aktif politika
+    biriktirmiyor.
 
     Kuraldan somut bir davranış (`structured_action`) çıkarılamazsa None döner.
     """
@@ -74,14 +81,17 @@ def derive_and_save_policy(
 
     category = next(iter(structured_action))
     effective_event_type = event_type if not infer_event_type else (event_type or fields.get("event_type"))
+    if sender:
+        effective_event_type = None  # sender daha spesifik, event_type'ı ezer
 
-    conflict = find_active_conflicting_policy(category, effective_event_type)
+    conflict = find_active_conflicting_policy(category, event_type=effective_event_type, sender=sender)
 
     policy = add_policy(
         category=category,
         natural_language_rule=rule_text,
         structured_action=structured_action,
         event_type=effective_event_type,
+        sender=sender,
         source=source,
     )
     embed_and_store_policy(embedding_provider, policy)

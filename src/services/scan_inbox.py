@@ -63,7 +63,8 @@ def main() -> None:
             continue
 
         review_and_confirm_candidate(
-            candidate, calendar, embedding_provider, llm, source_email_row_id=email_row_id
+            candidate, calendar, embedding_provider, llm,
+            source_email_row_id=email_row_id, source_sender=email.sender,
         )
         mark_email_processed(email_row_id)
         print()

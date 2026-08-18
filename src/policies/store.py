@@ -9,9 +9,35 @@ from __future__ import annotations
 import json
 import uuid
 from datetime import datetime, timezone
+from email.utils import parseaddr
 
 from src.core.models import PersonalPolicy, PolicyScope, PolicySource
 from src.storage.db import get_connection
+
+
+def normalize_sender(raw: str) -> str:
+    """'"İsim" <adres@ornek.com>' gibi ham bir From başlığından karşılaştırma
+    için kararlı bir anahtar üretir — aynı gönderici farklı maillerde farklı
+    görünen isimle gelebilir, bu yüzden yalnızca adres kısmı (küçük harfe
+    çevrilmiş) kullanılır. Zaten sade bir adres verilirse (görünen isim yok)
+    değişmeden döner."""
+    return (parseaddr(raw)[1] or raw).strip().lower()
+
+
+def _structured_conditions(event_type: str | None, sender: str | None) -> dict:
+    if sender:
+        return {"sender": normalize_sender(sender)}
+    if event_type:
+        return {"event_type": event_type}
+    return {}
+
+
+def _policy_scope(event_type: str | None, sender: str | None) -> PolicyScope:
+    if sender:
+        return PolicyScope.SENDER
+    if event_type:
+        return PolicyScope.EVENT_TYPE
+    return PolicyScope.GLOBAL
 
 
 def add_policy(
@@ -19,11 +45,12 @@ def add_policy(
     natural_language_rule: str,
     structured_action: dict,
     event_type: str | None = None,
+    sender: str | None = None,
     language: str = "tr",
     priority: int = 0,
     source: PolicySource = PolicySource.MANUAL,
 ) -> PersonalPolicy:
-    scope = PolicyScope.EVENT_TYPE if event_type else PolicyScope.GLOBAL
+    scope = _policy_scope(event_type, sender)
     now = datetime.now(timezone.utc)
     policy = PersonalPolicy(
         policy_id=str(uuid.uuid4()),
@@ -31,7 +58,7 @@ def add_policy(
         scope=scope,
         natural_language_rule=natural_language_rule,
         language=language,
-        structured_conditions={"event_type": event_type} if event_type else {},
+        structured_conditions=_structured_conditions(event_type, sender),
         structured_action=structured_action,
         priority=priority,
         version=1,
@@ -95,18 +122,29 @@ def get_active_policies() -> list[PersonalPolicy]:
     return [row_to_policy(r) for r in rows]
 
 
-def find_active_conflicting_policy(category: str, event_type: str | None) -> PersonalPolicy | None:
-    """Aynı `category` (structured_action anahtarı) ve aynı `event_type` kapsamında
-    (ikisi de global ise de eşleşir) aktif bir politika var mı arar (bkz. §9
-    çelişki tespiti). Bulunursa çağıran bunu `deactivate_policy` ile versiyonlayıp
-    yenisiyle değiştirmeli — aynı kural iki kez tanımlanınca iki ayrı aktif
-    politika birikmesin diye."""
+def find_active_conflicting_policy(
+    category: str, event_type: str | None = None, sender: str | None = None
+) -> PersonalPolicy | None:
+    """Aynı `category` (structured_action anahtarı) ve aynı kapsamda (event_type/
+    sender/global — ikisi de global ise de eşleşir) aktif bir politika var mı
+    arar (bkz. §9 çelişki tespiti). Bulunursa çağıran bunu `deactivate_policy`
+    ile versiyonlayıp yenisiyle değiştirmeli — aynı kural iki kez tanımlanınca
+    iki ayrı aktif politika birikmesin diye."""
+    target = _structured_conditions(event_type, sender)
     for policy in get_active_policies():
         if category not in policy.structured_action:
             continue
-        if policy.structured_conditions.get("event_type") == event_type:
+        if policy.structured_conditions == target:
             return policy
     return None
+
+
+def get_active_policies_for_sender(sender: str) -> list[PersonalPolicy]:
+    """Belirli bir gönderene özel (sender-scope'lu) aktif politikaları döner
+    (bkz. §9). Semantik retrieval'a değil doğrudan eşleşmeye dayanır — gönderen
+    adresi biliniyorsa bu deterministik bir eşleşmedir, tahmine gerek yok."""
+    normalized = normalize_sender(sender)
+    return [p for p in get_active_policies() if p.structured_conditions.get("sender") == normalized]
 
 
 def deactivate_policy(policy: PersonalPolicy) -> None:
