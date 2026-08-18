@@ -31,6 +31,48 @@ def _policy_extraction_system_prompt() -> str:
     )
 
 
+def save_derived_policy(
+    embedding_provider: EmbeddingProvider,
+    natural_language_rule: str,
+    structured_action: dict,
+    event_type: str | None = None,
+    sender: str | None = None,
+    source: PolicySource = PolicySource.MANUAL,
+) -> PersonalPolicy:
+    """`structured_action` zaten belli olduğunda (LLM'e ihtiyaç yok — örn.
+    kullanıcı önerideki bir alanı doğrudan düzenlediğinde, bkz.
+    src/services/vertical_prototype.py::edit_candidate_field_interactively)
+    politikayı kaydeder + çelişki tespiti/versiyonlama yapar + embed eder.
+    Doğal dil metninden LLM ile çıkarım için `derive_and_save_policy`'ye bkz.
+
+    ``sender`` verilirse politika sender-scope'lu olur ve ``event_type``'tan
+    (verilmiş olsa bile) ÖNCELİKLİDİR (bkz. §9 scope hiyerarşisi).
+
+    Aynı `category`+kapsam (event_type/sender/global) kombinasyonunda zaten
+    aktif bir politika varsa, yenisi oluşturulduktan sonra eskisi
+    `deactivate_policy` ile versiyonlanır (§9)."""
+    if sender:
+        event_type = None
+    category = next(iter(structured_action))
+
+    conflict = find_active_conflicting_policy(category, event_type=event_type, sender=sender)
+
+    policy = add_policy(
+        category=category,
+        natural_language_rule=natural_language_rule,
+        structured_action=structured_action,
+        event_type=event_type,
+        sender=sender,
+        source=source,
+    )
+    embed_and_store_policy(embedding_provider, policy)
+
+    if conflict is not None:
+        deactivate_policy(conflict)
+
+    return policy
+
+
 def derive_and_save_policy(
     llm: LLMProvider,
     embedding_provider: EmbeddingProvider,
@@ -40,24 +82,14 @@ def derive_and_save_policy(
     infer_event_type: bool = True,
     source: PolicySource = PolicySource.MANUAL,
 ) -> PersonalPolicy | None:
-    """Kural metninden yapılandırılmış bir politika türetir, kaydeder, embed eder.
+    """Doğal dil kural metnini LLM ile yapılandırılmış hale getirip
+    `save_derived_policy` ile kaydeder.
 
     ``infer_event_type=True`` (varsayılan, manuel kural tanımlama): ``event_type``
     verilmemişse LLM'in kural metninden çıkardığı değere güvenilir.
     ``infer_event_type=False`` (ACM, kullanıcı scope'u açıkça seçtiğinde):
     ``event_type`` AYNEN kullanılır (None ise kasıtlı olarak global demektir),
     LLM'in metinden tahmin ettiği değer YOK SAYILIR.
-
-    ``sender`` verilirse politika sender-scope'lu olur ve ``event_type``'tan
-    (verilmiş olsa bile) ÖNCELİKLİDİR — bir düzeltme aynı anda hem "bu tür
-    etkinliklerde" hem "bu göndericiden gelenlerde" olamaz (bkz. §9 scope
-    hiyerarşisi, kullanıcı tek bir kapsam seçer).
-
-    Aynı `category`+kapsam (event_type/sender/global) kombinasyonunda zaten
-    aktif bir politika varsa, yenisi oluşturulduktan sonra eskisi
-    `deactivate_policy` ile versiyonlanır (§9 çelişki tespiti/versiyonlama) —
-    aynı kuralın iki kez tanımlanması artık iki ayrı aktif politika
-    biriktirmiyor.
 
     Kuraldan somut bir davranış (`structured_action`) çıkarılamazsa None döner.
     """
@@ -79,24 +111,13 @@ def derive_and_save_policy(
     if not structured_action:
         return None
 
-    category = next(iter(structured_action))
     effective_event_type = event_type if not infer_event_type else (event_type or fields.get("event_type"))
-    if sender:
-        effective_event_type = None  # sender daha spesifik, event_type'ı ezer
 
-    conflict = find_active_conflicting_policy(category, event_type=effective_event_type, sender=sender)
-
-    policy = add_policy(
-        category=category,
-        natural_language_rule=rule_text,
-        structured_action=structured_action,
+    return save_derived_policy(
+        embedding_provider,
+        rule_text,
+        structured_action,
         event_type=effective_event_type,
         sender=sender,
         source=source,
     )
-    embed_and_store_policy(embedding_provider, policy)
-
-    if conflict is not None:
-        deactivate_policy(conflict)
-
-    return policy

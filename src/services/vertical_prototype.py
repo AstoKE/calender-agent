@@ -21,8 +21,8 @@ from src.connectors.account_registry import select_account
 from src.connectors.google_calendar import GoogleCalendarConnector
 from src.core.logging_config import configure_logging, get_logger
 from src.core.models import CandidateEvent, CandidateStatus, EventType, IntentType, SourceType
-from src.memory.correction_memory import capture_correction_interactively
-from src.policies.derivation import derive_and_save_policy
+from src.memory.correction_memory import candidate_snapshot, capture_correction_interactively, capture_edit_correction
+from src.policies.derivation import VALID_IMPORTANCE_VALUES, derive_and_save_policy
 from src.providers.base import EmbeddingProvider, LLMProvider
 from src.providers.foundry_local import FoundryLocalEmbeddingProvider, FoundryLocalProvider
 from src.providers.json_generation import JsonGenerationError, generate_json
@@ -222,6 +222,55 @@ def fill_missing_fields_interactively(candidate: CandidateEvent) -> None:
         if (candidate.missing_fields or candidate.ambiguous_fields)
         else CandidateStatus.READY_FOR_CONFIRMATION
     )
+
+
+def edit_candidate_field_interactively(candidate: CandidateEvent) -> str | None:
+    """Kullanıcının önizlemede bir alanı doğrudan düzeltmesini sağlar (§7:
+    "kullanıcının bir öneriyi düzenlemesi" de bir user_correction sinyalidir).
+    Yalnızca `PersonalPolicy.structured_action`'a eşlenen alanlar (süre/önem)
+    ACM'nin "gelecekte de uygula" akışını tetikleyebilir — döndürülen değer
+    o durumda structured_action anahtarı (örn. "default_duration_minutes"),
+    aksi halde None (başlık/saat/konum düzenlemesi bir "kural" değildir)."""
+    choice = input("Hangi alanı düzenlemek istersiniz? (başlık/saat/süre/önem/konum) ").strip().lower()
+
+    if choice in ("başlık", "baslik", "title"):
+        candidate.title = input("Yeni başlık: ").strip()
+        return None
+
+    if choice in ("saat", "tarih", "start_datetime"):
+        for _ in range(MAX_CLARIFICATION_ATTEMPTS):
+            raw = input("Yeni tarih/saat (YYYY-MM-DDTHH:MM:SS): ").strip()
+            try:
+                candidate.start_datetime = ensure_timezone(raw or None)
+                return None
+            except Exception:
+                print("Bu formatı anlayamadım, YYYY-MM-DDTHH:MM:SS biçiminde tekrar dener misiniz?")
+        return None
+
+    if choice in ("süre", "sure", "duration_minutes"):
+        for _ in range(MAX_CLARIFICATION_ATTEMPTS):
+            raw = input("Yeni süre (örn: 30, 1 saat): ").strip()
+            minutes = parse_duration_minutes(raw)
+            if minutes:
+                candidate.duration_minutes = minutes
+                return "default_duration_minutes"
+            print("Anlayamadım, bir sayı içeren şekilde tekrar dener misiniz? (örn: 45 veya '1 saat')")
+        return None
+
+    if choice in ("önem", "onem", "importance"):
+        raw = input("Yeni önem (low/normal/high): ").strip().lower()
+        if raw in VALID_IMPORTANCE_VALUES:
+            candidate.importance = raw
+            return "importance"
+        print("Geçersiz değer (low/normal/high olmalı), önem değiştirilmedi.")
+        return None
+
+    if choice in ("konum", "location"):
+        candidate.location = input("Yeni konum: ").strip() or None
+        return None
+
+    print("Anlamadım, hiçbir şey değiştirilmedi.")
+    return None
 
 
 def save_candidate(conn, candidate: CandidateEvent) -> None:
@@ -437,8 +486,24 @@ def review_and_confirm_candidate(
         print("İptal edildi, takvime yazılmadı.")
         return
 
-    print_preview(candidate, conflict_note)
-    approval = input("Onaylıyor musunuz? [e/h] ").strip().lower()
+    # Düzenleme öncesi anlık görüntü: kullanıcı bir alanı değiştirirse ACM'nin
+    # gerçek bir "önce/sonra" farkı görebilmesi için (bkz. capture_edit_correction).
+    original_snapshot = candidate_snapshot(candidate)
+    edited_structured_action: dict = {}
+
+    while True:
+        print_preview(candidate, conflict_note)
+        approval = input("Onaylıyor musunuz? [e/h/d] ").strip().lower()
+        if approval == "d":
+            edited_category = edit_candidate_field_interactively(candidate)
+            if edited_category:
+                edited_structured_action[edited_category] = getattr(
+                    candidate, "duration_minutes" if edited_category == "default_duration_minutes" else "importance"
+                )
+            if candidate.start_datetime and candidate.duration_minutes:
+                conflict_note = resolve_conflicts_interactively(calendar, candidate)
+            continue
+        break
 
     with get_connection() as conn:
         if approval != "e":
@@ -472,6 +537,11 @@ def review_and_confirm_candidate(
         return
 
     print(f"Takvime eklendi. event_id={event_id}")
+
+    if edited_structured_action:
+        capture_edit_correction(
+            embedding_provider, candidate, original_snapshot, edited_structured_action, sender=source_sender
+        )
 
 
 def main() -> None:

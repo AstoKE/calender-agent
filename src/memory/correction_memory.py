@@ -12,13 +12,13 @@ import uuid
 from datetime import datetime, timezone
 
 from src.core.models import CandidateEvent, CorrectionScope, PolicySource, UserCorrection
-from src.policies.derivation import derive_and_save_policy
+from src.policies.derivation import derive_and_save_policy, save_derived_policy
 from src.providers.base import EmbeddingProvider, LLMProvider
 from src.providers.json_generation import JsonGenerationError
 from src.storage.db import get_connection
 
 
-def _candidate_snapshot(candidate: CandidateEvent) -> dict:
+def candidate_snapshot(candidate: CandidateEvent) -> dict:
     return candidate.model_dump(
         mode="json",
         include={
@@ -28,20 +28,26 @@ def _candidate_snapshot(candidate: CandidateEvent) -> dict:
     )
 
 
-def save_user_correction(candidate: CandidateEvent, user_feedback_text: str) -> UserCorrection:
-    # MVP: yapılandırılmış bir "düzenle" arayüzü yok, tek kaynak candidate'ın
-    # reddedildiği andaki hali — original_output ve corrected_output bu yüzden
-    # aynı anlık görüntü. correction_scope her zaman SINGLE_EVENT: asıl scope
-    # kararı (event_type/global) yalnızca kullanıcı "gelecekte de" derse,
-    # derive_and_save_policy çağrısında verilir.
-    snapshot = _candidate_snapshot(candidate)
+def save_user_correction(
+    candidate: CandidateEvent,
+    user_feedback_text: str,
+    original_output: dict | None = None,
+    corrected_output: dict | None = None,
+) -> UserCorrection:
+    """``original_output``/``corrected_output`` verilmezse candidate'ın ŞU ANKİ
+    hali kullanılır (reddetme akışı: candidate henüz düzenlenmemiştir, önce/
+    sonra aynıdır). Düzenleme akışı (bkz. capture_edit_correction) çağrıldığı
+    anda candidate ZATEN düzenlenmiş olduğu için ``original_output``'u
+    düzenlemeden ÖNCEKİ anlık görüntüyle açıkça verir — aksi halde ikisi de
+    aynı (düzenlenmiş) hale referans verirdi."""
+    current_snapshot = candidate_snapshot(candidate)
     correction = UserCorrection(
         correction_id=str(uuid.uuid4()),
         candidate_id=candidate.candidate_id,
         original_input=candidate.extraction_reason,
-        original_output=snapshot,
+        original_output=original_output if original_output is not None else current_snapshot,
         user_feedback_text=user_feedback_text,
-        corrected_output=snapshot,
+        corrected_output=corrected_output if corrected_output is not None else current_snapshot,
         correction_scope=CorrectionScope.SINGLE_EVENT,
         event_type=candidate.event_type,
         language="tr",
@@ -93,6 +99,33 @@ def mark_correction_approved(
         )
 
 
+def _choose_scope_interactively(
+    candidate: CandidateEvent, sender: str | None
+) -> tuple[str | None, str | None, CorrectionScope, str]:
+    """Döner: (event_type_scope, sender_scope, correction_scope, açıklama).
+    ``sender`` yalnızca mail kaynaklı candidate'lar için verilir (konuşma
+    akışında None) — verilirse scope seçimine "bu göndericiden gelenler"
+    seçeneği eklenir (bkz. §9 scope hiyerarşisi: sender, event_type'tan daha
+    spesifiktir)."""
+    if sender:
+        choice = input(
+            f"Yalnızca '{candidate.event_type}' türü etkinliklerde mi (1), "
+            "yalnızca bu göndericiden gelen maillerde mi (2), yoksa her zaman mı (3)? [1/2/3] "
+        ).strip()
+    else:
+        choice = input(
+            f"Yalnızca '{candidate.event_type}' türü etkinliklerde mi (1), yoksa her zaman mı (2)? [1/2] "
+        ).strip()
+
+    if sender and choice == "2":
+        return None, sender, CorrectionScope.SENDER, f"'{sender}' göndericisinden gelen mailler"
+    if choice == ("3" if sender else "2"):
+        # CorrectionScope'ta ayrı bir GLOBAL değeri yok; hesap genelinde
+        # (her zaman) anlamına en yakın değer ACCOUNT.
+        return None, None, CorrectionScope.ACCOUNT, "tüm etkinlikler"
+    return candidate.event_type, None, CorrectionScope.EVENT_TYPE, f"'{candidate.event_type}' türü etkinlikler"
+
+
 def capture_correction_interactively(
     llm: LLMProvider,
     embedding_provider: EmbeddingProvider,
@@ -101,12 +134,7 @@ def capture_correction_interactively(
 ) -> None:
     """Kullanıcı bir öneriyi reddettikten hemen sonra çağrılır (bkz.
     review_and_confirm_candidate). Kullanıcı boş geçerse ya da "gelecekte de"
-    demezse yalnızca ham düzeltme kaydedilir, hiçbir politika oluşmaz.
-
-    ``sender`` yalnızca mail kaynaklı candidate'lar için verilir (konuşma
-    akışında None) — verilirse scope seçimine "bu göndericiden gelenler"
-    seçeneği eklenir (bkz. §9 scope hiyerarşisi: sender, event_type'tan daha
-    spesifiktir)."""
+    demezse yalnızca ham düzeltme kaydedilir, hiçbir politika oluşmaz."""
     feedback = input("Neden reddettiniz? (isterseniz boş bırakıp Enter'a basabilirsiniz) ").strip()
     if not feedback:
         return
@@ -117,30 +145,7 @@ def capture_correction_interactively(
     if apply_future != "e":
         return
 
-    if sender:
-        scope_choice = input(
-            f"Yalnızca '{candidate.event_type}' türü etkinliklerde mi (1), "
-            "yalnızca bu göndericiden gelen maillerde mi (2), yoksa her zaman mı (3)? [1/2/3] "
-        ).strip()
-    else:
-        scope_choice = input(
-            f"Yalnızca '{candidate.event_type}' türü etkinliklerde mi (1), yoksa her zaman mı (2)? [1/2] "
-        ).strip()
-
-    if sender and scope_choice == "2":
-        event_type_scope, sender_scope = None, sender
-        correction_scope = CorrectionScope.SENDER
-        scope_desc = f"'{sender}' göndericisinden gelen mailler"
-    elif scope_choice == ("3" if sender else "2"):
-        event_type_scope, sender_scope = None, None
-        # CorrectionScope'ta ayrı bir GLOBAL değeri yok; hesap genelinde
-        # (her zaman) anlamına en yakın değer ACCOUNT.
-        correction_scope = CorrectionScope.ACCOUNT
-        scope_desc = "tüm etkinlikler"
-    else:
-        event_type_scope, sender_scope = candidate.event_type, None
-        correction_scope = CorrectionScope.EVENT_TYPE
-        scope_desc = f"'{candidate.event_type}' türü etkinlikler"
+    event_type_scope, sender_scope, correction_scope, scope_desc = _choose_scope_interactively(candidate, sender)
 
     try:
         policy = derive_and_save_policy(
@@ -162,3 +167,47 @@ def capture_correction_interactively(
 
     mark_correction_approved(correction.correction_id, policy.policy_id, correction_scope, sender_scope)
     print(f"Kaydettim: {scope_desc} için gelecekte '{feedback}' uygulanacak.")
+
+
+_STRUCTURED_ACTION_LABELS = {
+    "default_duration_minutes": "süre",
+    "reminder_minutes_before": "hatırlatıcı",
+    "importance": "önem",
+}
+
+
+def capture_edit_correction(
+    embedding_provider: EmbeddingProvider,
+    candidate: CandidateEvent,
+    original_snapshot: dict,
+    edited_structured_action: dict,
+    sender: str | None = None,
+) -> None:
+    """Kullanıcı önerideki bir alanı (süre/önem) doğrudan düzenleyip sonra
+    ONAYLADIĞINDA çağrılır — reddetme değil ama yine de bir düzeltme sinyali
+    (bkz. §7: kullanıcının bir öneriyi düzenlemesi de user_correction'dır).
+    LLM'e ihtiyaç yok: hangi alanın ne olması gerektiği zaten kesin biliniyor
+    (kullanıcı direkt yazdı) — save_derived_policy ile doğrudan kaydedilir
+    (bkz. §11 deterministik karar ilkesi, LLM'e "tahmin ettirme")."""
+    field_desc = ", ".join(
+        f"{_STRUCTURED_ACTION_LABELS.get(k, k)} {v}" for k, v in edited_structured_action.items()
+    )
+    feedback = f"Kullanıcı önerideki alanı düzenledi: {field_desc}."
+    correction = save_user_correction(candidate, feedback, original_output=original_snapshot)
+
+    apply_future = input("Bu düzenlemeyi gelecekte benzer etkinliklerde de uygulayayım mı? [e/h] ").strip().lower()
+    if apply_future != "e":
+        return
+
+    event_type_scope, sender_scope, correction_scope, scope_desc = _choose_scope_interactively(candidate, sender)
+
+    policy = save_derived_policy(
+        embedding_provider,
+        feedback,
+        edited_structured_action,
+        event_type=event_type_scope,
+        sender=sender_scope,
+        source=PolicySource.CORRECTION,
+    )
+    mark_correction_approved(correction.correction_id, policy.policy_id, correction_scope, sender_scope)
+    print(f"Kaydettim: {scope_desc} için gelecekte {field_desc} uygulanacak.")
