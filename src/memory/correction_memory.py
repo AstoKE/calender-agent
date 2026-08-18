@@ -15,6 +15,7 @@ from src.core.models import CandidateEvent, CorrectionScope, PolicySource, UserC
 from src.policies.derivation import derive_and_save_policy, save_derived_policy
 from src.providers.base import EmbeddingProvider, LLMProvider
 from src.providers.json_generation import JsonGenerationError
+from src.rag.correction_retrieval import embed_and_store_classification_correction
 from src.storage.db import get_connection
 
 
@@ -33,13 +34,19 @@ def save_user_correction(
     user_feedback_text: str,
     original_output: dict | None = None,
     corrected_output: dict | None = None,
+    correction_type: str | None = None,
 ) -> UserCorrection:
     """``original_output``/``corrected_output`` verilmezse candidate'ın ŞU ANKİ
     hali kullanılır (reddetme akışı: candidate henüz düzenlenmemiştir, önce/
     sonra aynıdır). Düzenleme akışı (bkz. capture_edit_correction) çağrıldığı
     anda candidate ZATEN düzenlenmiş olduğu için ``original_output``'u
     düzenlemeden ÖNCEKİ anlık görüntüyle açıkça verir — aksi halde ikisi de
-    aynı (düzenlenmiş) hale referans verirdi."""
+    aynı (düzenlenmiş) hale referans verirdi.
+
+    ``correction_type``: None = alan düzeltmesi (reddetme/düzenleme, mevcut
+    davranış); "classification" = mailin BAŞTAN takvimlik olmaması gerektiğine
+    dair bir düzeltme (bkz. save_classification_correction) — retrieval bu
+    ikisini karıştırmamak için filtreliyor (bkz. rag/correction_retrieval.py)."""
     current_snapshot = candidate_snapshot(candidate)
     correction = UserCorrection(
         correction_id=str(uuid.uuid4()),
@@ -62,8 +69,8 @@ def save_user_correction(
                 correction_id, candidate_id, original_input, original_output,
                 user_feedback_text, corrected_output, correction_scope, event_type,
                 account_scope, sender_scope, language, approved_for_future_use,
-                derived_policy_id, created_at
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                derived_policy_id, correction_type, created_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 correction.correction_id,
@@ -79,9 +86,27 @@ def save_user_correction(
                 correction.language,
                 int(correction.approved_for_future_use),
                 correction.derived_policy_id,
+                correction_type,
                 correction.created_at.isoformat(),
             ),
         )
+    return correction
+
+
+def save_classification_correction(
+    embedding_provider: EmbeddingProvider,
+    candidate: CandidateEvent,
+    email_text: str,
+    user_feedback_text: str,
+) -> UserCorrection:
+    """Kullanıcı bir mailin BAŞTAN hiç takvimlik olmaması gerektiğini
+    belirttiğinde çağrılır (bkz. capture_correction_interactively) — bir
+    alan (süre/önem/vb.) düzeltmesi değil, `is_calendar_worthy`
+    sınıflandırmasının kendisine dair bir düzeltmedir. Mail metni embed edilip
+    `correction_embeddings`'e yazılır; `retrieve_similar_classification_corrections`
+    gelecekteki sınıflandırma çağrılarında bunu bağlam olarak kullanır."""
+    correction = save_user_correction(candidate, user_feedback_text, correction_type="classification")
+    embed_and_store_classification_correction(embedding_provider, correction.correction_id, email_text)
     return correction
 
 
@@ -131,10 +156,31 @@ def capture_correction_interactively(
     embedding_provider: EmbeddingProvider,
     candidate: CandidateEvent,
     sender: str | None = None,
+    email_text: str | None = None,
 ) -> None:
     """Kullanıcı bir öneriyi reddettikten hemen sonra çağrılır (bkz.
     review_and_confirm_candidate). Kullanıcı boş geçerse ya da "gelecekte de"
-    demezse yalnızca ham düzeltme kaydedilir, hiçbir politika oluşmaz."""
+    demezse yalnızca ham düzeltme kaydedilir, hiçbir politika oluşmaz.
+
+    ``email_text`` yalnızca mail kaynaklı candidate'lar için verilir (konuşma
+    akışında None) — verilirse önce "bu mail hiç takvimlik değil miydi, yoksa
+    bilgiler mi yanlıştı?" diye sorulur; ilki seçilirse bu bir alan düzeltmesi
+    değil, is_calendar_worthy sınıflandırmasının kendisine dair bir düzeltme
+    olarak ayrıca kaydedilir (bkz. save_classification_correction)."""
+    if email_text:
+        kind = input(
+            "Bu mail hiç takvimlik değil miydi (1), yoksa bilgiler mi "
+            "(tarih/süre/vb.) yanlıştı (2)? [1/2] "
+        ).strip()
+        if kind == "1":
+            reason = input(
+                "Neden takvimlik değildi? (isterseniz boş bırakıp Enter'a basabilirsiniz) "
+            ).strip()
+            if reason:
+                save_classification_correction(embedding_provider, candidate, email_text, reason)
+                print("Kaydettim: bu tür mailleri gelecekte daha iyi ayırt etmeye çalışacağım.")
+            return
+
     feedback = input("Neden reddettiniz? (isterseniz boş bırakıp Enter'a basabilirsiniz) ").strip()
     if not feedback:
         return

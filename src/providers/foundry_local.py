@@ -128,12 +128,24 @@ def _get_ready_model(manager: FoundryLocalManager, alias: str, prefer_gpu: bool)
                     "GPU model varyantı (%s) yüklenemedi, CPU'ya düşülüyor: %s", gpu_variant.id, e
                 )
 
-    if not model.is_cached:
-        model.download()
-    if not model.is_loaded:
-        model.load()
-    logger.info("Model '%s' CPU üzerinde çalışıyor.", model.id)
-    return model
+    # CPU varyantını AÇIKÇA seçiyoruz, "varsayılan" `model` nesnesine
+    # güvenmiyoruz: canlı testte, aynı model_alias için daha önce (başka bir
+    # process'te, örn. prefer_gpu=True olan vertical_prototype.py'de) GPU
+    # varyantı yüklenmişse, katalogdan dönen "varsayılan" `model` bu process'te
+    # EP hiç kayıtlı olmamasına RAĞMEN cuda-gpu varyantına işaret edebiliyor —
+    # bu da prefer_gpu=False iken bile CUDA gerektiren bir varyantı yüklemeye
+    # çalışıp çökmesine yol açıyordu (FoundryLocalException: "requires
+    # CUDAExecutionProvider... Available EPs: [CPUExecutionProvider]").
+    cpu_variant = next(
+        (v for v in model.variants if v.info.runtime.execution_provider == "CPUExecutionProvider"),
+        model,
+    )
+    if not cpu_variant.is_cached:
+        cpu_variant.download()
+    if not cpu_variant.is_loaded:
+        cpu_variant.load()
+    logger.info("Model '%s' CPU üzerinde çalışıyor.", cpu_variant.id)
+    return cpu_variant
 
 
 class FoundryLocalProvider(LLMProvider):

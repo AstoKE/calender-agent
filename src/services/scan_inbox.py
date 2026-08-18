@@ -14,7 +14,7 @@ from src.connectors.account_registry import select_account
 from src.connectors.google_calendar import GoogleCalendarConnector
 from src.core.logging_config import configure_logging
 from src.providers.foundry_local import FoundryLocalEmbeddingProvider, FoundryLocalProvider
-from src.services.mail_analysis import extract_candidate_from_email, is_calendar_worthy
+from src.services.mail_analysis import build_email_text, extract_candidate_from_email, is_calendar_worthy
 from src.services.mail_sync import mark_email_processed, sync_new_emails
 from src.services.vertical_prototype import review_and_confirm_candidate
 from src.storage.db import init_db
@@ -24,7 +24,15 @@ def main() -> None:
     configure_logging()
     init_db()
     account_id, _account_email = select_account()
-    llm = FoundryLocalProvider(model_alias="qwen3-4b")
+    # prefer_gpu=False: mail taraması onlarca ardışık LLM çağrısı yapıyor
+    # (her mail için sınıflandırma + gerekirse extraction); canlı testte GPU
+    # yolunda birkaç mail sonra "CUDA error ... illegal memory access"
+    # (Foundry Local'ın native katmanında kalıcı bir CUDA context bozulması)
+    # görüldü ve süreç geri kalan TÜM maillerde aynı şekilde çökmeye devam
+    # etti. CPU daha yavaş ama taramanın tamamını güvenilir şekilde bitiriyor.
+    # embedding_provider ve vertical_prototype.py'nin LLM'i GPU'da kalmaya
+    # devam ediyor (çok daha az ardışık çağrı yapıyorlar, aynı riski taşımıyor).
+    llm = FoundryLocalProvider(model_alias="qwen3-4b", prefer_gpu=False)
     embedding_provider = FoundryLocalEmbeddingProvider()
     calendar = GoogleCalendarConnector(account_id=account_id)
 
@@ -36,7 +44,7 @@ def main() -> None:
     skipped_errors = 0
     for email_row_id, email in new_emails:
         try:
-            worthy, reason = is_calendar_worthy(llm, email)
+            worthy, reason = is_calendar_worthy(llm, embedding_provider, email)
         except Exception as e:
             # Model bazen boş/geçersiz JSON döndürüyor (canlı testte görüldü).
             # Tek bir sorunlu mail tüm taramayı çökertmemeli — bu maili
@@ -65,6 +73,7 @@ def main() -> None:
         review_and_confirm_candidate(
             candidate, calendar, embedding_provider, llm,
             source_email_row_id=email_row_id, source_sender=email.sender,
+            source_email_text=build_email_text(email),
         )
         mark_email_processed(email_row_id)
         print()

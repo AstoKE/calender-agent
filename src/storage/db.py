@@ -17,6 +17,7 @@ DEFAULT_DB_PATH = Path(__file__).resolve().parents[2] / "data" / "calendar_agent
 # sütun-ekleme listesi yeterli (bkz. docs/architecture-plan.md §12).
 _ADHOC_COLUMN_MIGRATIONS = [
     ("email_messages", "labels", "TEXT"),
+    ("user_corrections", "correction_type", "TEXT"),
 ]
 
 

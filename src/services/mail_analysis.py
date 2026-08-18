@@ -13,8 +13,9 @@ from datetime import datetime
 
 from src.core.logging_config import get_logger
 from src.core.models import CandidateEvent, SourceType, UnifiedEmail
-from src.providers.base import LLMProvider
+from src.providers.base import EmbeddingProvider, LLMProvider
 from src.providers.json_generation import generate_json
+from src.rag.correction_retrieval import retrieve_similar_classification_corrections
 from src.services.extraction import build_candidate_from_fields
 from src.services.timeutil import DEFAULT_TIMEZONE
 
@@ -34,6 +35,17 @@ def _collapse_long_urls(text: str) -> str:
     "Unterminated string" hatası — aynı mail her denemede aynı noktada
     kesiliyordu)."""
     return _LONG_URL_RE.sub("[link]", text)
+
+
+def build_email_text(email: UnifiedEmail) -> str:
+    """Konu/gönderen/içeriği tek bir metinde birleştirir — hem LLM promptlarında
+    hem embedding'lerde (bkz. rag/correction_retrieval.py) kullanılıyor, aynı
+    temsil hem sınıflandırma anında hem geçmiş düzeltme kaydında kullanılmalı
+    ki benzerlik karşılaştırması anlamlı olsun."""
+    return (
+        f"Konu: {email.subject}\nGönderen: {email.sender}\n"
+        f"İçerik:\n{_collapse_long_urls((email.body_text or '')[:BODY_PREVIEW_MAX_CHARS])}"
+    )
 
 # Gmail bu kategorileri kendisi atıyor (bkz. Gmail'in Promotions/Social sekmeleri).
 # Ölçümde LLM sınıflandırması bu tür açık pazarlama maillerinde bile yanlış
@@ -101,7 +113,9 @@ def _classification_system_prompt() -> str:
     )
 
 
-def is_calendar_worthy(llm: LLMProvider, email: UnifiedEmail) -> tuple[bool, str]:
+def is_calendar_worthy(
+    llm: LLMProvider, embedding_provider: EmbeddingProvider, email: UnifiedEmail
+) -> tuple[bool, str]:
     matched_categories = NON_CALENDAR_GMAIL_CATEGORIES & set(email.labels)
     if matched_categories:
         logger.debug(
@@ -110,15 +124,24 @@ def is_calendar_worthy(llm: LLMProvider, email: UnifiedEmail) -> tuple[bool, str
         )
         return False, f"Gmail bunu {', '.join(sorted(matched_categories))} kategorisine ayırmış."
 
-    user_prompt = (
-        f"Konu: {email.subject}\nGönderen: {email.sender}\n"
-        f"İçerik:\n{_collapse_long_urls((email.body_text or '')[:BODY_PREVIEW_MAX_CHARS])}"
-    )
+    user_prompt = build_email_text(email)
+
+    # Kullanıcının "bu mail hiç takvimlik değildi" diye düzelttiği geçmiş
+    # örneklere semantik olarak benzeyen varsa, bunlar context_chunks olarak
+    # eklenir (bkz. rag/correction_retrieval.py, Adaptive Correction Memory
+    # §10) — RAG burada da bir "karar" vermiyor, sadece ilgili geçmiş
+    # düzeltmeyi bağlam olarak sunuyor, son kararı yine LLM+kullanıcı onayı
+    # veriyor (bkz. §11).
+    context_chunks = retrieve_similar_classification_corrections(embedding_provider, user_prompt, top_k=3)
+
     # allow_thinking=True: /no_think ile hızlı ama canlı testte gözlenen yanlış
     # pozitifler (örn. tarih içermeyen iş ilanlarını takvimlik sanma) çok daha
     # sık çıkıyordu; GPU'da thinking'in maliyeti (~3-7sn) artık tolere edilebilir
     # ve doğruluğu belirgin şekilde iyileştiriyor (bkz. json_generation.py notu).
-    data = generate_json(llm, _classification_system_prompt(), user_prompt, allow_thinking=True)
+    data = generate_json(
+        llm, _classification_system_prompt(), user_prompt,
+        context_chunks=context_chunks or None, allow_thinking=True,
+    )
     worthy, reason = bool(data.get("is_calendar_worthy")), data.get("reason", "")
     logger.info("is_calendar_worthy: %r -> worthy=%s reason=%r labels=%s", email.subject, worthy, reason, email.labels)
     return worthy, reason
@@ -160,10 +183,7 @@ def _event_extraction_system_prompt(today: datetime) -> str:
 
 def extract_candidate_from_email(llm: LLMProvider, email: UnifiedEmail) -> CandidateEvent:
     today = datetime.now().astimezone()
-    user_prompt = (
-        f"Konu: {email.subject}\nGönderen: {email.sender}\n"
-        f"İçerik:\n{_collapse_long_urls((email.body_text or '')[:BODY_PREVIEW_MAX_CHARS])}"
-    )
+    user_prompt = build_email_text(email)
     fields = generate_json(llm, _event_extraction_system_prompt(today), user_prompt)
 
     # Prompttaki kural #4'e rağmen model bazen mailde hiç tarih olmadığında

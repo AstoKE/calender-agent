@@ -445,13 +445,16 @@ def review_and_confirm_candidate(
     llm: LLMProvider,
     source_email_row_id: str | None = None,
     source_sender: str | None = None,
+    source_email_text: str | None = None,
 ) -> None:
     """Politika uygulama + eksik/belirsiz alan tamamlama + çakışma kontrolü +
     önizleme + onay + (onaylanırsa) takvime yazma. Konuşma akışı (main()) ve
     mail taraması (scan_inbox.py) tarafından ortak kullanılır. Reddedilirse
     Adaptive Correction Memory'ye düşer (bkz. capture_correction_interactively).
     ``source_sender`` yalnızca mail akışında verilir (email.sender) — hem
-    sender-scope'lu politika retrieval'ı hem ACM'nin scope seçimi için."""
+    sender-scope'lu politika retrieval'ı hem ACM'nin scope seçimi için.
+    ``source_email_text`` (mail_analysis.build_email_text) verilirse ACM
+    kullanıcıya "bu mail hiç takvimlik değil miydi?" seçeneğini de sunar."""
     apply_retrieved_policies(candidate, embedding_provider, sender=source_sender)
 
     if candidate.missing_fields or candidate.ambiguous_fields:
@@ -533,7 +536,9 @@ def review_and_confirm_candidate(
     # ikinci bir bağlantı açmak SQLite'ta kilitlenme riski taşır.
     if approval != "e":
         print("Reddedildi, takvime yazılmadı.")
-        capture_correction_interactively(llm, embedding_provider, candidate, sender=source_sender)
+        capture_correction_interactively(
+            llm, embedding_provider, candidate, sender=source_sender, email_text=source_email_text
+        )
         return
 
     print(f"Takvime eklendi. event_id={event_id}")

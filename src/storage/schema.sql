@@ -143,6 +143,7 @@ CREATE TABLE IF NOT EXISTS user_corrections (
     language              TEXT NOT NULL,
     approved_for_future_use INTEGER NOT NULL DEFAULT 0,
     derived_policy_id     TEXT REFERENCES personal_policies(policy_id),
+    correction_type       TEXT,                    -- NULL (alan düzeltmesi) | 'classification'
     created_at            TEXT NOT NULL
 );
 
