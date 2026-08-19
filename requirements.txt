@@ -22,6 +22,10 @@ google-api-python-client
 # Local LLM runtime (verified working: foundry-local-sdk 1.2.4, see CLAUDE.md)
 foundry-local-sdk
 
+# Optional cloud LLM backend (LLM_PROVIDER=gemini in .env, see CLAUDE.md) —
+# a deliberate opt-in departure from the local/offline default.
+google-genai
+
 # Config
 python-dotenv
 

@@ -18,20 +18,31 @@ alternatif.
 
 from __future__ import annotations
 
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 import uvicorn
+from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 
 from src.connectors.account_registry import list_accounts
 from src.core.logging_config import configure_logging
 from src.providers.foundry_local import FoundryLocalEmbeddingProvider, FoundryLocalProvider
+from src.providers.gemini import GeminiEmbeddingProvider, GeminiProvider
 from src.storage.db import init_db
 from src.ui.security import CSRFGuardMiddleware
 from src.ui.session import resolve_active_account, set_session_cookies
 from src.ui.templating import templates
+
+# .env dosyasından (varsa) GOOGLE_API_KEY/LLM_PROVIDER gibi değerleri okur —
+# aşağıdaki lifespan'ın provider seçimi bunu görebilsin diye MODÜL yüklenirken
+# çağrılıyor (lifespan içinde çağrılsaydı, uvicorn'un import zamanında değil
+# ancak sunucu başlarken çalışırdı — zamanlama farkı önemli değil ama burası
+# daha erken ve tek yerde olduğundan daha az sürpriz). Repo kökündeki .env
+# (gitignore'da) — bkz. .env.example.
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 
 @asynccontextmanager
@@ -43,8 +54,18 @@ async def lifespan(app: FastAPI):
     # gerekçe (bkz. o dosyadaki not) — web sunucusu da uzun süre ayakta kalıp
     # çok sayıda istek işleyebilir, GPU'nun birkaç çağrı sonra çökme riski
     # burada da geçerli.
-    app.state.llm = FoundryLocalProvider(model_alias="qwen3-4b", prefer_gpu=False)
-    app.state.embedding_provider = FoundryLocalEmbeddingProvider()
+    #
+    # LLM_PROVIDER=gemini: kullanıcının kendi API key'iyle denemek istemesi
+    # üzerine eklenen, projenin "tamamen yerel/offline" varsayılanından
+    # BİLİNÇLİ bir sapma (bkz. src/providers/gemini.py, .env.example) —
+    # yalnızca açıkça bu ortam değişkeni set edilirse devreye girer,
+    # varsayılan hâlâ Foundry Local.
+    if os.environ.get("LLM_PROVIDER", "foundry_local").strip().lower() == "gemini":
+        app.state.llm = GeminiProvider()
+        app.state.embedding_provider = GeminiEmbeddingProvider()
+    else:
+        app.state.llm = FoundryLocalProvider(model_alias="qwen3-4b", prefer_gpu=False)
+        app.state.embedding_provider = FoundryLocalEmbeddingProvider()
     # account_id -> GoogleCalendarConnector, ilk kullanımda oluşturulur (OAuth
     # token'ı diskte hazır olduğu sürece interaktif bir şey tetiklemez).
     app.state.calendar_connectors = {}
