@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}{{ t("ayarlar.title") }} — {{ t("app.brand") }}{% endblock %}
+{% block content %}
+<h1>{{ t("ayarlar.title") }}</h1>
+
+<section class="settings-section">
+    <h2>{{ t("ayarlar.section.language") }}</h2>
+    <form method="post" action="/dil" class="lang-form">
+        <input type="hidden" name="next" value="/ayarlar" />
+        <button type="submit" name="dil" value="tr" class="btn btn-edit" {% if lang == 'tr' %}disabled{% endif %}>TR</button>
+        <button type="submit" name="dil" value="en" class="btn btn-edit" {% if lang == 'en' %}disabled{% endif %}>EN</button>
+    </form>
+</section>
+
+<section class="settings-section">
+    <h2>{{ t("ayarlar.section.timezone") }}</h2>
+    {% if not active_account %}
+    <p class="hint">{{ t("ayarlar.timezone.no_account_hint") }}</p>
+    {% else %}
+    <form method="post" action="/ayarlar/bolge" class="edit-form">
+        <label>
+            {{ t("ayarlar.field.timezone") }}
+            <select name="saat_dilimi">
+                {% for tz in timezones %}
+                <option value="{{ tz }}" {% if tz == current_timezone %}selected{% endif %}>{{ tz }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <p class="hint">{{ t("ayarlar.timezone.hint") }}</p>
+        <button type="submit" class="btn btn-approve">{{ t("ayarlar.save") }}</button>
+    </form>
+    {% endif %}
+</section>
+
+<section class="settings-section">
+    <h2>{{ t("ayarlar.section.diagnostics") }}</h2>
+    <dl class="card-fields">
+        <dt>{{ t("ayarlar.diagnostics.db_path") }}</dt>
+        <dd><code>{{ db_path }}</code></dd>
+        <dt>{{ t("ayarlar.diagnostics.log_path") }}</dt>
+        <dd><code>{{ log_path }}</code></dd>
+        <dt>{{ t("ayarlar.diagnostics.chat_model") }}</dt>
+        <dd><code>{{ chat_model }}</code></dd>
+        <dt>{{ t("ayarlar.diagnostics.embedding_model") }}</dt>
+        <dd><code>{{ embedding_model }}</code></dd>
+    </dl>
+</section>
+{% endblock %}

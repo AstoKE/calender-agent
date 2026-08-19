@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="{{ lang }}">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{% block title %}{{ t("app.brand") }}{% endblock %}</title>
+    <link rel="stylesheet" href="/static/tokens.css" />
+    <link rel="stylesheet" href="/static/base.css" />
+    <link rel="stylesheet" href="/static/components.css" />
+    {% block head %}{% endblock %}
+</head>
+<body>
+    {% include "partials/_icons.html" %}
+    <a class="skip-link" href="#main">{{ t("common.skip_to_content") }}</a>
+
+    <div class="app">
+        <header class="topbar">
+            <div class="topbar__brand">
+                <svg class="icon" width="24" height="24" aria-hidden="true"><use href="#icon-calendar"></use></svg>
+                {{ t("app.brand") }}
+            </div>
+            <div class="topbar__actions">
+                <details class="menu">
+                    <summary class="menu__trigger" aria-label="{{ t('common.language') }}">
+                        <svg class="icon" width="20" height="20" aria-hidden="true"><use href="#icon-globe"></use></svg>
+                        <span>{{ lang | upper }}</span>
+                        <svg class="icon icon--chevron" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
+                    </summary>
+                    <div class="menu__panel">
+                        <form method="post" action="/dil">
+                            <input type="hidden" name="next" value="{{ request.url.path }}" />
+                            {% for code in supported_languages %}
+                            <button type="submit" name="dil" value="{{ code }}"
+                                    class="menu__item {{ 'menu__item--active' if lang == code }}"
+                                    {% if lang == code %}disabled{% endif %}>
+                                <span>{{ code | upper }}</span>
+                                {% if lang == code %}<svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-check"></use></svg>{% endif %}
+                            </button>
+                            {% endfor %}
+                        </form>
+                    </div>
+                </details>
+
+                {% if accounts %}
+                <details class="menu menu--account">
+                    <summary class="menu__trigger avatar-trigger" aria-label="{{ t('common.accounts') }}">
+                        {% if active_account %}
+                        <span class="avatar" style="background: {{ avatar_color(active_account.id) }}">{{ initials(active_account.email) }}</span>
+                        {% endif %}
+                        <svg class="icon icon--chevron" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
+                    </summary>
+                    <div class="menu__panel menu__panel--wide">
+                        <form method="post" action="/hesap-sec">
+                            <input type="hidden" name="next" value="{{ request.url.path }}" />
+                            {% for acc in accounts %}
+                            {% set is_active = active_account and active_account.id == acc.id %}
+                            <button type="submit" name="account_id" value="{{ acc.id }}"
+                                    class="menu__item account-row {{ 'menu__item--active' if is_active }}"
+                                    {% if is_active %}disabled{% endif %}>
+                                <span class="avatar avatar--sm" style="background: {{ avatar_color(acc.id) }}">{{ initials(acc.email) }}</span>
+                                <span class="account-row__email">{{ acc.email }}</span>
+                                {% if is_active %}
+                                <span class="account-row__status">
+                                    <svg class="icon" width="14" height="14" aria-hidden="true"><use href="#icon-check"></use></svg>
+                                    {{ t("common.active") }}
+                                </span>
+                                {% endif %}
+                            </button>
+                            {% endfor %}
+                        </form>
+                        <a class="menu__footer-link" href="/hesaplar">{{ t("nav.hesaplar") }}</a>
+                    </div>
+                </details>
+                {% endif %}
+            </div>
+        </header>
+
+        <nav class="rail" aria-label="{{ t('common.primary_navigation') }}">
+            {% for item in NAV_ITEMS %}
+            <a href="{{ item.path }}" class="{{ 'active' if active_page == item.slug }}"
+               {% if active_page == item.slug %}aria-current="page"{% endif %}>
+                <svg class="icon" width="20" height="20" aria-hidden="true"><use href="#{{ item.icon }}"></use></svg>
+                <span>{{ t(item.label_key) }}</span>
+            </a>
+            {% endfor %}
+        </nav>
+
+        <main id="main" class="content">
+            {% block content %}{% endblock %}
+        </main>
+
+        <nav class="tabbar" aria-label="{{ t('common.primary_navigation') }}">
+            {% for item in NAV_ITEMS if item.mobile %}
+            <a href="{{ item.path }}" class="{{ 'active' if active_page == item.slug }}"
+               {% if active_page == item.slug %}aria-current="page"{% endif %}>
+                <svg class="icon" width="22" height="22" aria-hidden="true"><use href="#{{ item.icon }}"></use></svg>
+                <span>{{ t(item.label_key) }}</span>
+            </a>
+            {% endfor %}
+            <details class="tabbar__more">
+                <summary aria-label="{{ t('common.more') }}">
+                    <svg class="icon" width="22" height="22" aria-hidden="true"><use href="#icon-more"></use></svg>
+                    <span>{{ t("common.more") }}</span>
+                </summary>
+                <div class="tabbar__more-panel">
+                    {% for item in NAV_ITEMS if not item.mobile %}
+                    <a href="{{ item.path }}" class="{{ 'active' if active_page == item.slug }}"
+                       {% if active_page == item.slug %}aria-current="page"{% endif %}>{{ t(item.label_key) }}</a>
+                    {% endfor %}
+                </div>
+            </details>
+        </nav>
+    </div>
+
+    <script>
+    (function () {
+        function closeAllExcept(except) {
+            document.querySelectorAll("details.menu[open], details.tabbar__more[open]").forEach(function (el) {
+                if (el !== except) el.removeAttribute("open");
+            });
+        }
+        document.addEventListener("keydown", function (e) {
+            if (e.key === "Escape") closeAllExcept(null);
+        });
+        document.addEventListener("pointerdown", function (e) {
+            document.querySelectorAll("details.menu[open], details.tabbar__more[open]").forEach(function (el) {
+                if (!el.contains(e.target)) el.removeAttribute("open");
+            });
+        });
+    })();
+    </script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

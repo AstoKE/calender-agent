@@ -28,6 +28,19 @@ def _get_sync_cursor(account_id: str) -> str | None:
     return row["provider_cursor_or_history_id"] if row else None
 
 
+def get_sync_state(account_id: str, provider: str = "gmail") -> dict | None:
+    """Ana Sayfa'nın "son tarama" göstergesi için — `_get_sync_cursor`'dan
+    farklı olarak `last_sync_at`'i de döner (o yalnızca cursor'ı okuyordu,
+    tarama mantığının iç kullanımı için yeterliydi)."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT last_sync_at, provider_cursor_or_history_id FROM sync_states "
+            "WHERE provider = ? AND account_id = ?",
+            (provider, account_id),
+        ).fetchone()
+    return dict(row) if row else None
+
+
 def _save_sync_cursor(account_id: str, cursor: str) -> None:
     now = datetime.now(timezone.utc).isoformat()
     with get_connection() as conn:

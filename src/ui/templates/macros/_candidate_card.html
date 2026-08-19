@@ -1,0 +1,46 @@
+{# "Gelen Öneriler" kartı — hem /oneriler hem Ana Sayfa'nın "bekleyen
+   öneriler" özeti AYNI bu makroyu kullanır (bkz. plan Faz 6: "benzeri
+   değil, aynısı"). `next_url` onayla/düzenle/reddet sonrası nereye
+   dönüleceğini taşır — importeden şablon `with context` KULLANMALI, aksi
+   halde t()/context_processor'ları makro içinde görünmez. #}
+{% macro candidate_card(item, next_url="/oneriler") %}
+{% set c = item.candidate %}
+<article class="card">
+    <h2>{{ c.title or t("common.untitled") }}</h2>
+    <dl class="card-fields">
+        <dt>{{ t("oneriler.field.time") }}</dt>
+        <dd>
+            {% if c.start_datetime %}{{ c.start_datetime }}{% else %}{{ t("common.unspecified") }}{% endif %}
+            {% if c.duration_minutes %} — {{ c.duration_minutes }} {{ t("common.minutes") }}{% endif %}
+        </dd>
+        <dt>{{ t("oneriler.field.location") }}</dt>
+        <dd>{{ c.location or t("common.unspecified") }}</dd>
+        <dt>{{ t("oneriler.field.type") }}</dt>
+        <dd>{{ t("enum.event_type." ~ c.event_type) }}</dd>
+        <dt>{{ t("oneriler.field.importance") }}</dt>
+        <dd>{{ t("enum.importance." ~ c.importance) if c.importance else t("common.unspecified") }}</dd>
+        <dt>{{ t("oneriler.field.source") }}</dt>
+        <dd>{{ item.sender }} — {{ item.subject }}</dd>
+    </dl>
+
+    {% if c.missing_fields or c.ambiguous_fields %}
+    <p class="warning">
+        <svg class="icon" width="18" height="18" aria-hidden="true"><use href="#icon-warning"></use></svg>
+        {{ t("oneriler.warning.incomplete") }}
+    </p>
+    {% endif %}
+
+    <div class="card-actions">
+        <form method="post" action="/oneriler/{{ c.candidate_id }}/onayla">
+            <input type="hidden" name="next" value="{{ next_url }}" />
+            <button type="submit" class="btn btn-approve">{{ t("common.approve") }}</button>
+        </form>
+        <a class="btn btn-edit" href="/oneriler/{{ c.candidate_id }}/duzenle?next={{ next_url | urlencode }}">{{ t("common.edit") }}</a>
+        <form method="post" action="/oneriler/{{ c.candidate_id }}/reddet" class="reject-form">
+            <input type="hidden" name="next" value="{{ next_url }}" />
+            <input type="text" name="reason" placeholder="{{ t('oneriler.reject_reason_placeholder') }}" />
+            <button type="submit" class="btn btn-reject">{{ t("common.reject") }}</button>
+        </form>
+    </div>
+</article>
+{% endmacro %}

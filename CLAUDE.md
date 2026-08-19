@@ -28,11 +28,15 @@ Tam mimari, veri modeli, 26 başlıklı tasarım kararları için **[docs/archit
   - `add_policy`/policy tanımlama çelişki tespiti + versiyonlama yapıyor (aynı category+kapsamda zaten aktif bir politika varsa eskisi pasifleştirilip `policy_versions`'a snapshot'lanıyor, silinmiyor) — bu, manuel kural tanımlamayı da (`handle_define_policy`) kapsıyor.
   - Kapsam dışı bırakılan: account-scope (kullanılmıyor, tek kullanıcı için sender/global yeterli).
 - `update_event` (yalnızca konuşma akışından): `handle_update_event` kullanıcı mesajından `title_hint`/`date_hint`/`cancel`/yeni saat çıkarıp Google Calendar'da CANLI arama yapıyor (`calendar_events_cache` kullanılmıyor, hiç doldurulmuyor) — sıfır/çoklu eşleşmede tahmin etmeden soruyor, tek eşleşmede önizleme+onay sonrası `update_event`/yeni `delete_event` (connector'a eklendi) çağırıyor. Mail kaynaklı güncelleme tespiti (plan §8.3, thread/semantic ilişkilendirmeye bağımlı) kapsam dışı.
-- Formal pytest test suite (`tests/`) — ilk dilim: `timeutil.py`, `availability.py`, `extraction.py`, `policies/store.py`, `_find_matching_events` (update_event eşleştirme mantığı) için deterministik testler, gerçek DB'ye dokunmayan izole `temp_db` fixture'ıyla. LLM/embedding'e bağımlı testler ve connector mock testleri henüz yok.
+- Formal pytest test suite (`tests/`) — ilk dilim: `timeutil.py`, `availability.py`, `extraction.py`, `policies/store.py`, `_find_matching_events` (update_event eşleştirme mantığı), `candidates/store.py` için deterministik testler, gerçek DB'ye dokunmayan izole `temp_db` fixture'ıyla. LLM/embedding'e bağımlı testler ve connector mock testleri henüz yok.
+- **Web UI — ilk dilim: "Gelen Öneriler"** (`src/ui/`, FastAPI+Jinja2, `python -m src.ui.app`, `http://127.0.0.1:8000/oneriler`). Yalnızca **mail kaynaklı** candidate'lar (konuşma kaynaklı candidate'ların account_id bağlantısı yok). **Bu, `scan_inbox.py`'nin davranışını kalıcı olarak değiştirdi:** artık interaktif onaylatmıyor, her takvimlik maili doğrudan `candidate_events`'e (`src/candidates/store.py::save_new_candidate`) yazıp geçiyor — onay SADECE web'den. `review_and_confirm_candidate` artık yalnızca `vertical_prototype.py` (konuşma akışı) tarafından kullanılıyor. Web'de onayla (çakışma varsa "yine de ekle" onayı ister) / reddet (opsiyonel sebep, ham düzeltme olarak `save_user_correction` ile kaydedilir) / düzenle (eksik/yanlış alanlar) var. ACM'nin "gelecekte de uygulayayım mı?" (politika türetme, scope seçimi) akışı web'de YOK — bilinçli olarak kapsam dışı, CLI'da kalmaya devam ediyor. Web sunucusu login/auth içermiyor (tek kullanıcı, yerel-öncelikli); bağlı hesapların OAuth token'larının CLI üzerinden en az bir kez oluşturulmuş olması gerekiyor.
+- **Web UI — ikinci dilim: tam sol navigasyon + "E-posta Hesapları"** (`src/ui/routes.py`, `src/ui/templates/base.html`). Sol nav (§16: Ana Sayfa/Takvim/Gelen Öneriler/E-posta Hesapları/Kurallarım/Düzeltmelerim/Ayarlar) artık tüm sayfalarda görünüyor, `active_page` context değişkeniyle vurgulanıyor. `scan_inbox.py`'nin çekirdek for-loop'u `scan_account_inbox(account_id, llm, embedding_provider, on_progress=None) -> dict` olarak çıkarıldı — hem CLI'nın `main()`'i hem web'in "Şimdi tara" butonu (`POST /hesaplar/{account_id}/tara`) aynı fonksiyonu çağırıyor, CLI ilerleme metni için `on_progress=print` veriyor, web sessiz (senkron/bloklayan istek, arka plan kuyruğu yok). `GET /hesaplar` bağlı hesapları (`account_registry.py::list_accounts()`, artık `connected_at` da dönüyor) kart olarak listeliyor. Ana Sayfa/Takvim/Kurallarım/Düzeltmelerim/Ayarlar tek bir `GET /{page_name}` catch-all route'una (`yakinda.html` placeholder, `PLACEHOLDER_PAGES` sözlüğünde izin verilen sayfa adları) gidiyor — **bu route dosyanın en sonunda tanımlı olmalı**, Starlette route'ları kayıt sırasına göre eşleştirdiğinden daha önce tanımlanırsa `/hesaplar` gibi spesifik route'ları gölgeler. `tests/test_ui_routes.py`: `FoundryLocalProvider`/`FoundryLocalEmbeddingProvider`'ı sahte bir sınıfla monkeypatch'leyip (`src.ui.app.FoundryLocalProvider` vb.) gerçek model yüklemeden `TestClient` ile nav/placeholder/hesaplar route'larını doğruluyor. Yeni hesap ekleme/tarayıcıda OAuth başlatma ve chatbox (Ana Sayfa'nın konuşma akışı) hâlâ kapsam dışı — sıradaki dilim chatbox.
 - Loglama sistemi: her LLM çağrısı + karar noktası `data/debug.log`'a yazılıyor (`src/core/logging_config.py`) — **bir şey beklenmedik davranırsa önce buraya bak, tahmin etmeye çalışma.**
 
 Henüz yok (plan §19/§25'e göre sıradaki adımlar):
-- Web UI (her şey CLI — `python -m src.services.vertical_prototype` / `scan_inbox`)
+- Web UI'de chatbox (Ana Sayfa'nın konuşma akışı — sohbet/create_event/query_calendar/define_policy'nin webde çalışması, oturum durumu gerektiriyor); Takvim/Kurallarım/Düzeltmelerim/Ayarlar'ın gerçek içeriği (hâlâ "yakında" placeholder); web'de ACM'nin politika türetme akışı; web'den `update_event`; web'den yeni hesap ekleme (tarayıcıda OAuth).
+- Mail kaynaklı `update_event` tespiti (plan §8.3, thread/semantic ilişkilendirmeye bağımlı).
+- `calendar_events_cache` senkronizasyonu (şemada var, hiç doldurulmuyor).
 
 ## Canlı testte öğrenilen kritik teknik gerçekler
 
@@ -76,14 +80,20 @@ Detaylar için `src/providers/foundry_local.py`'nin başındaki not.
 ## Nasıl çalıştırılır / test edilir
 
 ```bash
-# Konuşarak etkinlik oluşturma / takvim sorgulama / kural tanımlama
+# Konuşarak etkinlik oluşturma / takvim sorgulama / kural tanımlama / update_event
 python -m src.services.vertical_prototype
 
-# Gelen kutusunu tarama
+# Gelen kutusunu tarama (artık yalnızca kuyruğa yazıyor, onay web'den)
 python -m src.services.scan_inbox
+
+# Web UI ("Gelen Öneriler") — http://127.0.0.1:8000/oneriler
+python -m src.ui.app
+
+# Testler
+python -m pytest tests/
 ```
 
-Kurulum adımları için [README.md](README.md). Resmi bir test suite yok; bugüne kadarki tüm doğrulama şu şekilde yapıldı: (a) küçük scripted Python check'leri (syntax/import/pyflakes + hedefli fonksiyon çağrıları), (b) kullanıcının kendi interaktif oturumunda gerçek Gmail/Calendar hesabıyla canlı test. Bir şey bozulduğunda önce `data/debug.log`'a bak.
+Kurulum adımları için [README.md](README.md). `tests/`'te ilk pytest dilimi var (deterministik mantık — bkz. yukarıdaki "Güncel durum"), ama asıl doğrulama hâlâ şu şekilde: (a) küçük scripted Python check'leri (syntax/import/pyflakes + hedefli fonksiyon çağrıları), (b) kullanıcının kendi interaktif oturumunda gerçek Gmail/Calendar hesabıyla canlı test. Bir şey bozulduğunda önce `data/debug.log`'a bak.
 
 ## Bu projede nasıl çalışılır (workflow tercihleri)
 
@@ -103,9 +113,13 @@ src/
   connectors/    # Gmail, Google Calendar, OAuth (google_auth.py), Account Registry
   services/      # intent.py, extraction.py (ortak alan eşleme), timeutil.py,
                  # availability.py (Conflict Engine), mail_sync.py, mail_analysis.py,
-                 # vertical_prototype.py (ana konuşma akışı + review_and_confirm_candidate
-                 # — hem konuşma hem mail akışının paylaştığı ortak onay/yazma fonksiyonu),
-                 # scan_inbox.py
+                 # vertical_prototype.py (konuşma akışı: create/query/update_event/
+                 # define_policy + review_and_confirm_candidate — yalnızca konuşma
+                 # akışının kullandığı interaktif onay/yazma fonksiyonu), scan_inbox.py
+                 # (artık interaktif değil, yalnızca kuyruğa yazıyor — bkz. candidates/)
+  candidates/    # store.py (Candidate Event Queue persistence: save_new_candidate,
+                 # list/get_pending_candidate, update_candidate_fields — Web UI ve
+                 # scan_inbox.py'nin ortak kullandığı, self-contained repository)
   policies/      # store.py (CRUD + çelişki tespiti/versiyonlama), derivation.py
                  # (doğal dil kural -> PersonalPolicy, manuel + ACM ortak)
   memory/        # correction_memory.py (Adaptive Correction Memory: düzeltme
@@ -114,7 +128,11 @@ src/
                  # correction_retrieval.py (mail sınıflandırma düzeltmeleri —
                  # ayrı tablo/amaç, policy_retrieval'a kasıtlı olarak karıştırılmıyor)
   storage/       # db.py (bağlantı+migration), schema.sql
-tests/           # Şu an boş — resmi test suite yazılmadı
+  ui/            # app.py (FastAPI + lifespan'de tek seferlik LLM/embedding yükleme),
+                 # routes.py (sol nav + "Gelen Öneriler" + "E-posta Hesapları"), templates/, static/
+tests/           # timeutil/availability/extraction/policies/candidates store'ları
+                 # için deterministik testler + test_ui_routes.py (TestClient,
+                 # FoundryLocal* monkeypatch'li) — hepsi temp_db fixture'ıyla izole
 data/            # SQLite DB, OAuth dosyaları, debug.log — git'e dahil DEĞİL
 docs/            # architecture-plan.md (tam mimari) + program dokümanı PDF'i
 ```

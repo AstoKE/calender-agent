@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}{{ t("nav.anasayfa") }} — {{ t("app.brand") }}{% endblock %}
+{% from "macros/_candidate_card.html" import candidate_card with context %}
+{% block content %}
+
+{% if calendar_state == "no_account" %}
+<h1>{{ t("anasayfa.greeting") }}</h1>
+<p class="empty-state">{{ t("anasayfa.no_account_hint") }}</p>
+<a class="btn btn-approve" href="/hesaplar">{{ t("nav.hesaplar") }}</a>
+
+{% else %}
+<h1>{{ t("anasayfa.greeting") }}{% if active_account %}, {{ active_account.email }}{% endif %}</h1>
+
+<div class="section-heading">
+    <h2>{{ t("anasayfa.today_events") }}</h2>
+    <form method="post" action="/tara">
+        <button type="submit" class="btn btn-edit">{{ t("anasayfa.scan_cta") }}</button>
+    </form>
+</div>
+{% if scan_busy %}
+<p class="warning">
+    <svg class="icon" width="18" height="18" aria-hidden="true"><use href="#icon-warning"></use></svg>
+    {{ t("hesaplar.scan_busy") }}
+</p>
+{% endif %}
+{% if calendar_state == "unavailable" %}
+<p class="hint">{{ t("anasayfa.calendar_unavailable") }}</p>
+{% elif not today_entries %}
+<p class="empty-state">{{ t("anasayfa.no_events_today") }}</p>
+{% else %}
+<div class="today-strip">
+    {% for entry in today_entries %}
+    <span class="calendar-entry {{ 'calendar-entry--all-day' if entry.all_day }}">
+        {% if not entry.all_day %}{{ fmt_time(entry.start) }}{% endif %}
+        {{ entry.title or t("common.untitled") }}
+    </span>
+    {% endfor %}
+</div>
+{% endif %}
+
+<div class="stat-row">
+    <div class="stat">
+        <span class="stat__value">{{ pending_count }}</span>
+        <span class="stat__label">{{ t("anasayfa.stat_pending") }}</span>
+    </div>
+    <div class="stat">
+        <span class="stat__value">{{ active_policy_count }}</span>
+        <span class="stat__label">{{ t("anasayfa.stat_rules") }}</span>
+    </div>
+</div>
+
+{% include "partials/_asistan_slot.html" %}
+
+<div class="section-heading">
+    <h2>{{ t("anasayfa.pending_heading") }}</h2>
+    <a href="/oneriler">{{ t("anasayfa.view_all") }}</a>
+</div>
+{% if not pending_preview %}
+<p class="empty-state">{{ t("anasayfa.pending_none") }}</p>
+{% else %}
+<div class="card-list">
+{% for item in pending_preview %}
+{{ candidate_card(item, next_url="/anasayfa") }}
+{% endfor %}
+</div>
+{% endif %}
+{% if others_pending > 0 %}
+<p class="hint">{{ t("anasayfa.others_pending", n=others_pending) }}</p>
+{% endif %}
+
+{% endif %}
+{% endblock %}

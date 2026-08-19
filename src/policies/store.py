@@ -116,10 +116,34 @@ def row_to_policy(row) -> PersonalPolicy:
     )
 
 
-def get_active_policies() -> list[PersonalPolicy]:
+def list_policies(include_inactive: bool = False) -> list[PersonalPolicy]:
+    """Kurallarım ekranı için — `get_active_policies` yalnızca aktifleri
+    döndüğünden (RAG/Rule Engine çağırıyor, adı bilerek korunuyor, aşağıya
+    bkz.) pasif kuralları görecek yeni bir okuma yolu gerekiyordu."""
+    query = "SELECT * FROM personal_policies"
+    if not include_inactive:
+        query += " WHERE active = 1"
+    query += " ORDER BY active DESC, updated_at DESC"
     with get_connection() as conn:
-        rows = conn.execute("SELECT * FROM personal_policies WHERE active = 1").fetchall()
+        rows = conn.execute(query).fetchall()
     return [row_to_policy(r) for r in rows]
+
+
+def get_active_policies() -> list[PersonalPolicy]:
+    """İSİM KORUNDU — src/rag/policy_retrieval.py ve Rule Engine yolunda
+    çağrıcıları var, bir UI dilimi için bunları değiştirmek kapsam dışı."""
+    return list_policies(include_inactive=False)
+
+
+def get_policy(policy_id: str) -> PersonalPolicy | None:
+    with get_connection() as conn:
+        row = conn.execute("SELECT * FROM personal_policies WHERE policy_id = ?", (policy_id,)).fetchone()
+    return row_to_policy(row) if row else None
+
+
+def count_active_policies() -> int:
+    with get_connection() as conn:
+        return conn.execute("SELECT COUNT(*) FROM personal_policies WHERE active = 1").fetchone()[0]
 
 
 def find_active_conflicting_policy(
@@ -169,3 +193,68 @@ def deactivate_policy(policy: PersonalPolicy) -> None:
             """,
             (str(uuid.uuid4()), policy.policy_id, policy.version, policy.model_dump_json(), now),
         )
+
+
+def deactivate_policy_by_id(policy_id: str) -> bool:
+    """Web route'ları yalnızca id'ye sahip — `deactivate_policy` OBJE alıyor
+    (.version + .model_dump_json() için). Bulunamazsa/zaten pasifse False
+    döner, çağıran ayrıca hata göstermek zorunda kalmaz."""
+    policy = get_policy(policy_id)
+    if policy is None or not policy.active:
+        return False
+    deactivate_policy(policy)
+    return True
+
+
+def reactivate_policy(policy_id: str) -> PersonalPolicy | None:
+    """Bir pasif politikayı yeniden aktifleştirir (version+1, policy_versions'a
+    yeni snapshot). Aynı category+kapsamda BAŞKA bir aktif politika varsa
+    None döner — find_active_conflicting_policy'nin engellemek için
+    yazıldığı "iki aktif politika" durumunu burada sessizce yaratmaz."""
+    policy = get_policy(policy_id)
+    if policy is None or policy.active:
+        return None
+
+    for category in policy.structured_action:
+        conflict = find_active_conflicting_policy(
+            category,
+            event_type=policy.structured_conditions.get("event_type"),
+            sender=policy.structured_conditions.get("sender"),
+        )
+        if conflict is not None:
+            return None
+
+    now = datetime.now(timezone.utc).isoformat()
+    new_version = policy.version + 1
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE personal_policies SET active = 1, version = ?, updated_at = ? WHERE policy_id = ?",
+            (new_version, now, policy_id),
+        )
+        conn.execute(
+            "INSERT INTO policy_versions (version_id, policy_id, version, snapshot, created_at, superseded_by) "
+            "VALUES (?,?,?,?,?,NULL)",
+            (str(uuid.uuid4()), policy_id, new_version, policy.model_dump_json(), now),
+        )
+    return get_policy(policy_id)
+
+
+def list_policy_versions(policy_id: str) -> list[dict]:
+    """`policy_versions` bugüne kadar yazma-yalnızca bir tablo (superseded_by
+    da hiçbir zaman doldurulmuyor, bkz. deactivate_policy'nin notu — versiyon
+    geçmişi görünümü bu yüzden seyrek görünebilir, burada 'düzeltilmiyor')."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT version_id, version, snapshot, created_at FROM policy_versions "
+            "WHERE policy_id = ? ORDER BY version DESC",
+            (policy_id,),
+        ).fetchall()
+    return [
+        {
+            "version_id": r["version_id"],
+            "version": r["version"],
+            "snapshot": json.loads(r["snapshot"]),
+            "created_at": r["created_at"],
+        }
+        for r in rows
+    ]

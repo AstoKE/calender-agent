@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}{{ t("oneriler.title") }} — {{ t("app.brand") }}{% endblock %}
+{% from "macros/_candidate_card.html" import candidate_card with context %}
+{% block content %}
+<h1>{{ t("oneriler.title") }}</h1>
+
+{% if not pending %}
+<p class="empty-state">{{ t("oneriler.empty") }}</p>
+{% endif %}
+
+<div class="card-list">
+{% for item in pending %}
+{{ candidate_card(item, next_url="/oneriler") }}
+{% endfor %}
+</div>
+{% endblock %}

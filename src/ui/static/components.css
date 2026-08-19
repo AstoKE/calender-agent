@@ -1,0 +1,552 @@
+/* Bileşen-seviyesi stiller: kart, çip, avatar, açılır menü, boş/uyarı
+   durumları. Şablonlardaki class isimleri Faz 1/2'den KORUNDU (card,
+   empty-state, warning, ...) — testler bunlara bakıyor, yeniden adlandırma
+   bu fazın kapsamında değil. */
+
+.icon {
+    width: 1.25em;
+    height: 1.25em;
+    flex-shrink: 0;
+}
+
+.icon--chevron {
+    width: 1em;
+    height: 1em;
+    color: var(--color-text-muted);
+}
+
+h1 .icon {
+    vertical-align: -0.2em;
+    margin-right: var(--space-2);
+    color: var(--color-warning);
+}
+
+.empty-state {
+    color: var(--color-text-muted);
+    font-style: italic;
+}
+
+.hint pre {
+    white-space: pre-wrap;
+    word-break: break-word;
+    background: var(--color-surface-sunken);
+    padding: var(--space-3);
+    border-radius: var(--radius-sm);
+    font-size: 0.8rem;
+}
+
+.card-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+}
+
+.card {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--space-5);
+}
+
+.card-fields {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: var(--space-1) var(--space-4);
+    margin: 0 0 var(--space-3);
+}
+
+.card-fields dt {
+    color: var(--color-text-muted);
+    font-size: 0.8rem;
+}
+
+.card-fields dd {
+    margin: 0;
+}
+
+.warning {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    color: var(--color-warning);
+    background: var(--color-warning-subtle);
+    border-radius: var(--radius-sm);
+    padding: var(--space-2) var(--space-3);
+    font-size: 0.9rem;
+}
+
+.warning .icon {
+    flex-shrink: 0;
+}
+
+.card-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    margin-top: var(--space-3);
+}
+
+.reject-form {
+    display: flex;
+    gap: var(--space-2);
+    align-items: center;
+    flex: 1;
+    min-width: 220px;
+}
+
+.reject-form input[type="text"] {
+    flex: 1;
+}
+
+.edit-form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    max-width: 420px;
+}
+
+.source-info {
+    color: var(--color-text-muted);
+    font-size: 0.9rem;
+}
+
+.scan-summary {
+    background: var(--color-success-subtle);
+    color: var(--color-success);
+    border-radius: var(--radius-sm);
+    padding: var(--space-3) var(--space-4);
+}
+
+.hint {
+    color: var(--color-text-muted);
+    font-size: 0.8rem;
+    margin: var(--space-2) 0 0;
+}
+
+/* --- Avatar --- */
+
+.avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 50%;
+    color: #fff;
+    font-size: 0.75rem;
+    font-weight: 600;
+    flex-shrink: 0;
+}
+
+.avatar--sm {
+    width: 1.75rem;
+    height: 1.75rem;
+    font-size: 0.7rem;
+}
+
+/* --- Açılır menü (details/summary — bkz. plan "JavaScript": sıfır JS ile
+   çalışır, native odaklanabilir, Enter/Space açar) --- */
+
+.menu {
+    position: relative;
+}
+
+.menu__trigger {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-pill);
+    cursor: pointer;
+    list-style: none;
+    color: var(--color-text);
+    font-size: 0.875rem;
+    user-select: none;
+}
+
+.menu__trigger::-webkit-details-marker {
+    display: none;
+}
+
+.menu__trigger:hover {
+    background: var(--color-surface-sunken);
+}
+
+.avatar-trigger {
+    padding: var(--space-1);
+}
+
+.menu__panel {
+    position: absolute;
+    top: calc(100% + var(--space-2));
+    right: 0;
+    z-index: 40;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-2);
+    padding: var(--space-2);
+    min-width: 10rem;
+}
+
+.menu__panel--wide {
+    min-width: 18rem;
+}
+
+.menu__panel form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+}
+
+.menu__item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    width: 100%;
+    padding: var(--space-2) var(--space-3);
+    border: none;
+    background: none;
+    border-radius: var(--radius-sm);
+    font: inherit;
+    text-align: left;
+    color: var(--color-text);
+    cursor: pointer;
+}
+
+.menu__item:hover:not(:disabled) {
+    background: var(--color-surface-sunken);
+}
+
+.menu__item--active,
+.menu__item:disabled {
+    background: var(--color-accent-subtle);
+    color: var(--color-accent-text);
+    cursor: default;
+}
+
+.menu__item .icon {
+    color: var(--color-accent-text);
+}
+
+.account-row {
+    gap: var(--space-2);
+}
+
+.account-row__email {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: left;
+}
+
+.account-row__status {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    font-size: 0.75rem;
+    flex-shrink: 0;
+}
+
+.menu__footer-link {
+    display: block;
+    margin-top: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border-top: 1px solid var(--color-border);
+    font-size: 0.85rem;
+    text-decoration: none;
+}
+
+/* --- Takvim (haftalık grid — bkz. plan Faz 5). Tek markup: dar ekranda
+   grid-template-columns 1'e düşer, aynı içerik ajanda listesi gibi
+   akar — ayrı bir mobil şablon yok. --- */
+
+.calendar-toolbar {
+    display: flex;
+    gap: var(--space-2);
+    margin-bottom: var(--space-4);
+}
+
+.calendar-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: var(--space-2);
+    align-items: start;
+}
+
+.calendar-day {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--space-2);
+    min-height: 7rem;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+}
+
+.calendar-day.is-today {
+    border-color: var(--color-accent);
+    border-width: 2px;
+}
+
+.calendar-day__header {
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+    margin-bottom: var(--space-1);
+}
+
+.calendar-entry {
+    display: block;
+    padding: var(--space-1) var(--space-2);
+    border-radius: var(--radius-sm);
+    background: var(--color-accent-subtle);
+    color: var(--color-accent-text);
+    font-size: 0.78rem;
+    text-decoration: none;
+    overflow-wrap: break-word;
+}
+
+.calendar-entry--all-day {
+    background: var(--color-success-subtle);
+    color: var(--color-success);
+}
+
+@media (max-width: 48rem) {
+    .calendar-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* --- Ana Sayfa (bkz. plan Faz 6) --- */
+
+.section-heading {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: var(--space-3);
+}
+
+.section-heading h2 {
+    margin: 0;
+}
+
+.today-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin-bottom: var(--space-6);
+}
+
+.today-strip .calendar-entry {
+    font-size: 0.85rem;
+    padding: var(--space-2) var(--space-3);
+}
+
+.stat-row {
+    display: flex;
+    gap: var(--space-4);
+    margin: var(--space-5) 0;
+}
+
+.stat {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--space-4) var(--space-5);
+    min-width: 8rem;
+}
+
+.stat__value {
+    font-size: 1.6rem;
+    font-weight: 600;
+    display: block;
+}
+
+.stat__label {
+    color: var(--color-text-muted);
+    font-size: 0.8rem;
+}
+
+.chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px var(--space-2);
+    border-radius: var(--radius-pill);
+    background: var(--color-accent-subtle);
+    color: var(--color-accent-text);
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    text-decoration: none;
+}
+
+/* --- Asistan slotu: enabled/disabled arasında yerinden oynamayan sabit
+   yükseklik (bkz. partials/_asistan_slot.html) --- */
+
+.assistant-slot {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--space-5);
+    min-height: 8.5rem;
+    margin: var(--space-6) 0;
+}
+
+.assistant-slot__header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin-bottom: var(--space-2);
+}
+
+.assistant-slot__header h2 {
+    margin: 0;
+}
+
+.assistant-slot p {
+    color: var(--color-text-muted);
+    font-size: 0.9rem;
+    margin: 0 0 var(--space-3);
+}
+
+.assistant-slot__input {
+    width: 100%;
+    resize: none;
+    min-height: 3rem;
+    padding: var(--space-3);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-surface-sunken);
+    color: var(--color-text-muted);
+    font: inherit;
+}
+
+.assistant-slot__examples {
+    list-style: none;
+    padding: 0;
+    margin: var(--space-3) 0 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+}
+
+.assistant-slot__examples li {
+    background: var(--color-surface-sunken);
+    color: var(--color-text-muted);
+    border-radius: var(--radius-pill);
+    padding: var(--space-1) var(--space-3);
+    font-size: 0.8rem;
+}
+
+/* --- Kurallarım / Düzeltmelerim (bkz. plan Faz 7/8) --- */
+
+.page-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-4);
+    margin-bottom: var(--space-5);
+    flex-wrap: wrap;
+}
+
+.page-heading h1 {
+    margin: 0;
+}
+
+.chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin: var(--space-2) 0 var(--space-3);
+}
+
+.chip--neutral {
+    background: var(--color-surface-sunken);
+    color: var(--color-text-muted);
+}
+
+.policy-actions-list {
+    margin: 0 0 var(--space-3);
+    padding-left: 1.1rem;
+    font-size: 0.9rem;
+}
+
+.policy-actions-list li {
+    margin-bottom: var(--space-1);
+}
+
+.inactive-policies {
+    margin-top: var(--space-5);
+}
+
+.inactive-policies > summary {
+    cursor: pointer;
+    color: var(--color-text-muted);
+    font-size: 0.9rem;
+    margin-bottom: var(--space-3);
+}
+
+.inactive-policies .card {
+    opacity: 0.75;
+}
+
+.diff-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: var(--space-3) 0;
+    font-size: 0.85rem;
+}
+
+.diff-table th,
+.diff-table td {
+    text-align: left;
+    padding: var(--space-2) var(--space-3);
+    border-bottom: 1px solid var(--color-border);
+}
+
+.diff-table thead th {
+    color: var(--color-text-muted);
+    font-weight: 500;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+}
+
+.diff-table tbody th {
+    color: var(--color-text-muted);
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+/* --- Ayarlar (bkz. plan Faz 9) --- */
+
+.settings-section {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--space-5);
+    margin-bottom: var(--space-5);
+    max-width: 32rem;
+}
+
+.settings-section h2 {
+    margin-top: 0;
+}
+
+.settings-section .edit-form {
+    max-width: none;
+}
+
+code {
+    font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+    font-size: 0.85em;
+    background: var(--color-surface-sunken);
+    padding: 1px 6px;
+    border-radius: var(--radius-sm);
+    word-break: break-all;
+}

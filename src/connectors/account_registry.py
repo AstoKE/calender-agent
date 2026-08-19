@@ -21,10 +21,12 @@ def _derive_account_id(email: str) -> str:
 
 
 def list_accounts() -> list[dict]:
-    """Kayıtlı tüm hesapları (id, provider, email, status) bağlanma sırasına göre döner."""
+    """Kayıtlı tüm hesapları (id, provider, email, status, connected_at) bağlanma
+    sırasına göre döner — hem CLI'nın select_account()'ı hem Web UI'nin
+    "E-posta Hesapları" ekranı (bkz. src/ui/routes.py) kullanıyor."""
     with get_connection() as conn:
         rows = conn.execute(
-            "SELECT id, provider, email, status FROM accounts ORDER BY connected_at"
+            "SELECT id, provider, email, status, connected_at FROM accounts ORDER BY connected_at"
         ).fetchall()
     return [dict(row) for row in rows]
 

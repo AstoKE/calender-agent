@@ -32,7 +32,7 @@ def _coerce_event_type(raw_value) -> EventType:
 # ambiguous_fields çıktısını bu üçle sınırlamak, arayüzün gerçekten
 # çözebileceği alanlar dışında hiçbir şeyin candidate'ı kilitlememesini
 # garanti eder.
-_CLARIFIABLE_FIELDS = ("title", "start_datetime", "duration_minutes")
+CLARIFIABLE_FIELDS = ("title", "start_datetime", "duration_minutes")
 
 
 def build_candidate_from_fields(
@@ -42,10 +42,10 @@ def build_candidate_from_fields(
     source_languages: list[str],
     extraction_reason: str,
 ) -> CandidateEvent:
-    ambiguous_fields = [f for f in (fields.get("ambiguous_fields") or []) if f in _CLARIFIABLE_FIELDS]
+    ambiguous_fields = [f for f in (fields.get("ambiguous_fields") or []) if f in CLARIFIABLE_FIELDS]
     missing_fields = [
         name
-        for name in _CLARIFIABLE_FIELDS
+        for name in CLARIFIABLE_FIELDS
         if not fields.get(name) and name not in ambiguous_fields
     ]
 

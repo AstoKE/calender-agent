@@ -1,0 +1,348 @@
+/* Reset, tipografi, uygulama kabuğu (topbar/rail/main grid), formlar,
+   butonlar, erişilebilirlik temelleri (bkz. plan Faz 3). Bileşen-seviyesi
+   stiller (kart, çip, avatar, menü) components.css'te. */
+
+* {
+    box-sizing: border-box;
+}
+
+html {
+    -webkit-text-size-adjust: 100%;
+}
+
+body {
+    margin: 0;
+    font-family: var(--font-sans);
+    background: var(--color-surface-sunken);
+    color: var(--color-text);
+    font-size: 15px;
+    line-height: 1.5;
+}
+
+h1 {
+    font-size: 1.5rem;
+    margin: 0 0 var(--space-5);
+}
+
+h2 {
+    font-size: 1.05rem;
+    margin: 0 0 var(--space-3);
+}
+
+a {
+    color: var(--color-accent-text);
+}
+
+/* Erişilebilirlik: bugüne kadar hiç focus state'i yoktu (§16 şartı). Fare
+   kullanıcısını rahatsız etmemek için :focus değil :focus-visible. */
+:focus {
+    outline: none;
+}
+
+:focus-visible {
+    outline: none;
+    box-shadow: var(--focus-ring);
+    border-radius: var(--radius-sm);
+}
+
+.skip-link {
+    position: absolute;
+    top: -100%;
+    left: var(--space-3);
+    z-index: 200;
+    background: var(--color-accent);
+    color: #fff;
+    padding: var(--space-2) var(--space-4);
+    border-radius: var(--radius-sm);
+    text-decoration: none;
+}
+
+.skip-link:focus-visible {
+    top: var(--space-3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    * {
+        animation-duration: 0.001ms !important;
+        transition-duration: 0.001ms !important;
+    }
+}
+
+/* --- Uygulama kabuğu: topbar + rail + main grid --- */
+
+.app {
+    display: grid;
+    grid-template-columns: var(--rail-width) 1fr;
+    grid-template-rows: var(--topbar-height) 1fr;
+    grid-template-areas:
+        "topbar topbar"
+        "rail   main";
+    min-height: 100vh;
+}
+
+.topbar {
+    grid-area: topbar;
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-4);
+    padding: 0 var(--space-5);
+    background: var(--color-surface);
+    border-bottom: 1px solid var(--color-border);
+}
+
+.topbar__brand {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-weight: 500;
+    font-size: 1.1rem;
+    color: var(--color-text);
+}
+
+.topbar__brand .icon {
+    color: var(--color-accent);
+}
+
+.topbar__actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.rail {
+    grid-area: rail;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    padding: var(--space-4) var(--space-3);
+    border-right: 1px solid var(--color-border);
+    background: var(--color-surface);
+}
+
+.rail a {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-pill);
+    color: var(--color-text);
+    text-decoration: none;
+    font-size: 0.9rem;
+}
+
+.rail a .icon {
+    color: var(--color-text-muted);
+    flex-shrink: 0;
+}
+
+.rail a:hover {
+    background: var(--color-surface-sunken);
+}
+
+.rail a.active {
+    background: var(--color-accent-subtle);
+    color: var(--color-accent-text);
+    font-weight: 500;
+}
+
+.rail a.active .icon {
+    color: var(--color-accent-text);
+}
+
+.content {
+    grid-area: main;
+    padding: var(--space-6);
+    max-width: 900px;
+    width: 100%;
+}
+
+/* --- Mobil alt tab bar: gizli, yalnızca dar ekranda görünür --- */
+
+.tabbar {
+    display: none;
+}
+
+/* --- Formlar / butonlar --- */
+
+label {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    font-size: 0.85rem;
+    color: var(--color-text-muted);
+}
+
+input[type="text"],
+input[type="number"],
+select {
+    font: inherit;
+    color: var(--color-text);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-surface);
+}
+
+fieldset {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--space-4);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+legend {
+    font-size: 0.85rem;
+    color: var(--color-text-muted);
+    padding: 0 var(--space-2);
+}
+
+.radio-label {
+    flex-direction: row;
+    align-items: center;
+    gap: var(--space-2);
+    color: var(--color-text);
+    font-size: 0.9rem;
+}
+
+.btn {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-4);
+    border-radius: var(--radius-pill);
+    border: 1px solid transparent;
+    font: inherit;
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    text-decoration: none;
+    line-height: 1.2;
+}
+
+.btn:disabled {
+    cursor: default;
+}
+
+.btn-approve {
+    background: var(--color-accent);
+    color: #fff;
+}
+
+.btn-approve:hover:not(:disabled) {
+    background: var(--color-accent-text);
+}
+
+.btn-edit {
+    background: var(--color-surface);
+    color: var(--color-text);
+    border-color: var(--color-border);
+}
+
+.btn-edit:hover:not(:disabled) {
+    background: var(--color-surface-sunken);
+}
+
+.btn-reject {
+    background: var(--color-surface);
+    color: var(--color-danger);
+    border-color: var(--color-border);
+}
+
+.btn-reject:hover:not(:disabled) {
+    background: var(--color-danger-subtle);
+}
+
+/* --- Dar ekran: rail'i alt tab bar'a çevir (§16) --- */
+
+@media (max-width: 48rem) {
+    .app {
+        grid-template-columns: 1fr;
+        grid-template-areas:
+            "topbar"
+            "main";
+    }
+
+    .rail {
+        display: none;
+    }
+
+    .content {
+        padding: var(--space-4);
+        padding-bottom: calc(var(--tabbar-height) + var(--space-5));
+    }
+
+    .tabbar {
+        display: flex;
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 30;
+        height: var(--tabbar-height);
+        background: var(--color-surface);
+        border-top: 1px solid var(--color-border);
+    }
+
+    .tabbar a,
+    .tabbar__more > summary {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 2px;
+        font-size: 0.7rem;
+        color: var(--color-text-muted);
+        text-decoration: none;
+        list-style: none;
+    }
+
+    .tabbar a.active {
+        color: var(--color-accent-text);
+    }
+
+    .tabbar a.active .icon {
+        color: var(--color-accent-text);
+    }
+
+    .tabbar__more {
+        flex: 1;
+        position: relative;
+    }
+
+    .tabbar__more > summary::-webkit-details-marker {
+        display: none;
+    }
+
+    .tabbar__more-panel {
+        position: absolute;
+        bottom: calc(var(--tabbar-height) + var(--space-2));
+        right: var(--space-2);
+        background: var(--color-surface);
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-md);
+        box-shadow: var(--shadow-2);
+        padding: var(--space-2);
+        display: flex;
+        flex-direction: column;
+        min-width: 10rem;
+    }
+
+    .tabbar__more-panel a {
+        flex-direction: row;
+        justify-content: flex-start;
+        padding: var(--space-2) var(--space-3);
+        font-size: 0.9rem;
+    }
+
+    .tabbar__more-panel a.active {
+        background: var(--color-accent-subtle);
+        border-radius: var(--radius-sm);
+    }
+}

@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}{{ t("cakisma.title") }} — {{ t("app.brand") }}{% endblock %}
+{% block content %}
+{% set c = pending.candidate %}
+<h1>
+    <svg class="icon" width="24" height="24" aria-hidden="true"><use href="#icon-warning"></use></svg>
+    {{ t("cakisma.title") }}
+</h1>
+<p>
+    <strong>{{ c.title or t("common.untitled") }}</strong>
+    ({{ c.start_datetime }}, {{ c.duration_minutes }} {{ t("common.minutes") }}) {{ t("cakisma.conflicts_with") }}
+</p>
+<ul>
+{% for busy_start, busy_end in conflicts %}
+    <li>{{ busy_start }} — {{ busy_end }}</li>
+{% endfor %}
+</ul>
+
+<form method="post" action="/oneriler/{{ c.candidate_id }}/onayla">
+    <input type="hidden" name="force" value="true" />
+    <input type="hidden" name="next" value="{{ next_url }}" />
+    <button type="submit" class="btn btn-approve">{{ t("cakisma.approve_anyway") }}</button>
+</form>
+<a class="btn btn-edit" href="{{ next_url }}">{{ t("common.cancel") }}</a>
+{% endblock %}

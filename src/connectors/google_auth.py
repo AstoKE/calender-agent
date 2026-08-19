@@ -78,3 +78,36 @@ def get_google_credentials(
         token_path.chmod(0o600)
 
     return creds
+
+
+def load_credentials_noninteractive(scopes: list[str], account_id: str) -> Credentials | None:
+    """``get_google_credentials`` ile aynı token dosyasını okur ve mümkünse
+    sessizce yeniler, ama token yoksa veya refresh başarısız olursa
+    ``InstalledAppFlow.run_local_server``'a ASLA düşmez — ``None`` döner.
+
+    Web sunucusu (bkz. src/ui/) bir istek işlerken interaktif OAuth
+    tetiklenirse istek sonsuza kadar bekler ve sunucu makinesinde bir
+    tarayıcı penceresi açar; Takvim gibi her sayfa yüklemesinde connector
+    kuran ekranlar bu fonksiyonu kullanmalı, get_google_credentials'ı değil."""
+    token_path = DATA_DIR / f"google_token_{account_id}.json"
+    if not token_path.exists():
+        return None
+
+    creds = Credentials.from_authorized_user_file(str(token_path), scopes)
+    if creds and creds.valid:
+        return creds
+
+    if creds and creds.expired and creds.refresh_token:
+        try:
+            creds.refresh(Request())
+        except RefreshError:
+            return None
+        token_path.write_text(creds.to_json(), encoding="utf-8")
+        token_path.chmod(0o600)
+        return creds
+
+    return None
+
+
+def has_usable_credentials(account_id: str, scopes: list[str] = GOOGLE_ACCOUNT_SCOPES) -> bool:
+    return load_credentials_noninteractive(scopes, account_id) is not None

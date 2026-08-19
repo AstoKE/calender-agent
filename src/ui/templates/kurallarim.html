@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}{{ t("kurallarim.title") }} — {{ t("app.brand") }}{% endblock %}
+{% block content %}
+
+{% macro policy_card(p, action) %}
+<article class="card">
+    <h2>{{ p.natural_language_rule }}</h2>
+    <div class="chip-row">
+        <span class="chip chip--neutral">
+            {% if p.structured_conditions.sender %}{{ t("kurallarim.scope.sender", value=p.structured_conditions.sender) }}
+            {% elif p.structured_conditions.event_type %}{{ t("kurallarim.scope.event_type", value=t("enum.event_type." ~ p.structured_conditions.event_type)) }}
+            {% else %}{{ t("kurallarim.scope.global") }}{% endif %}
+        </span>
+        <span class="chip chip--neutral">{{ t("kurallarim.source.manual") if p.source == "manual" else t("kurallarim.source.correction") }}</span>
+        <span class="chip chip--neutral">{{ t("kurallarim.field.version") }} {{ p.version }}</span>
+    </div>
+    <ul class="policy-actions-list">
+        {% for line in describe_structured_action(p.structured_action, t) %}
+        <li>{{ line }}</li>
+        {% endfor %}
+    </ul>
+    <div class="card-actions">
+        {% if action == "deactivate" %}
+        <form method="post" action="/kurallarim/{{ p.policy_id }}/pasiflestir">
+            <button type="submit" class="btn btn-reject">{{ t("kurallarim.deactivate") }}</button>
+        </form>
+        {% else %}
+        <form method="post" action="/kurallarim/{{ p.policy_id }}/aktiflestir">
+            <button type="submit" class="btn btn-approve">{{ t("kurallarim.reactivate") }}</button>
+        </form>
+        {% endif %}
+    </div>
+</article>
+{% endmacro %}
+
+<div class="page-heading">
+    <h1>{{ t("kurallarim.title") }}</h1>
+    <a class="btn btn-approve" href="/kurallarim/yeni">{{ t("kurallarim.new_rule") }}</a>
+</div>
+
+{% if reactivate_conflict %}
+<p class="warning">
+    <svg class="icon" width="18" height="18" aria-hidden="true"><use href="#icon-warning"></use></svg>
+    {{ t("kurallarim.reactivate_conflict") }}
+</p>
+{% endif %}
+
+{% if not active_policies and not inactive_policies %}
+<p class="empty-state">{{ t("kurallarim.empty") }}</p>
+{% endif %}
+
+<div class="card-list">
+{% for p in active_policies %}
+{{ policy_card(p, "deactivate") }}
+{% endfor %}
+</div>
+
+{% if inactive_policies %}
+<details class="inactive-policies">
+    <summary>{{ t("kurallarim.inactive_heading", n=inactive_policies | length) }}</summary>
+    <div class="card-list">
+    {% for p in inactive_policies %}
+    {{ policy_card(p, "reactivate") }}
+    {% endfor %}
+    </div>
+</details>
+{% endif %}
+
+{% endblock %}

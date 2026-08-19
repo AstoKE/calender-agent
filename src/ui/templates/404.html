@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block title %}{{ t("notfound.title") }} — {{ t("app.brand") }}{% endblock %}
+{% block content %}
+<h1>{{ t("notfound.title") }}</h1>
+<p class="empty-state">{{ t("notfound.body") }}</p>
+<a class="btn btn-approve" href="/anasayfa">{{ t("notfound.back_home") }}</a>
+{% endblock %}

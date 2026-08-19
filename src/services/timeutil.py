@@ -6,20 +6,18 @@ import re
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-DEFAULT_TIMEZONE = "Europe/Istanbul"  # MVP basitleştirmesi; bkz. localization_preferences tablosu
+from src.localization.formatting import month_name
 
-_TURKISH_MONTHS = [
-    "Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran",
-    "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık",
-]
+DEFAULT_TIMEZONE = "Europe/Istanbul"  # MVP basitleştirmesi; bkz. localization_preferences tablosu
 
 
 def format_date_tr(dt: datetime) -> str:
-    """'%d %B' locale'e (ve dolayısıyla sistem ayarına) bağımlı olduğu için
-    (İngilizce ay adı çıktı canlı testte görüldü) Türkçe ay adını elle
-    map'ler. Gerçek çok dilli biçimlendirme (kullanıcı dili bazlı) Hafta
-    2-3'ün lokalizasyon kapsamına dahil edilecek."""
-    return f"{dt.day:02d} {_TURKISH_MONTHS[dt.month - 1]}"
+    """CLI'nın (vertical_prototype.py) TR-sabit çağrıları için ince bir shim —
+    ay adı tablosu artık src/localization/formatting.py'de (Web UI'nin
+    çok dilli format_date'iyle paylaşılıyor, iki kopya tutulmuyor).
+    `%d %B` locale'e bağımlı olduğu için (İngilizce ay adı çıktı canlı testte
+    görüldü) elle yazılmış tablo kullanılıyor, `locale.setlocale` değil."""
+    return f"{dt.day:02d} {month_name(dt.month, 'tr')}"
 
 
 _CLOCK_TIME_RE = re.compile(r"(\d{1,2})[:.](\d{2})")

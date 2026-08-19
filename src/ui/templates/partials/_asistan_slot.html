@@ -1,0 +1,19 @@
+{# Chatbox'ın kendisi AYRI bir dilim (oturum durumu + çok adımlı diyalog
+   gerektiriyor) — ama Ana Sayfa'daki yeri şimdi, son haliyle aynı boyutta
+   ayrılıyor (bkz. plan). CHAT_ENABLED açılana kadar bu blokta hiç <form>
+   ve hiç submit butonu YOK — hiçbir şey tıklanıp hiçbir şey yapmıyor
+   olamaz. min-height (components.css) enabled/disabled durumları arasında
+   hiçbir şeyin yerinden oynamaması için. #}
+<section class="assistant-slot" aria-labelledby="assistant-slot-title">
+    <div class="assistant-slot__header">
+        <h2 id="assistant-slot-title">{{ t("assistant.title") }}</h2>
+        <span class="chip">{{ t("assistant.coming_soon") }}</span>
+    </div>
+    <p>{{ t("assistant.description") }}</p>
+    <textarea class="assistant-slot__input" disabled aria-disabled="true"
+              placeholder="{{ t('assistant.placeholder') }}"></textarea>
+    <ul class="assistant-slot__examples">
+        <li>{{ t("assistant.example1") }}</li>
+        <li>{{ t("assistant.example2") }}</li>
+    </ul>
+</section>

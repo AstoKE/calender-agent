@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}{{ t("duzenle.title") }} — {{ t("app.brand") }}{% endblock %}
+{% block content %}
+{% set c = pending.candidate %}
+<h1>{{ t("duzenle.title") }}</h1>
+<p class="source-info">{{ t("duzenle.source") }}: {{ pending.sender }} — {{ pending.subject }}</p>
+
+{% if c.missing_fields or c.ambiguous_fields %}
+<p class="warning">
+    <svg class="icon" width="18" height="18" aria-hidden="true"><use href="#icon-warning"></use></svg>
+    {{ t("duzenle.warning.incomplete") }}: {{ (c.missing_fields + c.ambiguous_fields) | join(", ") }}
+</p>
+{% endif %}
+
+<form method="post" action="/oneriler/{{ c.candidate_id }}/duzenle" class="edit-form">
+    <input type="hidden" name="next" value="{{ next_url }}" />
+    <label>
+        {{ t("duzenle.field.title") }}
+        <input type="text" name="title" value="{{ c.title or '' }}" />
+    </label>
+    <label>
+        {{ t("duzenle.field.datetime") }}
+        <input type="text" name="start_datetime" value="{{ c.start_datetime or '' }}"
+               placeholder="2026-08-20T14:00:00" />
+    </label>
+    <label>
+        {{ t("duzenle.field.duration") }}
+        <input type="number" name="duration_minutes" value="{{ c.duration_minutes or '' }}" />
+    </label>
+    <label>
+        {{ t("duzenle.field.importance") }}
+        <select name="importance">
+            <option value="" {% if not c.importance %}selected{% endif %}>{{ t("common.unspecified") }}</option>
+            <option value="low" {% if c.importance == "low" %}selected{% endif %}>{{ t("enum.importance.low") }}</option>
+            <option value="normal" {% if c.importance == "normal" %}selected{% endif %}>{{ t("enum.importance.normal") }}</option>
+            <option value="high" {% if c.importance == "high" %}selected{% endif %}>{{ t("enum.importance.high") }}</option>
+        </select>
+    </label>
+    <label>
+        {{ t("duzenle.field.location") }}
+        <input type="text" name="location" value="{{ c.location or '' }}" />
+    </label>
+    <button type="submit" class="btn btn-approve">{{ t("common.save") }}</button>
+    <a class="btn btn-edit" href="{{ next_url }}">{{ t("common.cancel") }}</a>
+</form>
+{% endblock %}

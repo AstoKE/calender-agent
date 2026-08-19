@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 
 from src.core.models import CandidateEvent, CorrectionScope, PolicySource, UserCorrection
 from src.policies.derivation import derive_and_save_policy, save_derived_policy
+from src.policies.store import deactivate_policy_by_id
 from src.providers.base import EmbeddingProvider, LLMProvider
 from src.providers.json_generation import JsonGenerationError
 from src.rag.correction_retrieval import embed_and_store_classification_correction
@@ -108,6 +109,101 @@ def save_classification_correction(
     correction = save_user_correction(candidate, user_feedback_text, correction_type="classification")
     embed_and_store_classification_correction(embedding_provider, correction.correction_id, email_text)
     return correction
+
+
+_CORRECTIONS_QUERY = """
+    SELECT uc.*, pp.natural_language_rule AS derived_rule_text, pp.active AS derived_rule_active
+    FROM user_corrections uc
+    LEFT JOIN personal_policies pp ON pp.policy_id = uc.derived_policy_id
+"""
+
+
+def _row_to_correction_dict(row) -> dict:
+    return {
+        "correction_id": row["correction_id"],
+        "candidate_id": row["candidate_id"],
+        "original_input": row["original_input"],
+        "original_output": json.loads(row["original_output"]),
+        "user_feedback_text": row["user_feedback_text"],
+        "corrected_output": json.loads(row["corrected_output"]),
+        "correction_scope": row["correction_scope"],
+        "event_type": row["event_type"],
+        "account_scope": row["account_scope"],
+        "sender_scope": row["sender_scope"],
+        "language": row["language"],
+        "approved_for_future_use": bool(row["approved_for_future_use"]),
+        "derived_policy_id": row["derived_policy_id"],
+        "correction_type": row["correction_type"],
+        "created_at": row["created_at"],
+        "derived_rule_text": row["derived_rule_text"],
+        "derived_rule_active": bool(row["derived_rule_active"]) if row["derived_rule_active"] is not None else None,
+    }
+
+
+def list_corrections(limit: int = 100, offset: int = 0, correction_type: str | None = None) -> list[dict]:
+    """Düzeltmelerim ekranı için — `user_corrections` bugüne kadar yazma-
+    yalnızca bir tabloydu (tek okuyucu, correction_retrieval.py'nin
+    semantik araması, o da yalnızca correction_type='classification'
+    filtreli). LEFT JOIN personal_policies ile türetilen kuralın doğal dil
+    metnini de getirir — ayrı bir sorgu gerekmesin diye.
+
+    ``correction_type``: None = hepsi, "field" = correction_type IS NULL
+    (alan düzeltmesi), "classification" = correction_type = 'classification'."""
+    query = _CORRECTIONS_QUERY
+    if correction_type == "classification":
+        query += " WHERE uc.correction_type = 'classification'"
+    elif correction_type == "field":
+        query += " WHERE uc.correction_type IS NULL"
+    query += " ORDER BY uc.created_at DESC LIMIT ? OFFSET ?"
+    with get_connection() as conn:
+        rows = conn.execute(query, (limit, offset)).fetchall()
+    return [_row_to_correction_dict(r) for r in rows]
+
+
+def get_correction(correction_id: str) -> dict | None:
+    with get_connection() as conn:
+        row = conn.execute(_CORRECTIONS_QUERY + " WHERE uc.correction_id = ?", (correction_id,)).fetchone()
+    return _row_to_correction_dict(row) if row else None
+
+
+def count_corrections(correction_type: str | None = None) -> int:
+    query = "SELECT COUNT(*) FROM user_corrections"
+    if correction_type == "classification":
+        query += " WHERE correction_type = 'classification'"
+    elif correction_type == "field":
+        query += " WHERE correction_type IS NULL"
+    with get_connection() as conn:
+        return conn.execute(query).fetchone()[0]
+
+
+def set_correction_future_use(correction_id: str, approved: bool) -> None:
+    """False'a çekildiğinde türetilmiş politika VARSA onu da pasifleştirir —
+    aksi halde kullanıcı "kullanma" der ama kural uygulanmaya devam eder
+    (görünürde kapatılmış ama fiilen hâlâ etkili bir kural kafa karıştırır)."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT derived_policy_id FROM user_corrections WHERE correction_id = ?", (correction_id,)
+        ).fetchone()
+        if row is None:
+            return
+        conn.execute(
+            "UPDATE user_corrections SET approved_for_future_use = ? WHERE correction_id = ?",
+            (int(approved), correction_id),
+        )
+        derived_policy_id = row["derived_policy_id"]
+
+    if not approved and derived_policy_id:
+        deactivate_policy_by_id(derived_policy_id)
+
+
+def delete_correction(correction_id: str) -> None:
+    """`correction_embeddings` satırları AYNI transaction'da ÖNCE silinir
+    (PRAGMA foreign_keys=ON, embeddings correction_id'ye referans veriyor).
+    Türetilmiş politikaya DOKUNMAZ — bir düzeltme kaydını silmek, ondan
+    türetilmiş ve hâlâ aktif olabilecek bir kuralı sessizce iptal etmemeli."""
+    with get_connection() as conn:
+        conn.execute("DELETE FROM correction_embeddings WHERE correction_id = ?", (correction_id,))
+        conn.execute("DELETE FROM user_corrections WHERE correction_id = ?", (correction_id,))
 
 
 def mark_correction_approved(

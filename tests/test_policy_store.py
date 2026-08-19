@@ -1,11 +1,17 @@
 from src.core.models import PolicyScope, PolicySource
 from src.policies.store import (
     add_policy,
+    count_active_policies,
     deactivate_policy,
+    deactivate_policy_by_id,
     find_active_conflicting_policy,
     get_active_policies,
     get_active_policies_for_sender,
+    get_policy,
+    list_policies,
+    list_policy_versions,
     normalize_sender,
+    reactivate_policy,
 )
 from src.storage.db import get_connection
 
@@ -139,3 +145,94 @@ def test_conflict_then_deactivate_versioning_flow(temp_db):
     assert len(active) == 1
     assert active[0].policy_id == p2.policy_id
     assert active[0].structured_action == {"default_duration_minutes": 90}
+
+
+# --- Kurallarım ekranı için eklenen fonksiyonlar (bkz. plan Faz 7) ---
+
+
+def test_list_policies_default_excludes_inactive(temp_db):
+    p1 = add_policy("importance", "kural 1", {"importance": "high"}, event_type="meeting")
+    deactivate_policy(p1)
+    add_policy("default_duration_minutes", "kural 2", {"default_duration_minutes": 30}, event_type="exam")
+
+    assert len(list_policies()) == 1
+    assert len(list_policies(include_inactive=True)) == 2
+
+
+def test_get_active_policies_delegates_to_list_policies(temp_db):
+    add_policy("importance", "kural", {"importance": "high"}, event_type="meeting")
+    assert [p.policy_id for p in get_active_policies()] == [p.policy_id for p in list_policies()]
+
+
+def test_get_policy_by_id(temp_db):
+    p = add_policy("importance", "kural", {"importance": "high"}, event_type="meeting")
+    assert get_policy(p.policy_id).policy_id == p.policy_id
+    assert get_policy("olmayan-id") is None
+
+
+def test_count_active_policies(temp_db):
+    assert count_active_policies() == 0
+    p1 = add_policy("importance", "kural 1", {"importance": "high"}, event_type="meeting")
+    add_policy("default_duration_minutes", "kural 2", {"default_duration_minutes": 30}, event_type="exam")
+    assert count_active_policies() == 2
+    deactivate_policy(p1)
+    assert count_active_policies() == 1
+
+
+def test_deactivate_policy_by_id_success(temp_db):
+    p = add_policy("importance", "kural", {"importance": "high"}, event_type="meeting")
+    assert deactivate_policy_by_id(p.policy_id) is True
+    assert get_policy(p.policy_id).active is False
+
+
+def test_deactivate_policy_by_id_unknown_returns_false(temp_db):
+    assert deactivate_policy_by_id("olmayan-id") is False
+
+
+def test_deactivate_policy_by_id_already_inactive_returns_false(temp_db):
+    p = add_policy("importance", "kural", {"importance": "high"}, event_type="meeting")
+    deactivate_policy_by_id(p.policy_id)
+    assert deactivate_policy_by_id(p.policy_id) is False
+
+
+def test_reactivate_policy_success(temp_db):
+    p = add_policy("importance", "kural", {"importance": "high"}, event_type="meeting")
+    deactivate_policy_by_id(p.policy_id)
+
+    reactivated = reactivate_policy(p.policy_id)
+    assert reactivated is not None
+    assert reactivated.active is True
+    assert reactivated.version == p.version + 1
+
+
+def test_reactivate_policy_unknown_returns_none(temp_db):
+    assert reactivate_policy("olmayan-id") is None
+
+
+def test_reactivate_policy_already_active_returns_none(temp_db):
+    p = add_policy("importance", "kural", {"importance": "high"}, event_type="meeting")
+    assert reactivate_policy(p.policy_id) is None
+
+
+def test_reactivate_policy_blocked_by_conflicting_active_policy(temp_db):
+    p1 = add_policy("importance", "eski kural", {"importance": "high"}, event_type="meeting")
+    deactivate_policy_by_id(p1.policy_id)
+    # p1 pasifken aynı category+event_type için YENİ bir aktif politika oluştu.
+    add_policy("importance", "yeni kural", {"importance": "low"}, event_type="meeting")
+
+    assert reactivate_policy(p1.policy_id) is None
+    assert get_policy(p1.policy_id).active is False
+
+
+def test_list_policy_versions(temp_db):
+    p = add_policy("importance", "kural", {"importance": "high"}, event_type="meeting")
+    deactivate_policy(p)
+    versions = list_policy_versions(p.policy_id)
+    assert len(versions) == 1
+    assert versions[0]["version"] == 1
+    assert versions[0]["snapshot"]["natural_language_rule"] == "kural"
+
+
+def test_list_policy_versions_empty_for_never_versioned_policy(temp_db):
+    p = add_policy("importance", "kural", {"importance": "high"}, event_type="meeting")
+    assert list_policy_versions(p.policy_id) == []

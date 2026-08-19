@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}{{ t("hesaplar.title") }} — {{ t("app.brand") }}{% endblock %}
+{% block content %}
+<h1>{{ t("hesaplar.title") }}</h1>
+
+{% if scan_result %}
+<p class="scan-summary">
+    {{ t("hesaplar.scan_summary", total=scan_result.total, found=scan_result.candidates_found) }}
+    {% if scan_result.skipped_errors %}{{ t("hesaplar.scan_errors", errors=scan_result.skipped_errors) }}{% endif %}
+</p>
+{% endif %}
+
+{% if scan_busy %}
+<p class="warning">
+    <svg class="icon" width="18" height="18" aria-hidden="true"><use href="#icon-warning"></use></svg>
+    {{ t("hesaplar.scan_busy") }}
+</p>
+{% endif %}
+
+{% if not accounts %}
+<p class="empty-state">{{ t("hesaplar.empty") }}</p>
+{% endif %}
+
+<div class="card-list">
+{% for acc in accounts %}
+<article class="card">
+    <h2>{{ acc.email }}</h2>
+    <dl class="card-fields">
+        <dt>{{ t("hesaplar.field.provider") }}</dt>
+        <dd>{{ acc.provider }}</dd>
+        <dt>{{ t("hesaplar.field.status") }}</dt>
+        <dd>{{ acc.status }}</dd>
+        <dt>{{ t("hesaplar.field.connected_at") }}</dt>
+        <dd>{{ acc.connected_at }}</dd>
+    </dl>
+    <form method="post" action="/hesaplar/{{ acc.id }}/tara">
+        <button type="submit" class="btn btn-approve">{{ t("hesaplar.scan_now") }}</button>
+    </form>
+    <p class="hint">{{ t("hesaplar.scan_hint") }}</p>
+</article>
+{% endfor %}
+</div>
+{% endblock %}

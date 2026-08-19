@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}{{ t("kural_yeni.title") }} — {{ t("app.brand") }}{% endblock %}
+{% block content %}
+<h1>{{ t("kural_yeni.title") }}</h1>
+
+{% if show_error %}
+<p class="warning">
+    <svg class="icon" width="18" height="18" aria-hidden="true"><use href="#icon-warning"></use></svg>
+    {{ t("kural_yeni.error_missing_value") }}
+</p>
+{% endif %}
+
+<form method="post" action="/kurallarim/yeni" class="edit-form">
+    <label>
+        {{ t("kural_yeni.field.rule_text") }}
+        <input type="text" name="natural_language_rule" required />
+    </label>
+    <p class="hint">{{ t("kural_yeni.rule_text_hint") }}</p>
+
+    <fieldset>
+        <legend>{{ t("kural_yeni.field.scope") }}</legend>
+        <label class="radio-label">
+            <input type="radio" name="scope_type" value="global" checked />
+            {{ t("kural_yeni.scope.global") }}
+        </label>
+        <label class="radio-label">
+            <input type="radio" name="scope_type" value="event_type" />
+            {{ t("kural_yeni.scope.event_type") }}
+        </label>
+        <label>
+            {{ t("kural_yeni.field.event_type") }}
+            <select name="event_type">
+                {% for value in ["meeting", "appointment", "exam", "deadline", "travel", "reservation", "personal_commitment", "other"] %}
+                <option value="{{ value }}">{{ t("enum.event_type." ~ value) }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label class="radio-label">
+            <input type="radio" name="scope_type" value="sender" />
+            {{ t("kural_yeni.scope.sender") }}
+        </label>
+        <label>
+            {{ t("kural_yeni.field.sender") }}
+            <input type="text" name="sender" placeholder="ornek@site.com" />
+        </label>
+    </fieldset>
+
+    <fieldset>
+        <legend>{{ t("kural_yeni.field.action") }}</legend>
+        <label class="radio-label">
+            <input type="radio" name="action_type" value="duration" checked />
+            {{ t("kural_yeni.field.duration") }}
+        </label>
+        <input type="number" name="duration_minutes" min="1" />
+
+        <label class="radio-label">
+            <input type="radio" name="action_type" value="reminder" />
+            {{ t("kural_yeni.field.reminder") }}
+        </label>
+        <input type="number" name="reminder_minutes" min="0" />
+
+        <label class="radio-label">
+            <input type="radio" name="action_type" value="importance" />
+            {{ t("kural_yeni.field.importance_value") }}
+        </label>
+        <select name="importance">
+            <option value="low">{{ t("enum.importance.low") }}</option>
+            <option value="normal">{{ t("enum.importance.normal") }}</option>
+            <option value="high">{{ t("enum.importance.high") }}</option>
+        </select>
+    </fieldset>
+
+    <button type="submit" class="btn btn-approve">{{ t("kural_yeni.submit") }}</button>
+    <a class="btn btn-edit" href="/kurallarim">{{ t("common.cancel") }}</a>
+</form>
+{% endblock %}

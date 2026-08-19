@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}{{ t("duzeltmelerim.title") }} — {{ t("app.brand") }}{% endblock %}
+{% block content %}
+
+<div class="page-heading">
+    <h1>{{ t("duzeltmelerim.title") }}</h1>
+</div>
+
+<div class="chip-row">
+    <a href="/duzeltmelerim" class="chip {{ 'chip--neutral' if current_filter != 'hepsi' }}">
+        {{ t("duzeltmelerim.filter.all") }} ({{ total_count }})
+    </a>
+    <a href="/duzeltmelerim?tur=alan" class="chip {{ 'chip--neutral' if current_filter != 'alan' }}">
+        {{ t("duzeltmelerim.filter.field") }} ({{ field_count }})
+    </a>
+    <a href="/duzeltmelerim?tur=siniflandirma" class="chip {{ 'chip--neutral' if current_filter != 'siniflandirma' }}">
+        {{ t("duzeltmelerim.filter.classification") }} ({{ classification_count }})
+    </a>
+</div>
+
+{% if not corrections %}
+<p class="empty-state">{{ t("duzeltmelerim.empty") }}</p>
+{% endif %}
+
+<div class="card-list">
+{% for c in corrections %}
+<article class="card">
+    <h2>{{ c.user_feedback_text or t("common.unspecified") }}</h2>
+
+    {% if c.correction_type == "classification" %}
+    <p class="hint">{{ t("duzeltmelerim.classification_note") }}</p>
+    {% else %}
+        {% set diffs = diff_snapshots(c.original_output, c.corrected_output, t) %}
+        {% if diffs %}
+        <table class="diff-table">
+            <thead>
+                <tr><th></th><th>{{ t("duzeltmelerim.field.before") }}</th><th>{{ t("duzeltmelerim.field.after") }}</th></tr>
+            </thead>
+            <tbody>
+                {% for label, before, after in diffs %}
+                <tr><th>{{ label }}</th><td>{{ before }}</td><td>{{ after }}</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="hint">{{ t("duzeltmelerim.no_diff") }}</p>
+        {% endif %}
+    {% endif %}
+
+    <div class="chip-row">
+        {% if c.sender_scope %}
+        <span class="chip chip--neutral">{{ t("duzeltmelerim.scope.sender", value=c.sender_scope) }}</span>
+        {% elif c.correction_scope == "event_type" and c.event_type %}
+        <span class="chip chip--neutral">{{ t("duzeltmelerim.scope.event_type", value=t("enum.event_type." ~ c.event_type)) }}</span>
+        {% elif c.correction_scope == "account" %}
+        <span class="chip chip--neutral">{{ t("duzeltmelerim.scope.account") }}</span>
+        {% else %}
+        <span class="chip chip--neutral">{{ t("duzeltmelerim.scope.single_event") }}</span>
+        {% endif %}
+    </div>
+
+    {% if c.derived_policy_id %}
+    <p>
+        {{ t("duzeltmelerim.rule_derived") }}: {{ c.derived_rule_text }}
+        {% if not c.derived_rule_active %}<span class="hint">{{ t("duzeltmelerim.rule_inactive_note") }}</span>{% endif %}
+        — <a href="/kurallarim">{{ t("duzeltmelerim.view_rule") }}</a>
+    </p>
+    {% else %}
+    <p class="hint">{{ t("duzeltmelerim.no_rule_derived") }}</p>
+    {% endif %}
+
+    <p class="source-info">{{ c.created_at }}</p>
+
+    <div class="card-actions">
+        {% if c.derived_policy_id %}
+        <form method="post" action="/duzeltmelerim/{{ c.correction_id }}/gelecekte-kullan">
+            {% if c.approved_for_future_use %}
+            <input type="hidden" name="enabled" value="false" />
+            <button type="submit" class="btn btn-edit">{{ t("duzeltmelerim.stop_using") }}</button>
+            {% else %}
+            <input type="hidden" name="enabled" value="true" />
+            <button type="submit" class="btn btn-approve">{{ t("duzeltmelerim.use_in_future") }}</button>
+            {% endif %}
+        </form>
+        {% endif %}
+        <form method="post" action="/duzeltmelerim/{{ c.correction_id }}/sil">
+            <button type="submit" class="btn btn-reject">{{ t("duzeltmelerim.delete") }}</button>
+        </form>
+    </div>
+</article>
+{% endfor %}
+</div>
+{% endblock %}

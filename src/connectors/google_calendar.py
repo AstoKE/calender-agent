@@ -10,30 +10,44 @@ from __future__ import annotations
 from datetime import datetime
 
 from googleapiclient.discovery import build
+from google.oauth2.credentials import Credentials
 
 from src.connectors.base import CalendarConnector
 from src.connectors.google_auth import GOOGLE_ACCOUNT_SCOPES, get_google_credentials
 
 
 class GoogleCalendarConnector(CalendarConnector):
-    def __init__(self, account_id: str):
+    def __init__(self, account_id: str, credentials: Credentials | None = None):
+        """``credentials`` verilirse OAuth akışı (get_google_credentials) hiç
+        çalıştırılmaz — web yolu (bkz. src/ui/) interaktif fallback'e asla
+        düşmemesi gereken load_credentials_noninteractive ile önceden
+        credentials üretip buraya geçirir."""
         self.account_id = account_id
-        creds = get_google_credentials(GOOGLE_ACCOUNT_SCOPES, account_id)
+        creds = credentials if credentials is not None else get_google_credentials(GOOGLE_ACCOUNT_SCOPES, account_id)
         self._service = build("calendar", "v3", credentials=creds)
 
     def list_events(self, time_min: datetime, time_max: datetime, calendar_id: str = "primary") -> list[dict]:
-        resp = (
-            self._service.events()
-            .list(
-                calendarId=calendar_id,
-                timeMin=time_min.isoformat(),
-                timeMax=time_max.isoformat(),
-                singleEvents=True,
-                orderBy="startTime",
+        items: list[dict] = []
+        page_token = None
+        while True:
+            resp = (
+                self._service.events()
+                .list(
+                    calendarId=calendar_id,
+                    timeMin=time_min.isoformat(),
+                    timeMax=time_max.isoformat(),
+                    singleEvents=True,
+                    orderBy="startTime",
+                    maxResults=2500,
+                    pageToken=page_token,
+                )
+                .execute()
             )
-            .execute()
-        )
-        return resp.get("items", [])
+            items.extend(resp.get("items", []))
+            page_token = resp.get("nextPageToken")
+            if not page_token:
+                break
+        return items
 
     def get_freebusy(
         self, time_min: datetime, time_max: datetime, calendar_id: str = "primary"
