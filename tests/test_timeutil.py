@@ -32,6 +32,38 @@ def test_parse_clock_time_invalid(raw):
 
 
 @pytest.mark.parametrize(
+    "raw, expected",
+    [
+        ("akşam 7", "19:00"),
+        ("akşam 7'de", "19:00"),
+        ("aksam 7", "19:00"),
+        ("gece 11", "23:00"),
+        ("öğleden sonra 3", "15:00"),
+        ("7 pm", "19:00"),
+        ("evening 7", "19:00"),
+        ("7 in the afternoon", "19:00"),
+    ],
+)
+def test_parse_clock_time_pm_hints_shift_hour(raw, expected):
+    """Canlı testte bulundu: 'akşam 7' saf rakamla eşleşip 07:00 (sabah)
+    olarak yorumlanıyordu, kullanıcı 19:00 kastediyordu."""
+    assert parse_clock_time(raw) == expected
+
+
+@pytest.mark.parametrize(
+    "raw, expected",
+    [
+        ("sabah 7", "07:00"),  # PM ipucu yok -> dokunulmaz
+        ("akşam 12", "12:00"),  # 12 kasıtlı olarak dokunulmaz
+        ("gece 0", "00:00"),  # 0 kasıtlı olarak dokunulmaz
+        ("19:00", "19:00"),  # zaten 24 saatlik -> dokunulmaz
+    ],
+)
+def test_parse_clock_time_pm_hints_do_not_affect_edge_hours(raw, expected):
+    assert parse_clock_time(raw) == expected
+
+
+@pytest.mark.parametrize(
     "raw, expected_minutes",
     [
         ("30", 30),

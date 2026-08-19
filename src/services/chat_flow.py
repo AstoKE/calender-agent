@@ -740,7 +740,13 @@ def _advance_create_event(
         if action in ("edit", "d", "düzenle", "duzenle"):
             new_state = state.model_copy(update={"step": STEP_EDIT_PICK_FIELD})
             return new_state, [translate("chat.create.edit_pick_field_prompt", lang)]
-        return state, [_render_preview(candidate, state.conflict_note, lang)]
+        # Canlı testte bulundu: tanınmayan bir girdi (örn. saati düzeltmek için
+        # doğrudan "19:00 olsun" yazmak) sessizce aynı önizlemeyi tekrar
+        # gösteriyordu — kullanıcı mesajının hiçbir etkisi olmadığını
+        # anlayamıyordu. Artık NEDEN hiçbir şey değişmediğini açıklayan bir
+        # mesaj önce gösteriliyor (bkz. plan: kazara reddetmeyi önleme amacı
+        # korunuyor, yalnızca sessizlik gideriliyor).
+        return state, [translate("chat.create.preview_unrecognized", lang), _render_preview(candidate, state.conflict_note, lang)]
 
     if step == STEP_EDIT_PICK_FIELD:
         return _handle_edit_pick_field(state, user_text, lang=lang)

@@ -468,6 +468,12 @@ MESSAGES: dict[str, dict[str, str]] = {
     "chat.create.reminder_item": {"tr": "{minutes} dk önce", "en": "{minutes} min before"},
     "chat.create.approved": {"tr": "Takvime eklendi.", "en": "Added to your calendar."},
     "chat.create.rejected": {"tr": "Reddedildi, takvime yazılmadı.", "en": "Rejected — nothing was added to the calendar."},
+    "chat.create.preview_unrecognized": {
+        "tr": "Bunu anlayamadım — onaylamak için \"evet\", değiştirmek için \"düzenle\", vazgeçmek için "
+        "\"hayır\" yazabilir ya da aşağıdaki butonları kullanabilirsiniz.",
+        "en": "I didn't understand that — reply \"yes\" to approve, \"edit\" to change something, "
+        "\"no\" to cancel, or use the buttons below.",
+    },
     "chat.create.edit_pick_field_prompt": {
         "tr": "Hangi alanı düzenlemek istersiniz? (başlık/saat/süre/önem/konum)",
         "en": "Which field would you like to edit? (title/time/duration/importance/location)",

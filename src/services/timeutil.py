@@ -24,6 +24,12 @@ _CLOCK_TIME_RE = re.compile(r"(\d{1,2})[:.](\d{2})")
 _HOUR_ONLY_RE = re.compile(r"\b(\d{1,2})\b")
 _NUMBER_RE = re.compile(r"(\d+(?:[.,]\d+)?)")
 
+# Canlı testte bulundu: "akşam 7" saf rakamla eşleşip 07:00 olarak
+# yorumlanıyordu (kullanıcı 19:00 kastediyordu) — gün-yarısı belirten bu
+# kelimeler varsa 1-11 arası saat PM'e kaydırılır. 12 ve 0 kasıtlı olarak
+# dokunulmuyor (öğlen/gece yarısı belirsizliği tahmin etmeye değmez).
+_PM_HINTS = ("akşam", "aksam", "gece", "öğleden sonra", "ogleden sonra", "pm", "evening", "afternoon", "night")
+
 
 def parse_clock_time(raw: str) -> str | None:
     """Kullanıcının doğal biçimde yazdığı saati ('11.00 da', '13:00', 'saat 9')
@@ -41,6 +47,9 @@ def parse_clock_time(raw: str) -> str | None:
         hour, minute = int(m2.group(1)), 0
     if not (0 <= hour <= 23 and 0 <= minute <= 59):
         return None
+    lowered = raw.lower()
+    if 1 <= hour <= 11 and any(hint in lowered for hint in _PM_HINTS):
+        hour += 12
     return f"{hour:02d}:{minute:02d}"
 
 

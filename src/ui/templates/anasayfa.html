@@ -101,9 +101,19 @@
         var form = event.target;
         if (!form.matches(".assistant-chat__form, .assistant-chat__reset-form")) return;
         event.preventDefault();
+        // Onayla/Düzenle/Reddet gibi hızlı-yanıt butonları (name="action")
+        // formda birden fazla submit butonu olduğu için `new FormData(form)`
+        // TEK BAŞINA hangisine tıklandığını bilemiyor — tıklanan butonun
+        // name/value'su formData'ya hiç girmiyordu, sunucu "action" alanını
+        // boş görüp isteği sessizce yok sayıyordu (bkz. canlı test). Tıklanan
+        // butonu `event.submitter`'dan alıp elle ekliyoruz.
+        var formData = new FormData(form);
+        if (event.submitter && event.submitter.name) {
+            formData.set(event.submitter.name, event.submitter.value);
+        }
         fetch(form.getAttribute("action"), {
             method: "POST",
-            body: new FormData(form),
+            body: formData,
             headers: { "X-Requested-With": "fetch" },
         })
             .then(function (response) {

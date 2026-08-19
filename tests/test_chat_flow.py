@@ -844,5 +844,10 @@ def test_preview_confirm_unrecognized_input_does_not_reject(conn):
     llm = _create_event_llm(title="Toplantı", start_datetime=start.isoformat(), duration_minutes=30)
     calendar = FakeCalendar()
     state, _ = _advance(ChatState(), "yarın toplantı", llm=llm, calendar=calendar)
-    state, _ = _advance(state, "bunu anlamıyorum", llm=llm, calendar=calendar)
+    state, messages = _advance(state, "bunu anlamıyorum", llm=llm, calendar=calendar)
     assert state.step == STEP_PREVIEW_CONFIRM  # önizlemede kalır, sessizce reddetmez
+    # Canlı testte bulundu: kullanıcı neden hiçbir şeyin değişmediğini
+    # anlayamıyordu (mesaj sessizce yok sayılıyordu) — artık açıklayan bir
+    # mesaj da dönüyor, yalnızca önizleme tekrarlanmıyor.
+    assert len(messages) == 2
+    assert any("anlayamadım" in m.lower() or "understand" in m.lower() for m in messages)

@@ -209,3 +209,20 @@ def test_non_ajax_message_still_redirects(client):
     response = client.post("/asistan/mesaj", data={"metin": "merhaba"}, follow_redirects=False)
     assert response.status_code == 303
     assert response.headers["location"] == "/anasayfa"
+
+
+def test_action_field_alone_is_processed_as_the_message(client):
+    """Onayla/Düzenle/Reddet gibi hızlı-yanıt butonlarının sunucu tarafı
+    sözleşmesi: `metin` boş, yalnızca `action` doluyken de mesaj işlenmeli.
+    Canlı testte bulunan bir bug'ın (anasayfa.html'deki gönderim script'i
+    tıklanan butonun name/value'sunu formData'ya hiç eklemiyordu, butonlar
+    hiçbir şey yapmıyormuş gibi görünüyordu) sunucu tarafındaki varsayımını
+    doğruluyor — JS'in kendisi burada test edilemiyor, yalnızca bu sözleşme."""
+    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    response = client.post(
+        "/asistan/mesaj", data={"action": "approve"}, headers={"X-Requested-With": "fetch"}
+    )
+    assert response.status_code == 200
+    with get_connection() as conn:
+        rows = conn.execute("SELECT COUNT(*) FROM chat_sessions").fetchone()[0]
+    assert rows == 1  # action doluydu -> boş gönderim sayılmadı, oturum açıldı
