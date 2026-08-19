@@ -57,8 +57,7 @@ from src.services.timeutil import DEFAULT_TIMEZONE
 from src.storage.db import DEFAULT_DB_PATH
 from src.storage.preferences import set_preference
 from src.ui.calendar_access import get_calendar_or_none
-from src.ui.chat_session import get_current_chat_session_id
-from src.ui.chat_state import list_recent_messages, load_chat_state
+from src.ui.chat_state import build_chat_widget_context
 from src.ui.session import resolve_active_account, safe_next, set_session_cookies
 from src.ui.templating import templates
 
@@ -127,15 +126,7 @@ def home_page(request: Request, mesgul: bool = False):
     pending_count = count_pending_candidates(account_id) if account_id else 0
     others_pending = (count_pending_candidates(None) - pending_count) if account_id else 0
 
-    chat_messages: list[dict] = []
-    chat_step = None
-    if CHAT_ENABLED and account_id:
-        # Salt okunur: kullanıcı hiç sohbet etmemişse boş boş bir chat_sessions
-        # satırı oluşturmaz — yalnızca POST /asistan/mesaj ilk mesajda oturum açar.
-        chat_session_id = get_current_chat_session_id(request, account_id)
-        if chat_session_id:
-            chat_messages = list_recent_messages(chat_session_id)
-            chat_step = load_chat_state(chat_session_id).step
+    chat_context = build_chat_widget_context(request, account_id) if CHAT_ENABLED else {}
 
     return templates.TemplateResponse(
         request,
@@ -150,8 +141,7 @@ def home_page(request: Request, mesgul: bool = False):
             "active_policy_count": len(get_active_policies()),
             "scan_busy": mesgul,
             "chat_enabled": CHAT_ENABLED,
-            "chat_messages": chat_messages,
-            "chat_step": chat_step,
+            **chat_context,
         },
     )
 

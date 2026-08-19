@@ -155,3 +155,57 @@ def test_message_history_survives_simulated_restart(client, monkeypatch):
         )
         assert page.status_code == 200
         assert "merhaba, ilk mesaj" in page.text
+
+
+# --- AJAX fragment yanıtı (bkz. templates/anasayfa.html'deki gönderim script'i) ---
+
+
+def test_ajax_message_returns_fragment_not_redirect(client):
+    ensure_account_registered("acc1", provider="google", email="a@example.com")
+
+    response = client.post(
+        "/asistan/mesaj",
+        data={"metin": "merhaba"},
+        headers={"X-Requested-With": "fetch"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    assert 'id="asistan-chat"' in response.text
+    assert "merhaba" in response.text
+    assert client.cookies.get("chat_session")
+
+
+def test_ajax_reset_returns_fragment_not_redirect(client):
+    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    client.post("/asistan/mesaj", data={"metin": "merhaba"})
+
+    response = client.post(
+        "/asistan/sifirla", headers={"X-Requested-With": "fetch"}, follow_redirects=False
+    )
+    assert response.status_code == 200
+    assert 'id="asistan-chat"' in response.text
+
+
+def test_ajax_empty_message_returns_unchanged_fragment_without_new_session(client):
+    ensure_account_registered("acc1", provider="google", email="a@example.com")
+
+    response = client.post(
+        "/asistan/mesaj", data={"metin": "   "}, headers={"X-Requested-With": "fetch"}, follow_redirects=False
+    )
+    assert response.status_code == 200
+    assert 'id="asistan-chat"' in response.text
+    assert "chat_session" not in response.cookies
+
+    with get_connection() as conn:
+        rows = conn.execute("SELECT COUNT(*) FROM chat_sessions").fetchone()[0]
+    assert rows == 0
+
+
+def test_non_ajax_message_still_redirects(client):
+    """JS kapalıysa/başarısızsa form normal şekilde gönderilir — AJAX
+    desteği eski davranışı değiştirmemeli (bkz. plan)."""
+    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    response = client.post("/asistan/mesaj", data={"metin": "merhaba"}, follow_redirects=False)
+    assert response.status_code == 303
+    assert response.headers["location"] == "/anasayfa"

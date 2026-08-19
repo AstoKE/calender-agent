@@ -4,12 +4,18 @@
    e/h/d gibi doğal metni de tanıyor); adıma göre gösterilen butonlar (action=)
    yalnızca aynı tanınan token'lardan birini gönderen bir kısayol — hiçbir yeni
    davranış eklemiyor. Balon metinleri asla |safe DEĞİL, autoescape açık
-   kalmalı (kullanıcı metni burada basılıyor). #}
-<section class="assistant-chat" aria-labelledby="assistant-chat-title">
+   kalmalı (kullanıcı metni burada basılıyor).
+
+   `id="asistan-chat"` + `.assistant-chat__form`/`.assistant-chat__reset-form`
+   sınıfları anasayfa.html'deki gönderim script'inin hedefi — bu bölüm her
+   AJAX gönderiminde outerHTML ile TAMAMEN değiştirildiği için script,
+   olay dinleyicilerini BURAYA değil `document`'e bağlıyor (event delegation);
+   aksi halde her değişimden sonra dinleyiciler kaybolurdu. #}
+<section id="asistan-chat" class="assistant-chat" aria-labelledby="assistant-chat-title">
     <div class="assistant-chat__header">
         <h2 id="assistant-chat-title">{{ t("assistant.title") }}</h2>
         {% if chat_messages %}
-        <form method="post" action="/asistan/sifirla">
+        <form method="post" action="/asistan/sifirla" class="assistant-chat__reset-form">
             <input type="hidden" name="next" value="/anasayfa" />
             <button type="submit" class="assistant-chat__reset">{{ t("chat.new_chat") }}</button>
         </form>

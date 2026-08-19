@@ -74,3 +74,54 @@
 
 {% endif %}
 {% endblock %}
+
+{% if chat_enabled %}
+{% block scripts %}
+<script>
+(function () {
+    // Sohbet formlarını AJAX'e çevirir (bkz. partials/_asistan_chat.html) —
+    // tam sayfa yenilenmesi (scroll sıçraması, kısa flaş) olmadan yalnızca
+    // #asistan-chat bölümü güncellenir. JS kapalıysa/fetch başarısızsa
+    // form olduğu gibi (method=post, normal 303 redirect) çalışmaya devam
+    // eder — bu script yalnızca bir iyileştirme, bir gereklilik değil.
+    //
+    // Olay dinleyicisi `document`'e bağlı (event delegation): #asistan-chat
+    // her AJAX yanıtında outerHTML ile TAMAMEN değiştiriliyor, dinleyiciyi
+    // doğrudan forma bağlasaydık her değişimden sonra kaybolurdu.
+    function scrollAndFocus() {
+        var root = document.getElementById("asistan-chat");
+        if (!root) return;
+        var messages = root.querySelector(".assistant-chat__messages");
+        if (messages) messages.scrollTop = messages.scrollHeight;
+        var input = root.querySelector('input[name="metin"]');
+        if (input) input.focus();
+    }
+
+    document.addEventListener("submit", function (event) {
+        var form = event.target;
+        if (!form.matches(".assistant-chat__form, .assistant-chat__reset-form")) return;
+        event.preventDefault();
+        fetch(form.getAttribute("action"), {
+            method: "POST",
+            body: new FormData(form),
+            headers: { "X-Requested-With": "fetch" },
+        })
+            .then(function (response) {
+                if (!response.ok) throw new Error("chat request failed");
+                return response.text();
+            })
+            .then(function (html) {
+                var root = document.getElementById("asistan-chat");
+                if (root) root.outerHTML = html;
+                scrollAndFocus();
+            })
+            .catch(function () {
+                form.submit(); // ağ/JS hatasında normal form gönderimine düş
+            });
+    });
+
+    scrollAndFocus();
+})();
+</script>
+{% endblock %}
+{% endif %}

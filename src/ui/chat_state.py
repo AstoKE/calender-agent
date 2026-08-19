@@ -22,8 +22,11 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from fastapi import Request
+
 from src.services.chat_flow import ChatState, advance
 from src.storage.db import get_connection
+from src.ui.chat_session import get_current_chat_session_id
 
 MESSAGE_HISTORY_LIMIT = 30
 
@@ -90,3 +93,31 @@ def process_message(
         save_chat_state(conn, session_id, new_state)
 
     return list_recent_messages(session_id)
+
+
+def widget_context_for_session(session_id: str | None) -> dict:
+    """`_asistan_chat.html`'in ihtiyaç duyduğu `chat_messages`/`chat_step`'i
+    BİLİNEN bir `session_id`'den üretir. `chat_routes.py::send_chat_message`
+    yeni bir oturum açtığında (bkz. get_or_create_chat_session) bunu doğrudan
+    kullanır — `build_chat_widget_context`'in cookie'den okuma yoluna
+    GÜVENEMEZ, çünkü o cookie'yi taşıyan Set-Cookie başlığı henüz TARAYICIYA
+    gitmemiştir; aynı istek nesnesinin `request.cookies`'i hâlâ eski (cookie'siz)
+    hâlini gösterir — canlı testte tam olarak bu yüzden yeni açılan bir
+    oturumun ilk mesajı fragment'ta hiç görünmüyordu, bulunup düzeltildi."""
+    if not session_id:
+        return {"chat_messages": [], "chat_step": None}
+    return {
+        "chat_messages": list_recent_messages(session_id),
+        "chat_step": load_chat_state(session_id).step,
+    }
+
+
+def build_chat_widget_context(request: Request, account_id: str | None) -> dict:
+    """`widget_context_for_session`'ın cookie'den session_id OKUYAN hâli —
+    tam sayfa `GET /anasayfa` (routes.py::home_page) ve zaten var olan bir
+    oturuma karşı çalışan AJAX yollarında (bkz. chat_routes.py) kullanılır.
+    Salt okunur: hesap yoksa ya da hiç sohbet edilmemişse boş boş bir
+    chat_sessions satırı oluşturmaz."""
+    if not account_id:
+        return widget_context_for_session(None)
+    return widget_context_for_session(get_current_chat_session_id(request, account_id))
