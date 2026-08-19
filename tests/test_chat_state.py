@@ -142,6 +142,22 @@ def test_process_message_persists_state_and_messages(temp_db, kwargs):
     assert row[0] == 2
 
 
+def test_process_message_display_text_overrides_stored_user_message(temp_db, kwargs):
+    """chat_routes.py bir hızlı-yanıt butonuna tıklanınca (action="approve")
+    işleme giden ham değer ile balonda gösterilen metni ayırıyor — burada
+    yalnızca ayrım mekanizması test ediliyor (bkz. chat_routes.py'deki
+    gerçek çeviri eşlemesi, orada test ediliyor)."""
+    session_id = _new_session()
+    messages = process_message(session_id, "approve", display_text="Onayla", **kwargs)
+    assert messages[0]["text"] == "Onayla"  # balonda görünen, ham "approve" değil
+
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT text FROM chat_messages WHERE session_id = ? AND role = 'user'", (session_id,)
+        ).fetchone()
+    assert row["text"] == "Onayla"
+
+
 def test_process_message_survives_reload_simulating_restart(temp_db, kwargs):
     """Sunucu yeniden başlasa bile yarım kalan konuşma hayatta kalmalı —
     burada bunu iki BAĞIMSIZ process_message çağrısı arasında state'in

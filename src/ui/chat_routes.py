@@ -23,6 +23,7 @@ from fastapi import APIRouter, Form, Request, Response
 from fastapi.responses import RedirectResponse
 
 from src.core.logging_config import get_logger
+from src.localization import translate
 from src.ui.chat_session import (
     create_new_chat_session,
     get_or_create_chat_session,
@@ -58,6 +59,35 @@ def _copy_cookies(source: Response, target: Response) -> None:
     for key, value in source.raw_headers:
         if key == b"set-cookie":
             target.raw_headers.append((key, value))
+
+
+# Hızlı-yanıt butonlarının (bkz. partials/_asistan_chat.html) ham action=
+# değeri, aynı butonun kendi görünen etiketiyle eşleniyor — kullanıcı balonu
+# "approve" gibi ham bir İngilizce token yerine "Onayla" gösterir (canlı
+# testte bulunan bir kusur). Yalnızca adımdan BAĞIMSIZ, tek anlamlı token'lar
+# burada — "1"/"2" gibi adıma göre anlamı değişenler kasıtlı olarak dışarıda,
+# yanlış çeviri göstermektense ham sayıyı göstermek daha az yanıltıcı.
+_ACTION_DISPLAY_KEYS = {
+    "approve": "common.approve",
+    "edit": "common.edit",
+    "reject": "common.reject",
+    "evet": "chat.yes",
+    "hayır": "chat.no",
+    "keep": "chat.create.keep_anyway",
+    "atla": "chat.acm.skip",
+    "title": "duzenle.field.title",
+    "start_datetime": "oneriler.field.time",
+    "duration_minutes": "duzenle.field.duration",
+    "importance": "duzenle.field.importance",
+    "location": "duzenle.field.location",
+}
+
+
+def _display_text_for_action(action: str, metin: str, lang: str) -> str | None:
+    if metin.strip():
+        return None  # serbest metin -> kullanıcının kendi yazdığı, dokunulmaz
+    key = _ACTION_DISPLAY_KEYS.get(action.strip().lower())
+    return translate(key, lang) if key else None
 
 
 @router.post("/asistan/mesaj")
@@ -108,6 +138,7 @@ def send_chat_message(
                 embedding_provider=request.app.state.embedding_provider,
                 calendar=calendar,
                 lang=lang,
+                display_text=_display_text_for_action(action, metin, lang),
             )
         except Exception:
             logger.exception("Sohbet turu işlenemedi (session=%s)", session_id)

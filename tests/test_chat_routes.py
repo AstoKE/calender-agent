@@ -303,3 +303,28 @@ def test_resume_chat_rejects_session_belonging_to_another_account(client):
     )
     assert response.status_code == 303
     assert client.cookies.get("chat_session") == acc1_session_id  # değişmedi, reddedildi
+
+
+# --- Buton tıklamalarında görünen mesaj (bkz. canlı testte bulunan kusur:
+# balon ham "approve" gösteriyordu, düğmenin kendi çevrilmiş etiketi değil) ---
+
+
+def test_button_click_shows_translated_label_not_raw_action_value(client):
+    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    response = client.post(
+        "/asistan/mesaj", data={"action": "approve"}, headers={"X-Requested-With": "fetch"}
+    )
+    assert response.status_code == 200
+    assert "Onayla" in response.text
+    assert ">approve<" not in response.text
+
+
+def test_free_text_message_is_shown_verbatim(client):
+    """Serbest metin (buton değil) dokunulmadan gösterilmeli — yalnızca
+    action= dolu hızlı-yanıt tıklamaları çeviriye tabi."""
+    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    response = client.post(
+        "/asistan/mesaj", data={"metin": "approve etmek istiyorum"}, headers={"X-Requested-With": "fetch"}
+    )
+    assert response.status_code == 200
+    assert "approve etmek istiyorum" in response.text

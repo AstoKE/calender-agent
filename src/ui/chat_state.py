@@ -70,17 +70,25 @@ def list_recent_messages(session_id: str, limit: int = MESSAGE_HISTORY_LIMIT) ->
 
 
 def process_message(
-    session_id: str, user_text: str, *, llm, embedding_provider, calendar, lang: str
+    session_id: str, user_text: str, *, llm, embedding_provider, calendar, lang: str, display_text: str | None = None
 ) -> list[dict]:
     """Bir sohbet turunu uçtan uca işler: state'i yükler, kullanıcı mesajını
     yazar, `advance()`'i HİÇBİR bağlantı açık değilken çalıştırır (bkz. modül
     docstring'i — LLM/takvim çağrıları saniyeler sürebilir), sonra yeni
     state'i + asistan mesajlarını ayrı bir kısa bağlantıda yazar. Son N
-    mesajı (bu tur dahil) kronolojik sırada döner."""
+    mesajı (bu tur dahil) kronolojik sırada döner.
+
+    `display_text` (verilirse) mesaj balonunda GÖSTERİLEN metin, `user_text`
+    ise `advance()`'e giden ve akışı ilerleten HAM değer — chat_routes.py bir
+    hızlı-yanıt butonuna tıklanınca (örn. action="approve") bunları BİLİNÇLİ
+    olarak ayırıyor: "approve" gibi ham İngilizce token'ın kendisi işleme
+    doğru şekilde gitmeli, ama kullanıcıya "approve" yazan bir balon
+    göstermek yerine düğmenin kendi çevrilmiş etiketi ("Onayla") gösterilir
+    (bkz. canlı testte bulunan UI kusuru)."""
     state = load_chat_state(session_id)
 
     with get_connection() as conn:
-        append_chat_message(conn, session_id, "user", user_text)
+        append_chat_message(conn, session_id, "user", display_text if display_text is not None else user_text)
 
     new_state, replies = advance(
         state, user_text,
