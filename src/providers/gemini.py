@@ -71,7 +71,15 @@ class GeminiProvider(LLMProvider):
             # FoundryLocalProvider'daki "/no_think" direktifinin karşılığı —
             # extraction gibi gecikmeye duyarlı görevlerde uzun reasoning
             # zincirlerini bastırır (bkz. LLMProvider.generate docstring'i).
-            config_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
+            #
+            # `thinking_level` kullanılıyor, `thinking_budget` DEĞİL: canlı
+            # testte bulundu — Gemini 3.x modelleri (bu projenin varsayılanı)
+            # `thinking_budget` gönderilince "400 INVALID_ARGUMENT" ile
+            # reddediyor (o alan yalnızca Gemini 2.5 nesli için, ikisi birlikte
+            # gönderilemiyor). `thinking_level` Gemini 3.x'in tercih ettiği
+            # kontrol; Gemini 2.5 modelleri bu alanı sessizce yok sayıyor
+            # (hata vermiyor), yani ikisiyle de uyumlu tek seçim bu.
+            config_kwargs["thinking_config"] = types.ThinkingConfig(thinking_level=types.ThinkingLevel.MINIMAL)
 
         response = self._client.models.generate_content(
             model=self._model, contents=contents, config=types.GenerateContentConfig(**config_kwargs)

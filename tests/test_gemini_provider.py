@@ -7,6 +7,7 @@ engelliyor)."""
 from __future__ import annotations
 
 import pytest
+from google.genai import types
 
 from src.providers.gemini import (
     DEFAULT_CHAT_MODEL,
@@ -95,11 +96,15 @@ def test_generate_json_output_sets_response_mime_type(fake_genai):
 
 
 def test_generate_default_disables_thinking(fake_genai):
+    """`thinking_level` kullanılıyor, `thinking_budget` DEĞİL — canlı testte
+    bulundu, Gemini 3.x modelleri `thinking_budget` gönderilince "400
+    INVALID_ARGUMENT" ile reddediyor (bkz. gemini.py'deki not)."""
     provider = GeminiProvider()
     provider.generate("sistem", "kullanıcı")
     config = provider._client.models.last_generate_kwargs["config"]
     assert config.thinking_config is not None
-    assert config.thinking_config.thinking_budget == 0
+    assert config.thinking_config.thinking_level == types.ThinkingLevel.MINIMAL
+    assert config.thinking_config.thinking_budget is None
 
 
 def test_generate_allow_thinking_omits_thinking_config(fake_genai):
