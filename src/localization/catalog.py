@@ -520,7 +520,8 @@ MESSAGES: dict[str, dict[str, str]] = {
     "gecmis.title": {"tr": "Geçmiş Sohbetler", "en": "Chat History"},
     "gecmis.back_to_chat": {"tr": "Sohbete dön", "en": "Back to chat"},
     "gecmis.empty": {"tr": "Henüz geçmiş bir sohbetiniz yok.", "en": "You don't have any past chats yet."},
-    "gecmis.message_count": {"tr": "{n} mesaj", "en": "{n} messages"},
+    "gecmis.field.updated_at": {"tr": "Son etkinlik", "en": "Last activity"},
+    "gecmis.field.message_count": {"tr": "Mesaj sayısı", "en": "Messages"},
     "gecmis.current": {"tr": "Şu an açık", "en": "Currently open"},
     "gecmis.resume": {"tr": "Bu sohbete dön", "en": "Resume this chat"},
 

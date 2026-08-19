@@ -9,28 +9,27 @@
 {% if not sessions %}
 <p class="empty-state">{{ t("gecmis.empty") }}</p>
 {% else %}
-<div class="chat-history-list">
+<div class="card-list">
 {% for s in sessions %}
-<div class="chat-history-item {{ 'chat-history-item--active' if s.session_id == active_session_id }}">
-    <span class="chat-history-item__icon" aria-hidden="true">
-        <svg class="icon" width="18" height="18"><use href="#icon-message"></use></svg>
-    </span>
-    <div class="chat-history-item__body">
-        <p class="chat-history-item__title">{{ (s.preview or t("common.untitled"))|truncate(90) }}</p>
-        <p class="chat-history-item__meta">{{ s.updated_at }} · {{ t("gecmis.message_count", n=s.message_count) }}</p>
+<article class="card">
+    <h2>{{ (s.preview or t("common.untitled"))|truncate(90) }}</h2>
+    <dl class="card-fields">
+        <dt>{{ t("gecmis.field.updated_at") }}</dt>
+        <dd>{{ s.updated_at }}</dd>
+        <dt>{{ t("gecmis.field.message_count") }}</dt>
+        <dd>{{ s.message_count }}</dd>
+    </dl>
+    <div class="card-actions">
+        {% if s.session_id == active_session_id %}
+        <span class="chip">{{ t("gecmis.current") }}</span>
+        {% else %}
+        <form method="post" action="/asistan/sohbete-don/{{ s.session_id }}">
+            <input type="hidden" name="next" value="/anasayfa" />
+            <button type="submit" class="btn btn-edit">{{ t("gecmis.resume") }}</button>
+        </form>
+        {% endif %}
     </div>
-    {% if s.session_id == active_session_id %}
-    <span class="chip">{{ t("gecmis.current") }}</span>
-    {% else %}
-    <form method="post" action="/asistan/sohbete-don/{{ s.session_id }}">
-        <input type="hidden" name="next" value="/anasayfa" />
-        <button type="submit" class="btn btn-edit">
-            {{ t("gecmis.resume") }}
-            <svg class="icon icon--chevron" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-right"></use></svg>
-        </button>
-    </form>
-    {% endif %}
-</div>
+</article>
 {% endfor %}
 </div>
 {% endif %}
