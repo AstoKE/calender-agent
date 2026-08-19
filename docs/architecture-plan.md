@@ -446,6 +446,8 @@ Aynı desen `EmbeddingProvider` için: `embed(texts: list[str]) -> list[vector]`
 
 ## 16. UI/UX Tasarımı
 
+> **Durum: uygulandı** (`src/ui/`, bkz. CLAUDE.md "Web UI" notu implementasyon detayları için). Bu bölümdeki bilgi mimarisi, öneri kartı, mobil uyum, onay akışları ve görsel dil ilkeleri (Google Calendar/Notion/Todoist esintili, renk tek başına anlam taşımaz) planlandığı gibi hayata geçti — görsel yön somut olarak Google Workspace çizgisinde netleşti (üst app bar + sol rail + mavi vurgu). Aşağıdaki **iki nokta hâlâ eksik**: "Konuşma alanı" (chatbox) yeri Ana Sayfa'da ayrıldı ama işlevsiz (`CHAT_ENABLED` sabitiyle kapalı); Düzeltmelerim'in "düzenle" aksiyonu yok (yalnızca gelecekte-kullan aç/kapa + sil var, "yalnızca geçmiş kayıt olarak tut" ayrı bir aksiyon olarak modellenmedi — gelecekte-kullan kapatmak bunu kapsıyor).
+
 **Bilgi mimarisi / sayfa yapısı:** Sol navigasyon: Ana Sayfa, Takvim, Gelen Öneriler, E-posta Hesapları, Kurallarım, Düzeltmelerim, Ayarlar (§12'de verilen yapı ile birebir).
 
 ```mermaid

@@ -47,8 +47,9 @@ from src.memory.correction_memory import (
     save_user_correction,
     set_correction_future_use,
 )
-from src.policies.derivation import save_derived_policy
+from src.policies.derivation import derive_and_save_policy, save_derived_policy
 from src.policies.store import deactivate_policy_by_id, get_active_policies, list_policies, reactivate_policy
+from src.providers.json_generation import JsonGenerationError
 from src.services.availability import find_conflicts
 from src.services.calendar_view import day_bounds, group_by_day, parse_google_event, week_bounds
 from src.services.scan_inbox import scan_account_inbox
@@ -289,9 +290,9 @@ def reactivate_rule(policy_id: str):
 
 
 @router.get("/kurallarim/yeni", response_class=HTMLResponse)
-def new_rule_form(request: Request, hata: bool = False):
+def new_rule_form(request: Request, hata: str | None = None):
     return templates.TemplateResponse(
-        request, "kural_yeni.html", {"active_page": "kurallarim", "show_error": hata}
+        request, "kural_yeni.html", {"active_page": "kurallarim", "error_kind": hata}
     )
 
 
@@ -316,7 +317,7 @@ def new_rule_submit(
         structured_action["importance"] = importance
 
     if not structured_action:
-        return RedirectResponse("/kurallarim/yeni?hata=1", status_code=303)
+        return RedirectResponse("/kurallarim/yeni?hata=eksik", status_code=303)
 
     save_derived_policy(
         request.app.state.embedding_provider,
@@ -326,6 +327,28 @@ def new_rule_submit(
         sender=(sender or None) if scope_type == "sender" else None,
         source=PolicySource.MANUAL,
     )
+    return RedirectResponse("/kurallarim", status_code=303)
+
+
+@router.post("/kurallarim/yeni-dogal-dil")
+def new_rule_submit_natural_language(request: Request, rule_text: str = Form(...)):
+    """Mode B (bkz. plan Faz 10): kullanıcı yapılandırılmış alanları
+    doldurmak yerine tek bir doğal dil cümlesi yazar, LLM'in çıkardığı
+    structured_action ile derive_and_save_policy kaydeder. Yapılandırılmış
+    moddan (new_rule_submit) FARKLI: LLM çağrısı birkaç saniye sürebilir
+    ve şablonda ("kural_yeni.natural.hint") bu açıkça belirtiliyor."""
+    try:
+        policy = derive_and_save_policy(
+            request.app.state.llm,
+            request.app.state.embedding_provider,
+            rule_text,
+            source=PolicySource.MANUAL,
+        )
+    except JsonGenerationError:
+        policy = None
+
+    if policy is None:
+        return RedirectResponse("/kurallarim/yeni?hata=llm", status_code=303)
     return RedirectResponse("/kurallarim", status_code=303)
 
 

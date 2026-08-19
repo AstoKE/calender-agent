@@ -101,6 +101,8 @@ a {
     font-weight: 500;
     font-size: 1.1rem;
     color: var(--color-text);
+    white-space: nowrap;
+    min-width: 0;
 }
 
 .topbar__brand .icon {
@@ -344,5 +346,14 @@ legend {
     .tabbar__more-panel a.active {
         background: var(--color-accent-subtle);
         border-radius: var(--radius-sm);
+    }
+}
+
+/* Dar telefon genişlikleri (~360px altı): marka metni topbar'da dil +
+   hesap menüleriyle yer için yarışıp taşabilir — ikon kalır, metin gizlenir.
+   Ana kırılma noktasından (48rem, tablet) AYRI ve daha dar bir eşik. */
+@media (max-width: 24rem) {
+    .topbar__brand-label {
+        display: none;
     }
 }

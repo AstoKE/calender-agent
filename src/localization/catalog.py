@@ -219,6 +219,25 @@ MESSAGES: dict[str, dict[str, str]] = {
         "tr": "Seçtiğiniz eylem için bir değer girmelisiniz.",
         "en": "You must enter a value for the action you selected.",
     },
+    "kural_yeni.mode.structured": {"tr": "Yapılandırılmış", "en": "Structured"},
+    "kural_yeni.mode.natural": {"tr": "Doğal dilde yaz", "en": "Write in plain language"},
+    "kural_yeni.natural.field.rule_text": {
+        "tr": "Kuralı kendi cümlelerinizle yazın",
+        "en": "Write the rule in your own words",
+    },
+    "kural_yeni.natural.placeholder": {
+        "tr": "örn. Sınavlar her zaman 90 dakika sürsün",
+        "en": "e.g. Exams should always be 90 minutes",
+    },
+    "kural_yeni.natural.hint": {
+        "tr": "Model yerelde çalışıyor — bu birkaç saniye sürebilir. Etkinlik türü ve eylem metinden otomatik çıkarılır.",
+        "en": "The model runs locally — this may take a few seconds. Event type and action are inferred from the text.",
+    },
+    "kural_yeni.natural.submit": {"tr": "LLM ile kaydet", "en": "Save with LLM"},
+    "kural_yeni.error_llm": {
+        "tr": "Bu kuraldan somut bir eylem çıkaramadım — daha net yazmayı deneyin veya yapılandırılmış formu kullanın.",
+        "en": "I couldn't extract a concrete action from this rule — try being more specific, or use the structured form.",
+    },
 
     # --- Düzeltmelerim ---
     "duzeltmelerim.title": {"tr": "Düzeltmelerim", "en": "My Corrections"},

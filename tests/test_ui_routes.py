@@ -461,9 +461,9 @@ def test_new_rule_submit_missing_value_redirects_with_error(client):
         follow_redirects=False,
     )
     assert response.status_code == 303
-    assert response.headers["location"] == "/kurallarim/yeni?hata=1"
+    assert response.headers["location"] == "/kurallarim/yeni?hata=eksik"
 
-    followed = client.get("/kurallarim/yeni?hata=1")
+    followed = client.get("/kurallarim/yeni?hata=eksik")
     assert 'class="warning"' in followed.text
 
 
@@ -482,6 +482,39 @@ def test_new_rule_submit_sender_scope(client, temp_db):
     assert response.status_code == 303
     listing = client.get("/kurallarim")
     assert "LinkedIn mailleri düşük önemli" in listing.text
+
+
+def test_new_rule_natural_language_no_concrete_action_redirects_with_error(client):
+    # _DummyLLMProvider.generate(json_output=True) "{}" döner -> hiçbir alan
+    # çıkarılamaz -> derive_and_save_policy None döner.
+    response = client.post(
+        "/kurallarim/yeni-dogal-dil", data={"rule_text": "bir şey"}, follow_redirects=False
+    )
+    assert response.status_code == 303
+    assert response.headers["location"] == "/kurallarim/yeni?hata=llm"
+
+
+def test_new_rule_natural_language_success(client):
+    class _DurationLLM(_DummyLLMProvider):
+        def generate(self, system_prompt, user_prompt, context_chunks=None, json_output=False, allow_thinking=False):
+            return '{"event_type": "exam", "default_duration_minutes": 90}' if json_output else ""
+
+    client.app.state.llm = _DurationLLM()
+    response = client.post(
+        "/kurallarim/yeni-dogal-dil", data={"rule_text": "Sınavlar her zaman 90 dakika"}, follow_redirects=False
+    )
+    assert response.status_code == 303
+    assert response.headers["location"] == "/kurallarim"
+
+    listing = client.get("/kurallarim")
+    assert "Sınavlar her zaman 90 dakika" in listing.text
+
+
+def test_kural_yeni_form_has_both_modes(client):
+    response = client.get("/kurallarim/yeni")
+    assert response.status_code == 200
+    assert 'action="/kurallarim/yeni-dogal-dil"' in response.text
+    assert 'action="/kurallarim/yeni"' in response.text
 
 
 # --- Faz 8: Düzeltmelerim ---

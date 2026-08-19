@@ -28,13 +28,20 @@ Tam mimari, veri modeli, 26 başlıklı tasarım kararları için **[docs/archit
   - `add_policy`/policy tanımlama çelişki tespiti + versiyonlama yapıyor (aynı category+kapsamda zaten aktif bir politika varsa eskisi pasifleştirilip `policy_versions`'a snapshot'lanıyor, silinmiyor) — bu, manuel kural tanımlamayı da (`handle_define_policy`) kapsıyor.
   - Kapsam dışı bırakılan: account-scope (kullanılmıyor, tek kullanıcı için sender/global yeterli).
 - `update_event` (yalnızca konuşma akışından): `handle_update_event` kullanıcı mesajından `title_hint`/`date_hint`/`cancel`/yeni saat çıkarıp Google Calendar'da CANLI arama yapıyor (`calendar_events_cache` kullanılmıyor, hiç doldurulmuyor) — sıfır/çoklu eşleşmede tahmin etmeden soruyor, tek eşleşmede önizleme+onay sonrası `update_event`/yeni `delete_event` (connector'a eklendi) çağırıyor. Mail kaynaklı güncelleme tespiti (plan §8.3, thread/semantic ilişkilendirmeye bağımlı) kapsam dışı.
-- Formal pytest test suite (`tests/`) — ilk dilim: `timeutil.py`, `availability.py`, `extraction.py`, `policies/store.py`, `_find_matching_events` (update_event eşleştirme mantığı), `candidates/store.py` için deterministik testler, gerçek DB'ye dokunmayan izole `temp_db` fixture'ıyla. LLM/embedding'e bağımlı testler ve connector mock testleri henüz yok.
-- **Web UI — ilk dilim: "Gelen Öneriler"** (`src/ui/`, FastAPI+Jinja2, `python -m src.ui.app`, `http://127.0.0.1:8000/oneriler`). Yalnızca **mail kaynaklı** candidate'lar (konuşma kaynaklı candidate'ların account_id bağlantısı yok). **Bu, `scan_inbox.py`'nin davranışını kalıcı olarak değiştirdi:** artık interaktif onaylatmıyor, her takvimlik maili doğrudan `candidate_events`'e (`src/candidates/store.py::save_new_candidate`) yazıp geçiyor — onay SADECE web'den. `review_and_confirm_candidate` artık yalnızca `vertical_prototype.py` (konuşma akışı) tarafından kullanılıyor. Web'de onayla (çakışma varsa "yine de ekle" onayı ister) / reddet (opsiyonel sebep, ham düzeltme olarak `save_user_correction` ile kaydedilir) / düzenle (eksik/yanlış alanlar) var. ACM'nin "gelecekte de uygulayayım mı?" (politika türetme, scope seçimi) akışı web'de YOK — bilinçli olarak kapsam dışı, CLI'da kalmaya devam ediyor. Web sunucusu login/auth içermiyor (tek kullanıcı, yerel-öncelikli); bağlı hesapların OAuth token'larının CLI üzerinden en az bir kez oluşturulmuş olması gerekiyor.
-- **Web UI — ikinci dilim: tam sol navigasyon + "E-posta Hesapları"** (`src/ui/routes.py`, `src/ui/templates/base.html`). Sol nav (§16: Ana Sayfa/Takvim/Gelen Öneriler/E-posta Hesapları/Kurallarım/Düzeltmelerim/Ayarlar) artık tüm sayfalarda görünüyor, `active_page` context değişkeniyle vurgulanıyor. `scan_inbox.py`'nin çekirdek for-loop'u `scan_account_inbox(account_id, llm, embedding_provider, on_progress=None) -> dict` olarak çıkarıldı — hem CLI'nın `main()`'i hem web'in "Şimdi tara" butonu (`POST /hesaplar/{account_id}/tara`) aynı fonksiyonu çağırıyor, CLI ilerleme metni için `on_progress=print` veriyor, web sessiz (senkron/bloklayan istek, arka plan kuyruğu yok). `GET /hesaplar` bağlı hesapları (`account_registry.py::list_accounts()`, artık `connected_at` da dönüyor) kart olarak listeliyor. Ana Sayfa/Takvim/Kurallarım/Düzeltmelerim/Ayarlar tek bir `GET /{page_name}` catch-all route'una (`yakinda.html` placeholder, `PLACEHOLDER_PAGES` sözlüğünde izin verilen sayfa adları) gidiyor — **bu route dosyanın en sonunda tanımlı olmalı**, Starlette route'ları kayıt sırasına göre eşleştirdiğinden daha önce tanımlanırsa `/hesaplar` gibi spesifik route'ları gölgeler. `tests/test_ui_routes.py`: `FoundryLocalProvider`/`FoundryLocalEmbeddingProvider`'ı sahte bir sınıfla monkeypatch'leyip (`src.ui.app.FoundryLocalProvider` vb.) gerçek model yüklemeden `TestClient` ile nav/placeholder/hesaplar route'larını doğruluyor. Yeni hesap ekleme/tarayıcıda OAuth başlatma ve chatbox (Ana Sayfa'nın konuşma akışı) hâlâ kapsam dışı — sıradaki dilim chatbox.
+- Formal pytest test suite (`tests/`, **203 test**) — deterministik servis/store testleri (`timeutil.py`, `availability.py`, `extraction.py`, `policies/store.py`, `_find_matching_events`, `candidates/store.py`, `correction_memory.py`, `storage/preferences.py`) + tüm Web UI (`test_ui_routes.py`, `test_localization*.py`, `test_calendar_view.py`, `test_session.py`) — hepsi gerçek DB'ye dokunmayan izole `temp_db` fixture'ıyla. Gerçek LLM/embedding çağrısı yapan test yok (Web UI testleri `LLMProvider`/`EmbeddingProvider` arayüzünü GERÇEKTEN uygulayan sahtelerle çalışıyor); connector'lara karşı canlı Gmail/Calendar mock testi de henüz yok.
+- **Web UI — tam yeniden tasarım tamamlandı** (`src/ui/`, FastAPI+Jinja2, `python -m src.ui.app`, `http://127.0.0.1:8000/`). Google Workspace görsel yönünde (üst app bar + sol rail + mavi vurgu), TR/EN çok dilli, hesap değiştirmeli; 7 ekranın hepsi gerçek içerik — placeholder/`yakinda.html` kalmadı.
+  - **Kabuk:** `src/ui/templating.py` tek `Jinja2Templates` örneği, `context_processors` ile her şablona `t()`/`lang`/`fmt_*`/`accounts`/`active_account` otomatik ulaşır (route'lar tek tek eklemez). `src/ui/nav.py::NAV_ITEMS` sol rail + mobil alt tab bar'ın TEK kaynağı. `src/ui/session.py` "aktif hesap" ve dili COOKIE'de tutar, DB'de DEĞİL (tarayıcı sekmesine özgü görünüm durumu — DB'ye koymak iki sekmenin aynı satırı ezmesine yol açardı); sıfır-hesap/bayat-cookie durumları hiçbir zaman istisna fırlatmaz, her ekran nazikçe "hesap bağlayın" durumuna düşer. `app.py`'deki bir middleware isteğe özel aktif hesabı bir kez çözüp `request.state`'e yazıyor, yanıt üretildikten SONRA bayat cookie'yi kendini onaracak şekilde yeniden yazıyor — ama route zaten kendi Set-Cookie'sini koymuşsa (örn. `/hesap-sec`) üzerine yazmıyor; bu kontrol olmadan aynı istekte iki çelişen Set-Cookie üretilebiliyordu, gerçek bir test hatası olarak bulundu. `src/ui/security.py::CSRFGuardMiddleware` `Sec-Fetch-Site`/`Origin` kontrolüyle cross-site POST'ları reddediyor.
+  - **i18n:** `src/localization/` — `catalog.py` (anahtar-önce TR/EN sözlük, `enum.<ad>.<değer>` ad alanı sayesinde her rozet çevrilmiş bir kelime basıyor, renk tek başına anlam taşımıyor), `translate()` asla istisna fırlatmaz (eksik anahtar → anahtarın kendisi görünür), `formatting.py` elle yazılmış ay/gün tabloları kullanıyor — **`locale.setlocale` KULLANILMIYOR** (thread-safe değil, FastAPI sync route'ları bir threadpool'da çalışır). Dil çözümleme sırası: `ui_lang` cookie → aktif hesabın `localization_preferences`'ı → `user_preferences['ui.language']` (hesapsız kalıcı geri düşüş, `src/storage/preferences.py`, cookie silinse bile hayatta kalır) → `Accept-Language` → `tr`. Route YOLLARI kasıtlı olarak Türkçe kaldı (`/oneriler`, `/hesaplar`, ...) — yalnızca görünen etiketler çevrildi.
+  - **Tasarım sistemi:** `src/ui/static/{tokens,base,components}.css` (üç dosya, derleme adımı yok), elle çizilmiş inline SVG ikon sprite'ı (`templates/partials/_icons.html`, CDN yok), global `:focus-visible` halkası, skip link, `48rem`'de sol rail → sabit alt tab bar (aynı markup, CSS'le collapse). Hesap avatarı: resim/gravatar YOK (ağ çağrısı = offline-first ihlali + gizlilik), `account_id` hash'inden deterministik renk + baş harfler (`src/ui/presenters.py`).
+  - **Ekranlar:** Ana Sayfa (bugünkü etkinlikler + ilk 3 bekleyen öneri — `/oneriler` ile AYNI kart makrosu, `macros/_candidate_card.html` — + istatistik satırı + **asistan slotu**: chatbox'ın kendisi hâlâ yok ama yeri ayrıldı, içinde hiç `<form>`/submit yok, `CHAT_ENABLED` sabitiyle açılacak); Takvim (haftalık grid, `src/services/calendar_view.py` saf/OAuth'suz ayrıştırma — Google'ın tüm-gün `end.date`'inin DIŞLAYICI olduğu klasik off-by-one tuzağı dahil, canlı render'da doğrulandı); Gelen Öneriler; E-posta Hesapları (tarama tek-uçuş korumalı, `app.state.scan_in_progress`); **Kurallarım** (aktif/pasif liste, pasifleştir/aktifleştir, `describe_structured_action` ham JSON'u insan cümlesine çeviriyor, yeni kural için hem yapılandırılmış-LLM'siz hem doğal-dil-LLM'li iki mod); **Düzeltmelerim** (`user_corrections` artık okunuyor — önceden yazma-yalnızdı; önce/sonra diff sadece GERÇEKTEN değişen alanları gösteriyor, reddetme akışı önce/sonrayı aynı kaydettiği için `diff_snapshots` boş liste dönüp "alan değişikliği yok" gösteriyor; "gelecekte kullan" kapatılınca türetilen politikayı da pasifleştiriyor); **Ayarlar** (dil, hesap başına saat dilimi — yalnızca GÖRÜNTÜLEME, yazma yolu hâlâ `DEFAULT_TIMEZONE` sabit ve ekranda böyle etiketleniyor, tanılama).
+  - **Kritik düzeltme (redesign'dan bağımsız, önce bulundu):** `get_google_credentials` (CLI'nın OAuth akışı) token yoksa/geçersizse interaktif `InstalledAppFlow.run_local_server`'a düşüyordu — bir web isteğinden tetiklenirse isteği sonsuza kadar bekletip **sunucu makinesinde** bir tarayıcı penceresi açardı. `load_credentials_noninteractive`/`has_usable_credentials` (`google_auth.py`) ve `src/ui/calendar_access.py::get_calendar_or_none` bunu ASLA yapmaz, token kullanılamazsa sessizce `None` döner — Takvim gibi her sayfa yüklemesinde connector kuran ekranlar için zorunlu.
+  - Kapsam dışı bırakılan (bilinçli): chatbox'ın gerçek işlevi; tarayıcıda OAuth ile yeni hesap ekleme; takvimden doğrudan etkinlik oluşturma/sürükleme (§16'nın zorunlu önizleme kuralı gereği yazma işlemleri hâlâ Öneriler akışında); arka plan tarama kuyruğu (senkron kalıyor); karanlık mod (token'lar hazır, blok eklenmedi).
+  - Testler tamamen `temp_db` ile izole, `FoundryLocalProvider`/`FoundryLocalEmbeddingProvider`'ı GERÇEK arayüzü uygulayan (yalnızca var olma değil, `embed()`/`generate()` çağrılabilir) sahtelerle monkeypatch'liyor: `test_ui_routes.py`, `test_localization.py`, `test_localization_preferences.py`, `test_calendar_view.py`, `test_session.py`, `test_correction_memory.py`, `test_storage_preferences.py`.
 - Loglama sistemi: her LLM çağrısı + karar noktası `data/debug.log`'a yazılıyor (`src/core/logging_config.py`) — **bir şey beklenmedik davranırsa önce buraya bak, tahmin etmeye çalışma.**
 
 Henüz yok (plan §19/§25'e göre sıradaki adımlar):
-- Web UI'de chatbox (Ana Sayfa'nın konuşma akışı — sohbet/create_event/query_calendar/define_policy'nin webde çalışması, oturum durumu gerektiriyor); Takvim/Kurallarım/Düzeltmelerim/Ayarlar'ın gerçek içeriği (hâlâ "yakında" placeholder); web'de ACM'nin politika türetme akışı; web'den `update_event`; web'den yeni hesap ekleme (tarayıcıda OAuth).
+- Web UI'de chatbox (Ana Sayfa'nın konuşma akışı — sohbet/create_event/query_calendar/define_policy'nin webde çalışması, oturum durumu gerektiriyor — asistan slotu hazır ama işlevsiz).
+- Web'de ACM'nin "gelecekte de uygulayayım mı?" onay/scope-seçim akışı (reddet/düzenle sırasında — şu an yalnızca ham düzeltme kaydediliyor, politika teklifi CLI'da kalıyor); web'den `update_event`; web'den yeni hesap ekleme (tarayıcıda OAuth).
 - Mail kaynaklı `update_event` tespiti (plan §8.3, thread/semantic ilişkilendirmeye bağımlı).
 - `calendar_events_cache` senkronizasyonu (şemada var, hiç doldurulmuyor).
 
@@ -86,8 +93,8 @@ python -m src.services.vertical_prototype
 # Gelen kutusunu tarama (artık yalnızca kuyruğa yazıyor, onay web'den)
 python -m src.services.scan_inbox
 
-# Web UI ("Gelen Öneriler") — http://127.0.0.1:8000/oneriler
-python -m src.ui.app
+# Web UI (tüm ekranlar — Ana Sayfa/Takvim/Öneriler/Hesaplar/Kurallar/Düzeltmeler/Ayarlar)
+python -m src.ui.app  # http://127.0.0.1:8000/
 
 # Testler
 python -m pytest tests/
@@ -110,29 +117,49 @@ src/
   core/          # Pydantic domain modelleri + logging_config.py
   providers/     # LLMProvider/EmbeddingProvider soyutlaması, FoundryLocalProvider,
                  # json_generation.py (JSON-çıktı retry+temizleme ortak yardımcısı)
-  connectors/    # Gmail, Google Calendar, OAuth (google_auth.py), Account Registry
+  connectors/    # Gmail, Google Calendar, OAuth (google_auth.py — get_google_credentials
+                 # CLI için interaktif düşebilir, load_credentials_noninteractive web
+                 # için ASLA düşmez), Account Registry
   services/      # intent.py, extraction.py (ortak alan eşleme), timeutil.py,
                  # availability.py (Conflict Engine), mail_sync.py, mail_analysis.py,
-                 # vertical_prototype.py (konuşma akışı: create/query/update_event/
-                 # define_policy + review_and_confirm_candidate — yalnızca konuşma
-                 # akışının kullandığı interaktif onay/yazma fonksiyonu), scan_inbox.py
-                 # (artık interaktif değil, yalnızca kuyruğa yazıyor — bkz. candidates/)
+                 # calendar_view.py (Google Calendar ham JSON -> Takvim ekranı için
+                 # saf/OAuth'suz ayrıştırma, bkz. Web UI notu), vertical_prototype.py
+                 # (konuşma akışı: create/query/update_event/define_policy +
+                 # review_and_confirm_candidate — yalnızca konuşma akışının kullandığı
+                 # interaktif onay/yazma fonksiyonu), scan_inbox.py (scan_account_inbox
+                 # hem CLI hem Web UI'nin "Şimdi tara" butonu tarafından paylaşılıyor)
   candidates/    # store.py (Candidate Event Queue persistence: save_new_candidate,
-                 # list/get_pending_candidate, update_candidate_fields — Web UI ve
-                 # scan_inbox.py'nin ortak kullandığı, self-contained repository)
-  policies/      # store.py (CRUD + çelişki tespiti/versiyonlama), derivation.py
-                 # (doğal dil kural -> PersonalPolicy, manuel + ACM ortak)
-  memory/        # correction_memory.py (Adaptive Correction Memory: düzeltme
-                 # yakalama, onay akışı, politika türetmeyi derivation.py'ye devreder)
+                 # list/get/count_pending_candidate(s), update_candidate_fields — Web UI
+                 # ve scan_inbox.py'nin ortak kullandığı, self-contained repository)
+  policies/      # store.py (CRUD + çelişki tespiti/versiyonlama + Kurallarım'ın
+                 # list/get/deactivate/reactivate_policy'si), derivation.py (doğal dil
+                 # kural -> PersonalPolicy, manuel + ACM + Kurallarım'ın LLM modu ortak)
+  memory/        # correction_memory.py (Adaptive Correction Memory: düzeltme yakalama,
+                 # onay akışı, politika türetmeyi derivation.py'ye devreder — artık
+                 # Düzeltmelerim ekranı için list/get/count_corrections,
+                 # set_correction_future_use, delete_correction de burada)
   rag/           # policy_retrieval.py (policy embedding/retrieval),
                  # correction_retrieval.py (mail sınıflandırma düzeltmeleri —
                  # ayrı tablo/amaç, policy_retrieval'a kasıtlı olarak karıştırılmıyor)
-  storage/       # db.py (bağlantı+migration), schema.sql
-  ui/            # app.py (FastAPI + lifespan'de tek seferlik LLM/embedding yükleme),
-                 # routes.py (sol nav + "Gelen Öneriler" + "E-posta Hesapları"), templates/, static/
-tests/           # timeutil/availability/extraction/policies/candidates store'ları
-                 # için deterministik testler + test_ui_routes.py (TestClient,
-                 # FoundryLocal* monkeypatch'li) — hepsi temp_db fixture'ıyla izole
+  storage/       # db.py (bağlantı+migration), schema.sql, preferences.py
+                 # (user_preferences generic key/value — hesaba bağlı OLMAYAN kalıcı
+                 # ayarlar; hesaba bağlı olanlar için localization/preferences.py'ye bkz.)
+  localization/  # catalog.py (TR/EN string tablosu), __init__.py (translate/
+                 # normalize_language — asla istisna fırlatmaz), formatting.py
+                 # (locale.setlocale KULLANILMIYOR — elle yazılmış tablolar),
+                 # preferences.py (localization_preferences — hesaba FK'li dil/tz)
+  ui/            # app.py (FastAPI + lifespan + account/CSRF middleware + 404 handler),
+                 # routes.py (7 ekranın hepsi), templating.py (tek Jinja2Templates +
+                 # context_processors), session.py (cookie tabanlı aktif hesap/dil),
+                 # nav.py (NAV_ITEMS — rail+tab bar'ın tek kaynağı), security.py
+                 # (CSRFGuardMiddleware), presenters.py (initials/avatar_color/
+                 # describe_structured_action/diff_snapshots), calendar_access.py
+                 # (get_calendar_or_none — OAuth-güvenli), templates/, static/
+tests/           # timeutil/availability/extraction/policies/candidates store'ları için
+                 # deterministik testler + localization/calendar_view/session/
+                 # correction_memory/storage_preferences testleri + test_ui_routes.py
+                 # (TestClient, FoundryLocal* GERÇEK arayüzü uygulayan sahtelerle
+                 # monkeypatch'li) — hepsi temp_db fixture'ıyla izole
 data/            # SQLite DB, OAuth dosyaları, debug.log — git'e dahil DEĞİL
 docs/            # architecture-plan.md (tam mimari) + program dokümanı PDF'i
 ```
