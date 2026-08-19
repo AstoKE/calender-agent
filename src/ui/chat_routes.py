@@ -1,5 +1,7 @@
-"""Sohbet rotaları: `POST /asistan/mesaj`, `POST /asistan/sifirla` (bkz.
-plan "Web Chatbox" Faz 5). Ayrı dosya — `routes.py` zaten 500+ satır.
+"""Sohbet rotaları: `POST /asistan/mesaj`, `POST /asistan/yeni-sohbet`,
+`GET /asistan/gecmis`, `POST /asistan/sohbete-don/{session_id}` (bkz. plan
+"Web Chatbox" Faz 5 + "Geçmiş Sohbetler"). Ayrı dosya — `routes.py` zaten
+500+ satır.
 
 `_get_calendar` (interaktif-OAuth-toleranslı) `routes.py`'den içe aktarılıyor,
 `get_calendar_or_none` DEĞİL: bir sohbet mesajı göndermek `/oneriler/{id}/onayla`
@@ -21,7 +23,12 @@ from fastapi import APIRouter, Form, Request, Response
 from fastapi.responses import RedirectResponse
 
 from src.core.logging_config import get_logger
-from src.ui.chat_session import get_current_chat_session_id, get_or_create_chat_session, reset_chat_session
+from src.ui.chat_session import (
+    create_new_chat_session,
+    get_or_create_chat_session,
+    list_chat_sessions,
+    switch_chat_session,
+)
 from src.ui.chat_state import build_chat_widget_context, process_message, widget_context_for_session
 from src.ui.routes import CHAT_ENABLED, _get_calendar
 from src.ui.session import resolve_active_account, resolve_language, safe_next
@@ -121,17 +128,51 @@ def send_chat_message(
     return response
 
 
-@router.post("/asistan/sifirla")
-def reset_chat(request: Request, next: str = Form("/anasayfa")):
+@router.post("/asistan/yeni-sohbet")
+def new_chat(request: Request, next: str = Form("/anasayfa")):
+    """ESKİ oturuma hiç dokunmaz (mesaj geçmişi kalıcı — bkz.
+    create_new_chat_session docstring'i), yalnızca aktif cookie'yi yeni/boş
+    bir oturuma çevirir. Eski sohbet `/asistan/gecmis`'te hâlâ görünür."""
     target = safe_next(next)
     ajax = _is_ajax(request)
     active_account = resolve_active_account(request)
+
+    if active_account is None:
+        if ajax:
+            return _chat_fragment_response(request, None)
+        return RedirectResponse(target, status_code=303)
+
+    cookie_carrier = Response()
+    session_id = create_new_chat_session(cookie_carrier, active_account["id"])
+
+    response = (
+        _chat_fragment_response_for_session(request, session_id)
+        if ajax
+        else RedirectResponse(target, status_code=303)
+    )
+    _copy_cookies(cookie_carrier, response)
+    return response
+
+
+@router.get("/asistan/gecmis")
+def chat_history(request: Request):
+    active_account = resolve_active_account(request)
     account_id = active_account["id"] if active_account else None
-    session_id = get_current_chat_session_id(request, account_id) if account_id else None
+    active_session_id = request.cookies.get("chat_session")
 
-    if session_id is not None:
-        reset_chat_session(session_id)
+    sessions = list_chat_sessions(account_id) if account_id else []
+    return templates.TemplateResponse(
+        request,
+        "gecmis_sohbetler.html",
+        {"active_page": None, "sessions": sessions, "active_session_id": active_session_id},
+    )
 
-    if ajax:
-        return _chat_fragment_response_for_session(request, session_id)
-    return RedirectResponse(target, status_code=303)
+
+@router.post("/asistan/sohbete-don/{session_id}")
+def resume_chat_session(request: Request, session_id: str, next: str = Form("/anasayfa")):
+    target = safe_next(next)
+    active_account = resolve_active_account(request)
+    response = RedirectResponse(target, status_code=303)
+    if active_account is not None:
+        switch_chat_session(response, active_account["id"], session_id)
+    return response

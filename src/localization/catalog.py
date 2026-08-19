@@ -514,6 +514,15 @@ MESSAGES: dict[str, dict[str, str]] = {
     "chat.yes": {"tr": "Evet", "en": "Yes"},
     "chat.no": {"tr": "Hayır", "en": "No"},
     "chat.create.keep_anyway": {"tr": "Yine de devam et", "en": "Keep it anyway"},
+    "chat.history_link": {"tr": "Geçmiş sohbetler", "en": "Chat history"},
+
+    # --- Geçmiş Sohbetler (bkz. src/ui/templates/gecmis_sohbetler.html) ---
+    "gecmis.title": {"tr": "Geçmiş Sohbetler", "en": "Chat History"},
+    "gecmis.back_to_chat": {"tr": "Sohbete dön", "en": "Back to chat"},
+    "gecmis.empty": {"tr": "Henüz geçmiş bir sohbetiniz yok.", "en": "You don't have any past chats yet."},
+    "gecmis.message_count": {"tr": "{n} mesaj", "en": "{n} messages"},
+    "gecmis.current": {"tr": "Şu an açık", "en": "Currently open"},
+    "gecmis.resume": {"tr": "Bu sohbete dön", "en": "Resume this chat"},
 
     # --- Enum: Importance ---
     "enum.importance.low": {"tr": "Düşük", "en": "Low"},

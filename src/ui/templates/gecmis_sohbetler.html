@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}{{ t("gecmis.title") }} — {{ t("app.brand") }}{% endblock %}
+{% block content %}
+<div class="page-heading">
+    <h1>{{ t("gecmis.title") }}</h1>
+    <a class="btn btn-edit" href="/anasayfa">{{ t("gecmis.back_to_chat") }}</a>
+</div>
+
+{% if not sessions %}
+<p class="empty-state">{{ t("gecmis.empty") }}</p>
+{% else %}
+<div class="card-list">
+{% for s in sessions %}
+<article class="card">
+    <p>{{ (s.preview or t("common.untitled"))|truncate(140) }}</p>
+    <p class="hint">{{ s.updated_at }} — {{ t("gecmis.message_count", n=s.message_count) }}</p>
+    <div class="card-actions">
+        {% if s.session_id == active_session_id %}
+        <span class="chip">{{ t("gecmis.current") }}</span>
+        {% else %}
+        <form method="post" action="/asistan/sohbete-don/{{ s.session_id }}">
+            <input type="hidden" name="next" value="/anasayfa" />
+            <button type="submit" class="btn btn-edit">{{ t("gecmis.resume") }}</button>
+        </form>
+        {% endif %}
+    </div>
+</article>
+{% endfor %}
+</div>
+{% endif %}
+{% endblock %}

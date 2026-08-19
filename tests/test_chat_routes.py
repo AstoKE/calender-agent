@@ -108,32 +108,38 @@ def test_empty_message_is_ignored(client):
     assert rows == 0
 
 
-def test_reset_clears_flow_and_step_but_keeps_session(client):
+def test_new_chat_opens_fresh_session_and_keeps_old_one_intact(client):
     ensure_account_registered("acc1", provider="google", email="a@example.com")
     client.post("/asistan/mesaj", data={"metin": "merhaba"})
-    session_id = client.cookies.get("chat_session")
+    old_session_id = client.cookies.get("chat_session")
 
     with get_connection() as conn:
         conn.execute(
             "UPDATE chat_sessions SET flow = 'create_event', step = 'ask_title' WHERE session_id = ?",
-            (session_id,),
+            (old_session_id,),
         )
 
-    response = client.post("/asistan/sifirla", follow_redirects=False)
+    response = client.post("/asistan/yeni-sohbet", follow_redirects=False)
     assert response.status_code == 303
     assert response.headers["location"] == "/anasayfa"
 
+    new_session_id = client.cookies.get("chat_session")
+    assert new_session_id != old_session_id  # yeni bir oturuma geçildi, eskisi sıfırlanmadı
+
     with get_connection() as conn:
-        row = conn.execute(
-            "SELECT session_id, flow, step FROM chat_sessions WHERE session_id = ?", (session_id,)
+        old_row = conn.execute(
+            "SELECT flow, step FROM chat_sessions WHERE session_id = ?", (old_session_id,)
         ).fetchone()
-    assert row["session_id"] == session_id  # oturum korunuyor
-    assert row["flow"] is None
-    assert row["step"] is None
+        message_count = conn.execute(
+            "SELECT COUNT(*) FROM chat_messages WHERE session_id = ?", (old_session_id,)
+        ).fetchone()[0]
+    assert old_row["flow"] == "create_event"  # eski oturum DOKUNULMADI
+    assert old_row["step"] == "ask_title"
+    assert message_count == 2  # eski mesajlar (kullanıcı + asistan) hâlâ duruyor
 
 
-def test_reset_with_no_active_account_does_not_error(client):
-    response = client.post("/asistan/sifirla", follow_redirects=False)
+def test_new_chat_with_no_active_account_does_not_error(client):
+    response = client.post("/asistan/yeni-sohbet", follow_redirects=False)
     assert response.status_code == 303
 
 
@@ -176,15 +182,18 @@ def test_ajax_message_returns_fragment_not_redirect(client):
     assert client.cookies.get("chat_session")
 
 
-def test_ajax_reset_returns_fragment_not_redirect(client):
+def test_ajax_new_chat_returns_fragment_not_redirect(client):
     ensure_account_registered("acc1", provider="google", email="a@example.com")
     client.post("/asistan/mesaj", data={"metin": "merhaba"})
+    old_session_id = client.cookies.get("chat_session")
 
     response = client.post(
-        "/asistan/sifirla", headers={"X-Requested-With": "fetch"}, follow_redirects=False
+        "/asistan/yeni-sohbet", headers={"X-Requested-With": "fetch"}, follow_redirects=False
     )
     assert response.status_code == 200
     assert 'id="asistan-chat"' in response.text
+    assert "merhaba" not in response.text  # yeni/boş oturum, eski mesaj görünmüyor
+    assert client.cookies.get("chat_session") != old_session_id
 
 
 def test_ajax_empty_message_returns_unchanged_fragment_without_new_session(client):
@@ -226,3 +235,71 @@ def test_action_field_alone_is_processed_as_the_message(client):
     with get_connection() as conn:
         rows = conn.execute("SELECT COUNT(*) FROM chat_sessions").fetchone()[0]
     assert rows == 1  # action doluydu -> boş gönderim sayılmadı, oturum açıldı
+
+
+# --- Geçmiş Sohbetler ---
+
+
+def test_history_page_empty_when_no_past_chats(client):
+    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    response = client.get("/asistan/gecmis")
+    assert response.status_code == 200
+    assert "Henüz geçmiş bir sohbetiniz yok." in response.text
+
+
+def test_history_page_lists_past_session_with_preview_and_current_marker(client):
+    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    client.post("/asistan/mesaj", data={"metin": "merhaba dünya"})
+
+    response = client.get("/asistan/gecmis")
+    assert response.status_code == 200
+    assert "merhaba dünya" in response.text
+    assert "Şu an açık" in response.text
+    assert "/asistan/sohbete-don/" not in response.text  # aktif oturum için dönüş butonu yok
+
+
+def test_history_page_no_active_account_shows_empty(client):
+    response = client.get("/asistan/gecmis")
+    assert response.status_code == 200
+    assert "Henüz geçmiş bir sohbetiniz yok." in response.text
+
+
+def test_resume_chat_switches_active_session_and_old_stays_accessible(client):
+    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    client.post("/asistan/mesaj", data={"metin": "birinci sohbet"})
+    first_session_id = client.cookies.get("chat_session")
+
+    client.post("/asistan/yeni-sohbet")
+    client.post("/asistan/mesaj", data={"metin": "ikinci sohbet"})
+    second_session_id = client.cookies.get("chat_session")
+    assert second_session_id != first_session_id
+
+    response = client.post(f"/asistan/sohbete-don/{first_session_id}", follow_redirects=False)
+    assert response.status_code == 303
+    assert client.cookies.get("chat_session") == first_session_id
+
+    page = client.get("/anasayfa")
+    assert "birinci sohbet" in page.text
+    assert "ikinci sohbet" not in page.text
+
+    # Geçmiş listesinde artık ikinci sohbet için "dön" butonu, birincisi
+    # için "şu an açık" görünmeli.
+    history = client.get("/asistan/gecmis")
+    assert f"/asistan/sohbete-don/{second_session_id}" in history.text
+
+
+def test_resume_chat_rejects_session_belonging_to_another_account(client):
+    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered("acc2", provider="google", email="b@example.com")
+
+    client.post("/asistan/mesaj", data={"metin": "acc1 sohbeti"}, cookies={"active_account": "acc1"})
+    acc1_session_id = client.cookies.get("chat_session")
+
+    # Aktif hesabı acc2'ye çevirip acc1'in oturumuna dönmeyi dene.
+    response = client.post(
+        f"/asistan/sohbete-don/{acc1_session_id}",
+        cookies={"active_account": "acc2"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert client.cookies.get("chat_session") == acc1_session_id  # değişmedi, reddedildi

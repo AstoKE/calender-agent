@@ -22,7 +22,7 @@ from google.genai import types
 
 from src.providers.base import EmbeddingProvider, LLMProvider
 
-DEFAULT_CHAT_MODEL = "gemini-2.5-flash-lite"
+DEFAULT_CHAT_MODEL = "gemini-3.5-flash-lite"
 DEFAULT_EMBEDDING_MODEL = "gemini-embedding-001"
 DEFAULT_EMBEDDING_DIMENSION = 768
 

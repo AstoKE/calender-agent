@@ -11,10 +11,12 @@ from src.connectors.account_registry import ensure_account_registered
 from src.storage.db import get_connection
 from src.ui.chat_session import (
     CHAT_SESSION_COOKIE,
+    create_new_chat_session,
     get_chat_session,
     get_current_chat_session_id,
     get_or_create_chat_session,
-    reset_chat_session,
+    list_chat_sessions,
+    switch_chat_session,
 )
 
 
@@ -86,25 +88,94 @@ def test_cross_account_session_is_not_reused(temp_db):
     assert get_chat_session(acc1_session)["account_id"] == "acc1"  # dokunulmamış
 
 
-def test_reset_chat_session_clears_flow_but_keeps_session_id(temp_db):
+def test_create_new_chat_session_ignores_existing_cookie_and_keeps_old_session(temp_db):
+    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    response1 = Response()
+    old_session = get_or_create_chat_session(_request(), response1, "acc1")
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO chat_messages (session_id, role, text, created_at) VALUES (?,?,?,?)",
+            (old_session, "user", "eski mesaj", "2026-01-01T00:00:00+00:00"),
+        )
+
+    response2 = Response()
+    new_session = create_new_chat_session(response2, "acc1")
+
+    assert new_session != old_session
+    assert _cookie_value(response2) == new_session
+    # Eski oturum ve mesajı DOKUNULMADAN duruyor.
+    assert get_chat_session(old_session) is not None
+    with get_connection() as conn:
+        count = conn.execute(
+            "SELECT COUNT(*) FROM chat_messages WHERE session_id = ?", (old_session,)
+        ).fetchone()[0]
+    assert count == 1
+
+
+def test_switch_chat_session_sets_cookie_when_owned_by_account(temp_db):
+    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    response1 = Response()
+    session_id = get_or_create_chat_session(_request(), response1, "acc1")
+
+    response2 = Response()
+    ok = switch_chat_session(response2, "acc1", session_id)
+
+    assert ok is True
+    assert _cookie_value(response2) == session_id
+
+
+def test_switch_chat_session_rejects_session_from_another_account(temp_db):
+    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered("acc2", provider="google", email="b@example.com")
+    response1 = Response()
+    acc1_session = get_or_create_chat_session(_request(), response1, "acc1")
+
+    response2 = Response()
+    ok = switch_chat_session(response2, "acc2", acc1_session)
+
+    assert ok is False
+    assert _cookie_value(response2) is None
+
+
+def test_switch_chat_session_rejects_unknown_session(temp_db):
     ensure_account_registered("acc1", provider="google", email="a@example.com")
     response = Response()
-    session_id = get_or_create_chat_session(_request(), response, "acc1")
+    ok = switch_chat_session(response, "acc1", "olmayan-id")
+    assert ok is False
+
+
+def test_list_chat_sessions_excludes_empty_sessions_and_orders_by_recency(temp_db):
+    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    response = Response()
+    empty_session = get_or_create_chat_session(_request(), response, "acc1")  # hiç mesaj yok
 
     with get_connection() as conn:
         conn.execute(
-            "UPDATE chat_sessions SET flow = 'create_event', step = 'ask_title', state_json = '{\"x\": 1}' "
-            "WHERE session_id = ?",
-            (session_id,),
+            "INSERT INTO chat_sessions (session_id, account_id, flow, step, state_json, created_at, updated_at) "
+            "VALUES ('s-old', 'acc1', NULL, NULL, '{}', '2026-01-01T00:00:00+00:00', '2026-01-01T00:00:00+00:00')"
+        )
+        conn.execute(
+            "INSERT INTO chat_sessions (session_id, account_id, flow, step, state_json, created_at, updated_at) "
+            "VALUES ('s-new', 'acc1', NULL, NULL, '{}', '2026-01-02T00:00:00+00:00', '2026-01-02T00:00:00+00:00')"
+        )
+        conn.execute(
+            "INSERT INTO chat_messages (session_id, role, text, created_at) VALUES "
+            "('s-old', 'user', 'eski soru', '2026-01-01T00:00:01+00:00')"
+        )
+        conn.execute(
+            "INSERT INTO chat_messages (session_id, role, text, created_at) VALUES "
+            "('s-new', 'user', 'yeni soru', '2026-01-02T00:00:01+00:00'), "
+            "('s-new', 'assistant', 'yanıt', '2026-01-02T00:00:02+00:00')"
         )
 
-    reset_chat_session(session_id)
+    sessions = list_chat_sessions("acc1")
 
-    row = get_chat_session(session_id)
-    assert row["session_id"] == session_id
-    assert row["flow"] is None
-    assert row["step"] is None
-    assert row["state_json"] == "{}"
+    session_ids = [s["session_id"] for s in sessions]
+    assert empty_session not in session_ids  # mesajsız oturum listede yok
+    assert session_ids == ["s-new", "s-old"]  # en yeni önce
+    new_entry = next(s for s in sessions if s["session_id"] == "s-new")
+    assert new_entry["preview"] == "yeni soru"
+    assert new_entry["message_count"] == 2
 
 
 def test_get_chat_session_unknown_id_returns_none(temp_db):

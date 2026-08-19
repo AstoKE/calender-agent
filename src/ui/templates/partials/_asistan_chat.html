@@ -14,12 +14,15 @@
 <section id="asistan-chat" class="assistant-chat" aria-labelledby="assistant-chat-title">
     <div class="assistant-chat__header">
         <h2 id="assistant-chat-title">{{ t("assistant.title") }}</h2>
-        {% if chat_messages %}
-        <form method="post" action="/asistan/sifirla" class="assistant-chat__reset-form">
-            <input type="hidden" name="next" value="/anasayfa" />
-            <button type="submit" class="assistant-chat__reset">{{ t("chat.new_chat") }}</button>
-        </form>
-        {% endif %}
+        <div class="assistant-chat__header-actions">
+            <a href="/asistan/gecmis" class="assistant-chat__reset">{{ t("chat.history_link") }}</a>
+            {% if chat_messages %}
+            <form method="post" action="/asistan/yeni-sohbet" class="assistant-chat__reset-form">
+                <input type="hidden" name="next" value="/anasayfa" />
+                <button type="submit" class="assistant-chat__reset">{{ t("chat.new_chat") }}</button>
+            </form>
+            {% endif %}
+        </div>
     </div>
 
     <div class="assistant-chat__messages">
