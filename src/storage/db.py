@@ -28,8 +28,17 @@ def _apply_adhoc_migrations(conn: sqlite3.Connection) -> None:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
 
 
-def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
-    """Şemayı (idempotent, CREATE TABLE IF NOT EXISTS) veritabanına uygular."""
+def init_db(db_path: Path | None = None) -> None:
+    """Şemayı (idempotent, CREATE TABLE IF NOT EXISTS) veritabanına uygular.
+
+    ``db_path=None`` ise ``DEFAULT_DB_PATH`` kullanılır — bu, sabit bir varsayılan
+    PARAMETRE değeri olarak DEĞİL, gövde içinde her çağrıda modül global'i
+    olarak okunuyor. Aksi halde (Python'ın "varsayılan parametre tanım anında
+    bir kere bağlanır" davranışı yüzünden) testlerde ``DEFAULT_DB_PATH``'i
+    monkeypatch'lemek, zaten import edilmiş bu fonksiyonun varsayılanını
+    değiştirmezdi — testler farkında olmadan gerçek DB'ye yazardı."""
+    if db_path is None:
+        db_path = DEFAULT_DB_PATH
     db_path.parent.mkdir(parents=True, exist_ok=True)
     schema_sql = SCHEMA_PATH.read_text(encoding="utf-8")
     with sqlite3.connect(db_path) as conn:
@@ -39,7 +48,9 @@ def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
 
 
 @contextmanager
-def get_connection(db_path: Path = DEFAULT_DB_PATH) -> Iterator[sqlite3.Connection]:
+def get_connection(db_path: Path | None = None) -> Iterator[sqlite3.Connection]:
+    if db_path is None:
+        db_path = DEFAULT_DB_PATH
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
