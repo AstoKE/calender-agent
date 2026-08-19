@@ -90,8 +90,26 @@ MESSAGES: dict[str, dict[str, str]] = {
     # --- E-posta Hesapları ---
     "hesaplar.title": {"tr": "E-posta Hesapları", "en": "Email Accounts"},
     "hesaplar.empty": {
-        "tr": "Henüz bağlı bir hesap yok. CLI üzerinden bir hesap ekleyin.",
-        "en": "No connected accounts yet. Add one from the CLI.",
+        "tr": "Henüz bağlı bir hesap yok. Aşağıdan bir hesap ekleyin.",
+        "en": "No connected accounts yet. Add one below.",
+    },
+    "hesaplar.add_account": {"tr": "Yeni hesap ekle", "en": "Add new account"},
+    "hesaplar.account_added": {"tr": "Hesap başarıyla eklendi.", "en": "Account added successfully."},
+    "hesaplar.oauth_error.reddedildi": {
+        "tr": "Google onayı iptal edildi, hesap eklenmedi.",
+        "en": "Google consent was cancelled — no account was added.",
+    },
+    "hesaplar.oauth_error.gecersiz": {
+        "tr": "Bir şeyler ters gitti (geçersiz oturum), tekrar dener misiniz?",
+        "en": "Something went wrong (invalid session) — could you try again?",
+    },
+    "hesaplar.oauth_error.basarisiz": {
+        "tr": "Hesap eklenemedi, tekrar dener misiniz?",
+        "en": "Couldn't add the account — could you try again?",
+    },
+    "hesaplar.oauth_error.client_yok": {
+        "tr": "OAuth yapılandırması eksik (google_oauth_client.json bulunamadı).",
+        "en": "OAuth configuration is missing (google_oauth_client.json not found).",
     },
     "hesaplar.field.provider": {"tr": "Sağlayıcı", "en": "Provider"},
     "hesaplar.field.status": {"tr": "Durum", "en": "Status"},

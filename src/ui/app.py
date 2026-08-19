@@ -9,9 +9,9 @@ src/services/chat_flow.py).
 
 Bu proje kişisel/yerel-öncelikli tek kullanıcı için (bkz. CLAUDE.md) — web
 tarafında ayrı bir login/auth katmanı YOK, sunucu yalnızca localhost'a
-bağlanır. Bağlı Google hesaplarının OAuth token'larının CLI üzerinden
-(select_account()) en az bir kez oluşturulmuş olması gerekir — tarayıcıda
-OAuth başlatma bu dilimde yok.
+bağlanır. Yeni bir Google hesabı tarayıcıdan da eklenebilir (bkz.
+src/ui/oauth_routes.py) — CLI'nın select_account()'ı hâlâ geçerli bir
+alternatif.
 
 `python -m src.ui.app` ile çalıştırılır.
 """
@@ -125,6 +125,10 @@ app.include_router(router)
 from src.ui.chat_routes import router as chat_router  # noqa: E402
 
 app.include_router(chat_router)
+
+from src.ui.oauth_routes import router as oauth_router  # noqa: E402
+
+app.include_router(oauth_router)
 
 
 if __name__ == "__main__":

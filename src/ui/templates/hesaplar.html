@@ -1,7 +1,20 @@
 {% extends "base.html" %}
 {% block title %}{{ t("hesaplar.title") }} — {{ t("app.brand") }}{% endblock %}
 {% block content %}
-<h1>{{ t("hesaplar.title") }}</h1>
+<div class="page-heading">
+    <h1>{{ t("hesaplar.title") }}</h1>
+    <a class="btn btn-approve" href="/hesaplar/baglan">{{ t("hesaplar.add_account") }}</a>
+</div>
+
+{% if account_added %}
+<p class="scan-summary">{{ t("hesaplar.account_added") }}</p>
+{% endif %}
+{% if oauth_error %}
+<p class="warning">
+    <svg class="icon" width="18" height="18" aria-hidden="true"><use href="#icon-warning"></use></svg>
+    {{ t("hesaplar.oauth_error." ~ oauth_error) }}
+</p>
+{% endif %}
 
 {% if scan_result %}
 <p class="scan-summary">

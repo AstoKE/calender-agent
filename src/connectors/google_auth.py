@@ -32,6 +32,22 @@ CALENDAR_READONLY_SCOPE = "https://www.googleapis.com/auth/calendar.readonly"
 GOOGLE_ACCOUNT_SCOPES = [GMAIL_READONLY_SCOPE, CALENDAR_EVENTS_SCOPE, CALENDAR_READONLY_SCOPE]
 
 
+def _token_path(account_id: str) -> Path:
+    return DATA_DIR / f"google_token_{account_id}.json"
+
+
+def save_credentials_for_account(account_id: str, creds: Credentials) -> None:
+    """Token dosyasını `account_id`'ye özel yola yazar (0600 izinle — Windows'ta
+    no-op ama zararsız). `get_google_credentials`'ın hem interaktif hem yenileme
+    yollarıyla, hem de tarayıcıda hesap ekleme akışıyla (bkz. src/ui/oauth_routes.py
+    — InstalledAppFlow'un ASLA kullanılamayacağı, kullanıcının kendi tarayıcısında
+    tamamlanan ayrı bir Authorization Code akışı) PAYLAŞILAN tek yazma noktası."""
+    token_path = _token_path(account_id)
+    token_path.parent.mkdir(parents=True, exist_ok=True)
+    token_path.write_text(creds.to_json(), encoding="utf-8")
+    token_path.chmod(0o600)
+
+
 def get_google_credentials(
     scopes: list[str],
     account_id: str,
@@ -41,9 +57,12 @@ def get_google_credentials(
 
     İlk çalıştırmada tarayıcı üzerinden kullanıcı onayı ister (InstalledAppFlow);
     sonraki çalıştırmalarda ``account_id``'ye özel saklanmış token'ı kullanır ve
-    gerekirse sessizce yeniler.
+    gerekirse sessizce yeniler. YALNIZCA CLI'dan çağrılır — web sunucusunun
+    interaktif OAuth'a asla düşmemesi gerektiği için `load_credentials_noninteractive`
+    (okuma) ve `src/ui/oauth_routes.py` (tarayıcıda yeni hesap ekleme) ayrı yollar
+    kullanır, bu fonksiyonu hiç çağırmaz.
     """
-    token_path = DATA_DIR / f"google_token_{account_id}.json"
+    token_path = _token_path(account_id)
     creds: Credentials | None = None
 
     if token_path.exists():
@@ -73,9 +92,7 @@ def get_google_credentials(
             flow = InstalledAppFlow.from_client_secrets_file(str(client_secret_path), scopes)
             creds = flow.run_local_server(port=0)
 
-        token_path.parent.mkdir(parents=True, exist_ok=True)
-        token_path.write_text(creds.to_json(), encoding="utf-8")
-        token_path.chmod(0o600)
+        save_credentials_for_account(account_id, creds)
 
     return creds
 
@@ -89,7 +106,7 @@ def load_credentials_noninteractive(scopes: list[str], account_id: str) -> Crede
     tetiklenirse istek sonsuza kadar bekler ve sunucu makinesinde bir
     tarayıcı penceresi açar; Takvim gibi her sayfa yüklemesinde connector
     kuran ekranlar bu fonksiyonu kullanmalı, get_google_credentials'ı değil."""
-    token_path = DATA_DIR / f"google_token_{account_id}.json"
+    token_path = _token_path(account_id)
     if not token_path.exists():
         return None
 
@@ -102,8 +119,7 @@ def load_credentials_noninteractive(scopes: list[str], account_id: str) -> Crede
             creds.refresh(Request())
         except RefreshError:
             return None
-        token_path.write_text(creds.to_json(), encoding="utf-8")
-        token_path.chmod(0o600)
+        save_credentials_for_account(account_id, creds)
         return creds
 
     return None

@@ -188,6 +188,8 @@ def accounts_page(
     bulunan: int | None = None,
     hatali: int | None = None,
     mesgul: bool = False,
+    hesap_eklendi: bool = False,
+    oauth_hata: str | None = None,
 ):
     accounts = list_accounts()
     scan_result = None
@@ -196,7 +198,14 @@ def accounts_page(
     return templates.TemplateResponse(
         request,
         "hesaplar.html",
-        {"accounts": accounts, "scan_result": scan_result, "scan_busy": mesgul, "active_page": "hesaplar"},
+        {
+            "accounts": accounts,
+            "scan_result": scan_result,
+            "scan_busy": mesgul,
+            "active_page": "hesaplar",
+            "account_added": hesap_eklendi,
+            "oauth_error": oauth_hata,
+        },
     )
 
 
