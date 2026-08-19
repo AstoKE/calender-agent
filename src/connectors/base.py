@@ -43,3 +43,7 @@ class CalendarConnector(ABC):
     @abstractmethod
     def update_event(self, event_id: str, changes: dict, calendar_id: str = "primary") -> None:
         """Var olan bir etkinliği günceller. Yalnızca onay sonrası çağrılmalıdır."""
+
+    @abstractmethod
+    def delete_event(self, event_id: str, calendar_id: str = "primary") -> None:
+        """Var olan bir etkinliği siler. Yalnızca onay sonrası çağrılmalıdır."""

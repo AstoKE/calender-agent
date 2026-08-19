@@ -43,8 +43,10 @@ def _intent_system_prompt() -> str:
         "query_calendar ise, sorulan tarih aralığını query_range_start/query_range_end olarak "
         "ISO 8601 hesapla. Göreceli ifadeleri yukarıdaki bugünün tarihine göre çöz — 'yarın' "
         "bugünün tarihi + 1 gün demektir. 'Bu hafta' derse: range_start = BUGÜN (geçmiş günleri "
-        "DAHİL ETME), range_end = yukarıdaki hafta sonu tarihi. Gün belirtilmemişse bugünden "
-        "başlayan makul bir aralık seç (örn. tüm gün).\n"
+        "DAHİL ETME), range_end = yukarıdaki hafta sonu tarihi. 'Bugün' derse: range_start = "
+        "BUGÜNÜN GÜNÜN BAŞLANGICI (saat 00:00), range_end = YARININ saat 00:00'ı — ASLA şu anki "
+        "saati hem start hem end için kopyalama, bu sıfır genişlikli bir aralık olur ve ANLAMSIZDIR. "
+        "Gün belirtilmemişse bugünden başlayan makul bir aralık seç (örn. tüm gün).\n"
         "SADECE geçerli JSON döndür, başka hiçbir açıklama ekleme. Şema:\n"
         '{"intent": "create_event|query_calendar|update_event|define_policy|other", '
         '"query_range_start": "YYYY-MM-DDTHH:MM:SS" veya null, '
@@ -71,5 +73,20 @@ def classify_intent(llm: LLMProvider, user_text: str) -> IntentClassification:
         start_of_today = datetime.now().astimezone().replace(hour=0, minute=0, second=0, microsecond=0)
         if result.query_range_start < start_of_today:
             result.query_range_start = start_of_today
+
+    # Deterministik güvenlik önlemi #2: model bazen (özellikle "bugün" gibi
+    # gün-seviyeli sorgularda) start/end için "şu an" referans saatini ikisine
+    # de kopyalıyor — sıfır/anlamsız derecede dar bir aralık (canlı testte
+    # "19 Ağustos 10:29 - 19 Ağustos 10:29" görüldü, "hiç etkinliğiniz yok"
+    # yanlış sonucuna yol açtı). Geçerli bir sorgu aralığı asla bu kadar dar
+    # olamaz — bu durumda start'ın GÜNÜNÜ esas alıp tam bir güne genişletiyoruz.
+    if (
+        result.query_range_start is not None
+        and result.query_range_end is not None
+        and result.query_range_end <= result.query_range_start
+    ):
+        day_start = result.query_range_start.replace(hour=0, minute=0, second=0, microsecond=0)
+        result.query_range_start = day_start
+        result.query_range_end = day_start + timedelta(days=1)
 
     return result

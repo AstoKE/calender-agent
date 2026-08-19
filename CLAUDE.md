@@ -27,12 +27,12 @@ Tam mimari, veri modeli, 26 başlıklı tasarım kararları için **[docs/archit
   - **Mail sınıflandırma düzeltmesi:** reddederken "bu mail hiç takvimlik değil miydi, yoksa bilgiler mi yanlıştı?" diye ayrıca soruluyor; ilki seçilirse `save_classification_correction` mail metnini embed edip `correction_embeddings`'e (`user_corrections.correction_type='classification'`) yazıyor — `src/services/mail_analysis.py::is_calendar_worthy` artık `embedding_provider` alıyor ve `src/rag/correction_retrieval.py::retrieve_similar_classification_corrections` ile geçmiş benzer düzeltmeleri `context_chunks` olarak LLM'e veriyor (RAG burada da karar vermiyor, sadece bağlam sağlıyor — §11).
   - `add_policy`/policy tanımlama çelişki tespiti + versiyonlama yapıyor (aynı category+kapsamda zaten aktif bir politika varsa eskisi pasifleştirilip `policy_versions`'a snapshot'lanıyor, silinmiyor) — bu, manuel kural tanımlamayı da (`handle_define_policy`) kapsıyor.
   - Kapsam dışı bırakılan: account-scope (kullanılmıyor, tek kullanıcı için sender/global yeterli).
+- `update_event` (yalnızca konuşma akışından): `handle_update_event` kullanıcı mesajından `title_hint`/`date_hint`/`cancel`/yeni saat çıkarıp Google Calendar'da CANLI arama yapıyor (`calendar_events_cache` kullanılmıyor, hiç doldurulmuyor) — sıfır/çoklu eşleşmede tahmin etmeden soruyor, tek eşleşmede önizleme+onay sonrası `update_event`/yeni `delete_event` (connector'a eklendi) çağırıyor. Mail kaynaklı güncelleme tespiti (plan §8.3, thread/semantic ilişkilendirmeye bağımlı) kapsam dışı.
+- Formal pytest test suite (`tests/`) — ilk dilim: `timeutil.py`, `availability.py`, `extraction.py`, `policies/store.py`, `_find_matching_events` (update_event eşleştirme mantığı) için deterministik testler, gerçek DB'ye dokunmayan izole `temp_db` fixture'ıyla. LLM/embedding'e bağımlı testler ve connector mock testleri henüz yok.
 - Loglama sistemi: her LLM çağrısı + karar noktası `data/debug.log`'a yazılıyor (`src/core/logging_config.py`) — **bir şey beklenmedik davranırsa önce buraya bak, tahmin etmeye çalışma.**
 
 Henüz yok (plan §19/§25'e göre sıradaki adımlar):
-- `update_event` gerçek implementasyonu (şu an sadece "henüz desteklemiyorum" mesajı)
 - Web UI (her şey CLI — `python -m src.services.vertical_prototype` / `scan_inbox`)
-- Formal pytest test suite (`tests/` klasörü var ama boş; şimdiye kadar tüm doğrulama scripted manuel testlerle yapıldı)
 
 ## Canlı testte öğrenilen kritik teknik gerçekler
 

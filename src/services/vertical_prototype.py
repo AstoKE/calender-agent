@@ -7,8 +7,11 @@ query_calendar/update_event/define_policy/other olarak yönlendirir.
 Policy Store + RAG retrieval (src/policies, src/rag) artık bağlı: eksik
 süre önce kullanıcının tanımladığı kurallardan retrieve edilir, bulunamazsa
 DEFAULT_MEETING_DURATION_MINUTES'a (sistem varsayılanı, en düşük öncelik —
-bkz. §9 politika önceliği) düşer. Tam Conversation Layer (çok turlu diyalog
-durum makinesi) hâlâ yok — bu Hafta 3'ün kapsamı.
+bkz. §9 politika önceliği) düşer. `main()` her işlemden sonra tekrar soruyor
+(boş girene kadar) — ama bu turlar arasında konuşma BAĞLAMI taşınmıyor, her
+mesaj sıfırdan bağımsız sınıflandırılıyor; gerçek çok turlu bir diyalog durum
+makinesi (örn. "onu iptal et" gibi önceki mesaja referans veren ifadeler)
+hâlâ yok.
 """
 
 from __future__ import annotations
@@ -327,7 +330,7 @@ def update_candidate_status(conn, candidate_id: str, status: CandidateStatus) ->
     )
 
 
-def record_audit(conn, action: str, entity_id: str, reason: str) -> None:
+def record_audit(conn, action: str, entity_id: str, reason: str, entity_type: str = "candidate_event") -> None:
     conn.execute(
         """
         INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, reason, created_at)
@@ -337,7 +340,7 @@ def record_audit(conn, action: str, entity_id: str, reason: str) -> None:
             str(uuid.uuid4()),
             "user",
             action,
-            "candidate_event",
+            entity_type,
             entity_id,
             reason,
             datetime.now(timezone.utc).isoformat(),
@@ -436,6 +439,147 @@ def handle_query_calendar(account_id: str, range_start: datetime | None, range_e
         start = e.get("start", {}).get("dateTime") or e.get("start", {}).get("date")
         print(f"  - {e.get('summary', '(başlıksız)')} | {start}")
     print()
+
+
+def _update_event_extraction_system_prompt(today: datetime) -> str:
+    return (
+        "Sen bir takvim asistanısın. Kullanıcı VAR OLAN bir etkinliği "
+        "değiştirmek/taşımak/iptal etmek istiyor. Mesajdan bilgi çıkar.\n"
+        f"Bugünün tarihi ve saati: {today.isoformat()} (zaman dilimi: {DEFAULT_TIMEZONE}).\n"
+        "Göreceli ifadeleri (yarın, önümüzdeki cuma, vb.) bu tarihe göre çöz.\n"
+        "KRİTİK KURALLAR:\n"
+        "1. 'title_hint': kullanıcının bahsettiği etkinliğin başlığıyla ilgili "
+        "anahtar kelime(ler) — tam başlığı bilmiyor olabilir, mesajda ne "
+        "geçiyorsa onu yaz. Hiçbir ipucu yoksa null.\n"
+        "2. 'date_hint': kullanıcının kastettiği GÜN, YYYY-MM-DD olarak. "
+        "Belirsizse/hiç geçmiyorsa null — UYDURMA.\n"
+        "3. 'cancel': kullanıcı etkinliği TAMAMEN İPTAL ETMEK/SİLMEK istiyorsa "
+        "true; yalnızca SAAT/GÜN DEĞİŞTİRMEK istiyorsa false.\n"
+        "4. cancel=false ise 'new_start_datetime' (YYYY-MM-DDTHH:MM:SS) ve "
+        "varsa 'new_duration_minutes' doldur — mesajda AÇIKÇA belirtilmeyeni "
+        "UYDURMA, null bırak.\n"
+        "SADECE geçerli JSON döndür, başka hiçbir açıklama ekleme. Alanlar:\n"
+        '{"title_hint": string veya null, "date_hint": "YYYY-MM-DD" veya null, '
+        '"cancel": true veya false, "new_start_datetime": "YYYY-MM-DDTHH:MM:SS" '
+        'veya null, "new_duration_minutes": integer veya null}'
+    )
+
+
+def _find_matching_events(
+    calendar: GoogleCalendarConnector, title_hint: str | None, date_hint: str | None
+) -> list[dict]:
+    """Değiştirilecek etkinliği CANLI olarak Google Calendar'da arar
+    (calendar_events_cache kullanılmıyor — hiç doldurulmuyor, ayrı bir iş).
+    Eşleştirme deterministik: date_hint varsa o günün tamamı, yoksa önümüzdeki
+    14 gün taranır; title_hint varsa summary içinde büyük/küçük harf duyarsız
+    alt-metin eşleşmesiyle daraltılır (LLM'e "hangisi doğru" dedirtilmez —
+    bkz. §11)."""
+    if date_hint:
+        window_start = ensure_timezone(f"{date_hint}T00:00:00")
+        window_end = window_start + timedelta(days=1)
+    else:
+        window_start = datetime.now().astimezone()
+        window_end = window_start + timedelta(days=14)
+
+    events = calendar.list_events(window_start, window_end)
+    if title_hint:
+        needle = title_hint.strip().lower()
+        matched = [e for e in events if needle in (e.get("summary") or "").lower()]
+        if matched:
+            return matched
+    return events
+
+
+def handle_update_event(llm: LLMProvider, account_id: str, user_text: str) -> None:
+    today = datetime.now().astimezone()
+    fields = generate_json(llm, _update_event_extraction_system_prompt(today), user_text)
+
+    calendar = GoogleCalendarConnector(account_id=account_id)
+    candidates = _find_matching_events(calendar, fields.get("title_hint"), fields.get("date_hint"))
+
+    if not candidates:
+        print("Değiştirmek istediğiniz etkinliği bulamadım. Daha net tarif eder misiniz (başlık/tarih)?")
+        return
+
+    if len(candidates) > 1:
+        shortlist = candidates[:5]
+        print("Birden fazla etkinlik buldum, hangisini kastediyorsunuz?")
+        for i, e in enumerate(shortlist, 1):
+            start = e.get("start", {}).get("dateTime") or e.get("start", {}).get("date")
+            print(f"  {i}. {e.get('summary', '(başlıksız)')} | {start}")
+        choice = input(f"Seçin (1-{len(shortlist)}) veya iptal (i): ").strip().lower()
+        if not choice.isdigit() or not (1 <= int(choice) <= len(shortlist)):
+            print("İptal edildi, hiçbir değişiklik yapılmadı.")
+            return
+        event = shortlist[int(choice) - 1]
+    else:
+        event = candidates[0]
+
+    event_id = event["id"]
+    old_summary = event.get("summary", "(başlıksız)")
+    old_start_raw = event.get("start", {}).get("dateTime") or event.get("start", {}).get("date")
+
+    if fields.get("cancel"):
+        print(f"\n'{old_summary}' ({old_start_raw}) etkinliğini SİLMEK üzeresiniz.")
+        confirm = input("Onaylıyor musunuz? [e/h] ").strip().lower()
+        if confirm != "e":
+            print("İptal edildi, hiçbir değişiklik yapılmadı.")
+            return
+        calendar.delete_event(event_id)
+        with get_connection() as conn:
+            record_audit(
+                conn, "delete_event", event_id, f"Kullanıcı isteğiyle silindi: {user_text}",
+                entity_type="calendar_event",
+            )
+        print("Etkinlik silindi.")
+        return
+
+    new_start_raw = fields.get("new_start_datetime")
+    if not new_start_raw:
+        print("Yeni tarih/saati anlayamadım, tekrar ifade eder misiniz?")
+        return
+    new_start = ensure_timezone(new_start_raw)
+
+    duration = fields.get("new_duration_minutes")
+    if not duration:
+        old_end_raw = event.get("end", {}).get("dateTime")
+        if old_start_raw and old_end_raw:
+            duration = int(
+                (datetime.fromisoformat(old_end_raw) - datetime.fromisoformat(old_start_raw)).total_seconds() / 60
+            )
+        else:
+            duration = DEFAULT_MEETING_DURATION_MINUTES
+    new_end = new_start + timedelta(minutes=duration)
+
+    conflicts = find_conflicts(calendar, new_start, new_end)
+    # Etkinliğin kendi eski zamanı, yeni aralıkla örtüşüyorsa (örn. süre
+    # uzatılırken) freebusy'de "meşgul" olarak görünebilir — gerçek bir
+    # çakışma değil, kendisiyle çakışma sayılmasın diye eski başlangıcıyla
+    # tam örtüşen sonucu göz ardı ediyoruz.
+    if old_start_raw:
+        conflicts = [c for c in conflicts if c[0].isoformat() != old_start_raw]
+
+    print(f"\n'{old_summary}' ({old_start_raw}) -> {new_start.isoformat()} olarak taşınacak.")
+    if conflicts:
+        print(f"⚠ Yeni saatte zaten başka bir etkinliğiniz var ({len(conflicts)} çakışma).")
+    confirm = input("Onaylıyor musunuz? [e/h] ").strip().lower()
+    if confirm != "e":
+        print("İptal edildi, hiçbir değişiklik yapılmadı.")
+        return
+
+    calendar.update_event(
+        event_id,
+        {
+            "start": {"dateTime": new_start.isoformat(), "timeZone": DEFAULT_TIMEZONE},
+            "end": {"dateTime": new_end.isoformat(), "timeZone": DEFAULT_TIMEZONE},
+        },
+    )
+    with get_connection() as conn:
+        record_audit(
+            conn, "update_event", event_id, f"Kullanıcı isteğiyle güncellendi: {user_text}",
+            entity_type="calendar_event",
+        )
+    print("Etkinlik güncellendi.")
 
 
 def review_and_confirm_candidate(
@@ -556,32 +700,40 @@ def main() -> None:
     llm = FoundryLocalProvider(model_alias="qwen3-4b")
     embedding_provider = FoundryLocalEmbeddingProvider()
 
-    user_text = input("Ne planlamak istiyorsunuz? ").strip()
-    intent = classify_intent(llm, user_text)
+    print("(Çıkmak için boş bırakıp Enter'a basın.)")
+    while True:
+        user_text = input("\nNe planlamak istiyorsunuz? ").strip()
+        if not user_text:
+            break
 
-    if intent.intent == IntentType.QUERY_CALENDAR:
-        handle_query_calendar(account_id, intent.query_range_start, intent.query_range_end)
-        return
-    if intent.intent == IntentType.UPDATE_EVENT:
-        print("Var olan etkinlikleri güncellemeyi henüz desteklemiyorum, bu yakında eklenecek.")
-        return
-    if intent.intent == IntentType.DEFINE_POLICY:
+        intent = classify_intent(llm, user_text)
+
+        if intent.intent == IntentType.QUERY_CALENDAR:
+            handle_query_calendar(account_id, intent.query_range_start, intent.query_range_end)
+            continue
+        if intent.intent == IntentType.UPDATE_EVENT:
+            try:
+                handle_update_event(llm, account_id, user_text)
+            except JsonGenerationError:
+                print("Bu isteği işleyemedim, tekrar ifade eder misiniz?")
+            continue
+        if intent.intent == IntentType.DEFINE_POLICY:
+            try:
+                handle_define_policy(llm, embedding_provider, user_text)
+            except JsonGenerationError:
+                print("Bu kuralı işleyemedim, biraz daha net ifade edip tekrar dener misiniz?")
+            continue
+        if intent.intent == IntentType.OTHER:
+            print("Bunu tam anlayamadım. Şu an yeni etkinlik eklemek ve takviminizi sormak için kullanılabilirim.")
+            continue
+
         try:
-            handle_define_policy(llm, embedding_provider, user_text)
+            candidate = extract_candidate_event(llm, user_text)
         except JsonGenerationError:
-            print("Bu kuralı işleyemedim, biraz daha net ifade edip tekrar dener misiniz?")
-        return
-    if intent.intent == IntentType.OTHER:
-        print("Bunu tam anlayamadım. Şu an yeni etkinlik eklemek ve takviminizi sormak için kullanılabilirim.")
-        return
-
-    try:
-        candidate = extract_candidate_event(llm, user_text)
-    except JsonGenerationError:
-        print("Bu mesajı işleyemedim, tekrar ifade eder misiniz?")
-        return
-    calendar = GoogleCalendarConnector(account_id=account_id)
-    review_and_confirm_candidate(candidate, calendar, embedding_provider, llm)
+            print("Bu mesajı işleyemedim, tekrar ifade eder misiniz?")
+            continue
+        calendar = GoogleCalendarConnector(account_id=account_id)
+        review_and_confirm_candidate(candidate, calendar, embedding_provider, llm)
 
 
 if __name__ == "__main__":

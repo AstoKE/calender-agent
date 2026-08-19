@@ -53,3 +53,6 @@ class GoogleCalendarConnector(CalendarConnector):
 
     def update_event(self, event_id: str, changes: dict, calendar_id: str = "primary") -> None:
         self._service.events().patch(calendarId=calendar_id, eventId=event_id, body=changes).execute()
+
+    def delete_event(self, event_id: str, calendar_id: str = "primary") -> None:
+        self._service.events().delete(calendarId=calendar_id, eventId=event_id).execute()
