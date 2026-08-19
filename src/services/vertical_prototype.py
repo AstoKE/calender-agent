@@ -102,12 +102,20 @@ MAX_CLARIFICATION_ATTEMPTS = 3
 
 def apply_retrieved_policies(
     candidate: CandidateEvent, embedding_provider: EmbeddingProvider, sender: str | None = None
-) -> None:
+) -> list[str]:
     """Rule Engine adımı: RAG'ın getirdiği politikaları deterministik olarak
     uygular (LLM'e "hangi değer" kararını bırakmaz, bkz. §9/§11). Yalnızca
     hâlâ eksik olan alanlara dokunur — kullanıcının bu mesajda açıkça verdiği
     bilgiyi asla ezmez. ``sender`` verilirse (mail kaynaklı candidate'lar)
-    sender-scope'lu politikalar da retrieval'a dahil edilir."""
+    sender-scope'lu politikalar da retrieval'a dahil edilir.
+
+    Uygulanan her kural için "(Kural uygulandı: ...)" satırını hem `print()`
+    eder (CLI, davranış değişmiyor) HEM DE listeye ekleyip döner — web
+    chatbox'ı (`src/services/chat_flow.py`) bu print() çıktısını göremez,
+    kendi sohbet balonuna basması için dönüş değerine ihtiyacı var. İki
+    mevcut çağrı noktası da (`scan_inbox.py`, bu dosyada `review_and_confirm_candidate`)
+    dönüş değerini kullanmıyor, bu yüzden imza değişikliği geriye dönük güvenli."""
+    applied_messages: list[str] = []
     policies = retrieve_policies_for_event(embedding_provider, candidate.event_type, sender=sender, top_k=5)
 
     if not candidate.duration_minutes:  # None veya 0 — bkz. fill_missing_fields_interactively'deki not
@@ -117,7 +125,9 @@ def apply_retrieved_policies(
                 candidate.duration_minutes = int(minutes)
                 candidate.missing_fields = [f for f in candidate.missing_fields if f != "duration_minutes"]
                 candidate.retrieved_policy_ids.append(policy.policy_id)
-                print(f"(Kural uygulandı: \"{policy.natural_language_rule}\")")
+                message = f'(Kural uygulandı: "{policy.natural_language_rule}")'
+                print(message)
+                applied_messages.append(message)
                 break
 
     if not candidate.reminders:
@@ -126,7 +136,9 @@ def apply_retrieved_policies(
             if minutes_before:
                 candidate.reminders = [{"minutes_before": int(minutes_before)}]
                 candidate.retrieved_policy_ids.append(policy.policy_id)
-                print(f"(Kural uygulandı: \"{policy.natural_language_rule}\")")
+                message = f'(Kural uygulandı: "{policy.natural_language_rule}")'
+                print(message)
+                applied_messages.append(message)
                 break
 
     if candidate.importance is None:
@@ -138,8 +150,12 @@ def apply_retrieved_policies(
                 except Exception:
                     continue  # eski/bozuk bir politika kaydı olabilir, sonraki adaya geç
                 candidate.retrieved_policy_ids.append(policy.policy_id)
-                print(f"(Kural uygulandı: \"{policy.natural_language_rule}\")")
+                message = f'(Kural uygulandı: "{policy.natural_language_rule}")'
+                print(message)
+                applied_messages.append(message)
                 break
+
+    return applied_messages
 
 
 def fill_missing_fields_interactively(candidate: CandidateEvent) -> None:

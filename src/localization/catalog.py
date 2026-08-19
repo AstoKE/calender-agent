@@ -295,6 +295,202 @@ MESSAGES: dict[str, dict[str, str]] = {
     "ayarlar.diagnostics.chat_model": {"tr": "Sohbet modeli", "en": "Chat model"},
     "ayarlar.diagnostics.embedding_model": {"tr": "Embedding modeli", "en": "Embedding model"},
 
+    # --- Chatbox (bkz. plan "Web Chatbox") ---
+    "chat.generic_error": {
+        "tr": "Bir sorun oldu, tekrar dener misiniz?",
+        "en": "Something went wrong — could you try again?",
+    },
+    "chat.calendar_error": {
+        "tr": "Takvimle konuşurken bir sorun oldu, tekrar dener misiniz?",
+        "en": "There was a problem talking to the calendar — could you try again?",
+    },
+    "chat.attempts_exhausted": {
+        "tr": "Bu bilgiyi alamadım, en baştan başlayalım.",
+        "en": "I couldn't get this from you — let's start over.",
+    },
+    "chat.other": {
+        "tr": "Bunu tam anlayamadım. Şu an yeni etkinlik eklemek, takviminizi sormak ve mevcut bir etkinliği değiştirmek için kullanılabilirim.",
+        "en": "I didn't quite understand that. Right now I can add new events, answer questions about your calendar, and change an existing event.",
+    },
+    "chat.define_policy.saved": {
+        "tr": "Kaydettim: {scope} için '{rule}' kuralı artık aktif.",
+        "en": "Saved — the rule '{rule}' is now active for {scope}.",
+    },
+    "chat.define_policy.no_rule_extracted": {
+        "tr": "Bu kuraldan somut bir davranış çıkaramadım — biraz daha net ifade eder misiniz?",
+        "en": "I couldn't extract a concrete behavior from that rule — could you phrase it more specifically?",
+    },
+    "chat.define_policy.extraction_failed": {
+        "tr": "Bu kuralı işleyemedim, biraz daha net ifade edip tekrar dener misiniz?",
+        "en": "I couldn't process that rule — could you try phrasing it again?",
+    },
+    "chat.acm.ask_reject_feedback": {
+        "tr": "Neden reddettiniz? (atlamak için \"Atla\"ya basabilir ya da boş geçebilirsiniz)",
+        "en": "Why did you reject it? (tap Skip or leave it blank to skip)",
+    },
+    "chat.acm.skip": {"tr": "Atla", "en": "Skip"},
+    "chat.acm.skipped": {"tr": "Tamam.", "en": "Okay."},
+    "chat.acm.ask_apply_future": {
+        "tr": "Bunu gelecekte benzer etkinliklerde de uygulayayım mı?",
+        "en": "Should I apply this to similar events in the future too?",
+    },
+    "chat.acm.ask_apply_future_edit": {
+        "tr": "Bu düzenlemeyi gelecekte benzer etkinliklerde de uygulayayım mı?",
+        "en": "Should I apply this edit to similar events in the future too?",
+    },
+    "chat.acm.ask_scope": {
+        "tr": "Yalnızca '{event_type}' türü etkinliklerde mi, yoksa her zaman mı?",
+        "en": "Only for '{event_type}' events, or always?",
+    },
+    "chat.acm.scope_event_type_button": {"tr": "Yalnızca bu tür", "en": "Only this type"},
+    "chat.acm.scope_always_button": {"tr": "Her zaman", "en": "Always"},
+    "chat.acm.scope_event_type_desc": {"tr": "'{event_type}' türü etkinlikler", "en": "'{event_type}' events"},
+    "chat.acm.scope_always_desc": {"tr": "tüm etkinlikler", "en": "all events"},
+    "chat.acm.saved_policy": {
+        "tr": "Kaydettim: {scope} için gelecekte şunu uygulayacağım: {feedback}",
+        "en": "Saved — I'll apply this to {scope} going forward: {feedback}",
+    },
+    "chat.acm.no_rule_extracted": {
+        "tr": "Bu düzeltmeden somut bir kural çıkaramadım.",
+        "en": "I couldn't turn this into a concrete rule.",
+    },
+    "chat.acm.extraction_failed": {
+        "tr": "Bu düzeltmeyi işleyemedim, kural olarak kaydedemedim.",
+        "en": "I couldn't process that correction — it wasn't saved as a rule.",
+    },
+    "chat.acm.not_saved_as_rule": {
+        "tr": "Tamam, bunu bir kural olarak kaydetmedim.",
+        "en": "Okay, I didn't save this as a rule.",
+    },
+    "chat.update.extraction_failed": {
+        "tr": "Bu isteği işleyemedim, tekrar ifade eder misiniz?",
+        "en": "I couldn't process that request — could you rephrase it?",
+    },
+    "chat.update.no_matches": {
+        "tr": "Değiştirmek istediğiniz etkinliği bulamadım. Daha net tarif eder misiniz (başlık/tarih)?",
+        "en": "I couldn't find the event you want to change. Could you describe it more precisely (title/date)?",
+    },
+    "chat.update.disambiguate_prompt": {
+        "tr": "Birden fazla etkinlik buldum, hangisini kastediyorsunuz? Bir numara seçin veya iptal edin (i).",
+        "en": "I found more than one matching event — which one did you mean? Pick a number, or cancel (i).",
+    },
+    "chat.update.cancelled": {"tr": "İptal edildi, hiçbir değişiklik yapılmadı.", "en": "Cancelled — nothing was changed."},
+    "chat.update.confirm_delete": {
+        "tr": "'{title}' ({when}) etkinliğini SİLMEK üzeresiniz. Onaylıyor musunuz?",
+        "en": "You're about to DELETE '{title}' ({when}). Do you confirm?",
+    },
+    "chat.update.deleted": {"tr": "Etkinlik silindi.", "en": "Event deleted."},
+    "chat.update.no_new_time": {
+        "tr": "Yeni tarih/saati anlayamadım, tekrar ifade eder misiniz?",
+        "en": "I couldn't understand the new date/time — could you rephrase it?",
+    },
+    "chat.update.confirm_move": {
+        "tr": "'{title}' ({old}) -> {new} olarak taşınacak. Onaylıyor musunuz?",
+        "en": "'{title}' ({old}) will move to {new}. Do you confirm?",
+    },
+    "chat.update.move_conflict_warning": {
+        "tr": "⚠ Yeni saatte zaten başka bir etkinliğiniz var ({count} çakışma).",
+        "en": "⚠ You already have something else at the new time ({count} conflict(s)).",
+    },
+    "chat.update.updated": {"tr": "Etkinlik güncellendi.", "en": "Event updated."},
+
+    "chat.create.extraction_failed": {
+        "tr": "Bu mesajı işleyemedim, tekrar ifade eder misiniz?",
+        "en": "I couldn't process that message — could you rephrase it?",
+    },
+    "chat.create.ask_title": {"tr": "Etkinliğin başlığı ne olsun?", "en": "What should the event be called?"},
+    "chat.create.ask_duration": {
+        "tr": "Süre ne kadar? (örn: 30, 1 saat)",
+        "en": "How long will it take? (e.g. 30, 1 hour)",
+    },
+    "chat.create.duration_default": {
+        "tr": "(Sistem varsayılanı: toplantılar için {minutes} dakika — henüz kendi kuralınızı tanımlamadınız.)",
+        "en": "(System default: {minutes} minutes for meetings — you haven't defined your own rule yet.)",
+    },
+    "chat.create.duration_invalid": {
+        "tr": "Anlayamadım, bir sayı içeren şekilde tekrar dener misiniz? (örn: 45 veya '1 saat')",
+        "en": "I didn't catch that — could you include a number? (e.g. 45 or '1 hour')",
+    },
+    "chat.create.ask_start_datetime": {
+        "tr": "Tarih/saat (YYYY-MM-DDTHH:MM:SS)?",
+        "en": "Date/time (YYYY-MM-DDTHH:MM:SS)?",
+    },
+    "chat.create.start_datetime_invalid": {
+        "tr": "Bu formatı anlayamadım, YYYY-MM-DDTHH:MM:SS biçiminde tekrar dener misiniz?",
+        "en": "I couldn't parse that — could you use the YYYY-MM-DDTHH:MM:SS format?",
+    },
+    "chat.create.ask_ambiguous_time": {
+        "tr": "Saat belirsiz görünüyor — tam olarak kaçta? (örn: 13:00)",
+        "en": "The time seems unclear — what time exactly? (e.g. 13:00)",
+    },
+    "chat.create.ambiguous_time_invalid": {
+        "tr": "Saati anlayamadım, tekrar dener misiniz? (örn: 13:00, 13.30, 'saat 9')",
+        "en": "I couldn't parse that time — could you try again? (e.g. 13:00, 1pm)",
+    },
+    "chat.create.conflict_no_alternatives": {
+        "tr": "{start}-{end} aralığında zaten bir etkinliğiniz var ve yakın zamanda uygun bir alternatif bulamadım. Yine de bu saatte devam edelim mi?",
+        "en": "You already have something at {start}-{end} and I couldn't find a nearby alternative. Should we go ahead at this time anyway?",
+    },
+    "chat.create.conflict_found": {
+        "tr": "⚠ Çakışma bulundu: {start}-{end} aralığında zaten bir etkinliğiniz var.",
+        "en": "⚠ Conflict found: you already have something at {start}-{end}.",
+    },
+    "chat.create.alternatives_intro": {
+        "tr": "Alternatif uygun saatler (bir numara seçin, yine de bu saatte devam edin (d), veya iptal edin (i)):",
+        "en": "Alternative times (pick a number, keep this time anyway (d), or cancel (i)):",
+    },
+    "chat.create.cancelled_conflict": {"tr": "İptal edildi, takvime yazılmadı.", "en": "Cancelled — nothing was added to the calendar."},
+    "chat.create.preview_header": {"tr": "Önizleme", "en": "Preview"},
+    "chat.create.conflict_label": {"tr": "Çakışma", "en": "Conflict"},
+    "chat.create.conflict.none": {"tr": "Yok", "en": "None"},
+    "chat.create.conflict.kept_anyway": {"tr": "Var (yine de devam edildi)", "en": "Yes (kept anyway)"},
+    "chat.create.conflict.unresolved": {"tr": "Var (çözülmedi)", "en": "Yes (unresolved)"},
+    "chat.create.conflict.moved": {"tr": "Vardı, taşındı", "en": "There was one, moved"},
+    "chat.create.conflict.cancelled": {"tr": "Var (iptal edilecek)", "en": "Yes (will be cancelled)"},
+    "chat.create.reminder_item": {"tr": "{minutes} dk önce", "en": "{minutes} min before"},
+    "chat.create.approved": {"tr": "Takvime eklendi.", "en": "Added to your calendar."},
+    "chat.create.rejected": {"tr": "Reddedildi, takvime yazılmadı.", "en": "Rejected — nothing was added to the calendar."},
+    "chat.create.edit_pick_field_prompt": {
+        "tr": "Hangi alanı düzenlemek istersiniz? (başlık/saat/süre/önem/konum)",
+        "en": "Which field would you like to edit? (title/time/duration/importance/location)",
+    },
+    "chat.create.edit_field_not_understood": {"tr": "Anlamadım, hiçbir şey değiştirilmedi.", "en": "I didn't understand — nothing was changed."},
+    "chat.create.edit_ask.title": {"tr": "Yeni başlık:", "en": "New title:"},
+    "chat.create.edit_ask.start_datetime": {
+        "tr": "Yeni tarih/saat (YYYY-MM-DDTHH:MM:SS):",
+        "en": "New date/time (YYYY-MM-DDTHH:MM:SS):",
+    },
+    "chat.create.edit_ask.duration_minutes": {"tr": "Yeni süre (örn: 30, 1 saat):", "en": "New duration (e.g. 30, 1 hour):"},
+    "chat.create.edit_ask.importance": {"tr": "Yeni önem (low/normal/high):", "en": "New importance (low/normal/high):"},
+    "chat.create.edit_ask.location": {"tr": "Yeni konum:", "en": "New location:"},
+    "chat.create.edit_importance_invalid": {
+        "tr": "Geçersiz değer (low/normal/high olmalı), önem değiştirilmedi.",
+        "en": "Invalid value (must be low/normal/high) — importance wasn't changed.",
+    },
+
+    "chat.query.no_range": {
+        "tr": "Hangi tarih aralığını merak ediyorsunuz, tam olarak söyler misiniz?",
+        "en": "Which date range did you mean, exactly?",
+    },
+    "chat.query.no_events": {
+        "tr": "{start} - {end} arasında hiç etkinliğiniz yok.",
+        "en": "You have no events between {start} and {end}.",
+    },
+    "chat.query.events_found": {"tr": "{count} etkinliğiniz var:", "en": "You have {count} event(s):"},
+    "chat.query.all_day": {"tr": "tüm gün", "en": "all day"},
+
+    # --- Chatbox: arayüz (bkz. src/ui/templates/partials/_asistan_chat.html) ---
+    "chat.placeholder": {"tr": "Bir şey yazın...", "en": "Type a message..."},
+    "chat.send": {"tr": "Gönder", "en": "Send"},
+    "chat.new_chat": {"tr": "Yeni sohbet", "en": "New chat"},
+    "chat.empty_hint": {
+        "tr": "Bir etkinlik oluşturmamı, takvimini sorgulamamı ya da bir etkinliği güncellememi isteyebilirsin.",
+        "en": "You can ask me to create an event, look up your calendar, or update an event.",
+    },
+    "chat.yes": {"tr": "Evet", "en": "Yes"},
+    "chat.no": {"tr": "Hayır", "en": "No"},
+    "chat.create.keep_anyway": {"tr": "Yine de devam et", "en": "Keep it anyway"},
+
     # --- Enum: Importance ---
     "enum.importance.low": {"tr": "Düşük", "en": "Low"},
     "enum.importance.normal": {"tr": "Normal", "en": "Normal"},

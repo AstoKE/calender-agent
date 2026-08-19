@@ -1,0 +1,71 @@
+{# Gerçek sohbet arayüzü (bkz. plan "Web Chatbox" Faz 5) — chat_enabled
+   olduğunda _asistan_slot.html'in yerini alır (bkz. anasayfa.html). Serbest
+   metin HER adımda çalışır (src/services/chat_flow.py çoğu adımda evet/hayır/
+   e/h/d gibi doğal metni de tanıyor); adıma göre gösterilen butonlar (action=)
+   yalnızca aynı tanınan token'lardan birini gönderen bir kısayol — hiçbir yeni
+   davranış eklemiyor. Balon metinleri asla |safe DEĞİL, autoescape açık
+   kalmalı (kullanıcı metni burada basılıyor). #}
+<section class="assistant-chat" aria-labelledby="assistant-chat-title">
+    <div class="assistant-chat__header">
+        <h2 id="assistant-chat-title">{{ t("assistant.title") }}</h2>
+        {% if chat_messages %}
+        <form method="post" action="/asistan/sifirla">
+            <input type="hidden" name="next" value="/anasayfa" />
+            <button type="submit" class="assistant-chat__reset">{{ t("chat.new_chat") }}</button>
+        </form>
+        {% endif %}
+    </div>
+
+    <div class="assistant-chat__messages">
+        {% if not chat_messages %}
+        <p class="empty-state">{{ t("chat.empty_hint") }}</p>
+        {% else %}
+        {% for m in chat_messages %}
+        <p class="chat-bubble chat-bubble--{{ m.role }}">{{ m.text }}</p>
+        {% endfor %}
+        {% endif %}
+    </div>
+
+    <form method="post" action="/asistan/mesaj" class="assistant-chat__form">
+        <input type="hidden" name="next" value="/anasayfa" />
+
+        {% if chat_step == "preview_confirm" %}
+        <div class="chip-row">
+            <button type="submit" name="action" value="approve" class="btn btn-approve">{{ t("common.approve") }}</button>
+            <button type="submit" name="action" value="edit" class="btn btn-edit">{{ t("common.edit") }}</button>
+            <button type="submit" name="action" value="reject" class="btn btn-reject">{{ t("common.reject") }}</button>
+        </div>
+        {% elif chat_step in ("ask_conflict_no_alternatives", "update_confirm_delete", "update_confirm_move", "acm_ask_apply_future") %}
+        <div class="chip-row">
+            <button type="submit" name="action" value="evet" class="btn btn-approve">{{ t("chat.yes") }}</button>
+            <button type="submit" name="action" value="hayır" class="btn btn-reject">{{ t("chat.no") }}</button>
+        </div>
+        {% elif chat_step == "ask_conflict_alternative" %}
+        <div class="chip-row">
+            <button type="submit" name="action" value="keep" class="btn btn-edit">{{ t("chat.create.keep_anyway") }}</button>
+        </div>
+        {% elif chat_step == "edit_pick_field" %}
+        <div class="chip-row">
+            <button type="submit" name="action" value="title" class="btn btn-edit">{{ t("duzenle.field.title") }}</button>
+            <button type="submit" name="action" value="start_datetime" class="btn btn-edit">{{ t("oneriler.field.time") }}</button>
+            <button type="submit" name="action" value="duration_minutes" class="btn btn-edit">{{ t("duzenle.field.duration") }}</button>
+            <button type="submit" name="action" value="importance" class="btn btn-edit">{{ t("duzenle.field.importance") }}</button>
+            <button type="submit" name="action" value="location" class="btn btn-edit">{{ t("duzenle.field.location") }}</button>
+        </div>
+        {% elif chat_step == "acm_ask_reject_feedback" %}
+        <div class="chip-row">
+            <button type="submit" name="action" value="atla" class="btn btn-edit">{{ t("chat.acm.skip") }}</button>
+        </div>
+        {% elif chat_step == "acm_ask_scope" %}
+        <div class="chip-row">
+            <button type="submit" name="action" value="1" class="btn btn-edit">{{ t("chat.acm.scope_event_type_button") }}</button>
+            <button type="submit" name="action" value="2" class="btn btn-edit">{{ t("chat.acm.scope_always_button") }}</button>
+        </div>
+        {% endif %}
+
+        <div class="assistant-chat__input-row">
+            <input type="text" name="metin" placeholder="{{ t('chat.placeholder') }}" autocomplete="off" />
+            <button type="submit" class="btn btn-approve">{{ t("chat.send") }}</button>
+        </div>
+    </form>
+</section>

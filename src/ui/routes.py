@@ -57,11 +57,18 @@ from src.services.timeutil import DEFAULT_TIMEZONE
 from src.storage.db import DEFAULT_DB_PATH
 from src.storage.preferences import set_preference
 from src.ui.calendar_access import get_calendar_or_none
+from src.ui.chat_session import get_current_chat_session_id
+from src.ui.chat_state import list_recent_messages, load_chat_state
 from src.ui.session import resolve_active_account, safe_next, set_session_cookies
 from src.ui.templating import templates
 
 router = APIRouter()
 logger = get_logger("ui.routes")
+
+# Faz 5 (bkz. plan "Web Chatbox"): burada tanımlı, chat_routes.py'de DEĞİL —
+# chat_routes.py zaten bu modülden _get_calendar'ı içe aktarıyor, tersi yönde
+# bir bağımlılık (routes.py -> chat_routes.py) döngüsel import'a yol açardı.
+CHAT_ENABLED = True
 
 CURATED_TIMEZONES = [
     "Europe/Istanbul",
@@ -120,6 +127,16 @@ def home_page(request: Request, mesgul: bool = False):
     pending_count = count_pending_candidates(account_id) if account_id else 0
     others_pending = (count_pending_candidates(None) - pending_count) if account_id else 0
 
+    chat_messages: list[dict] = []
+    chat_step = None
+    if CHAT_ENABLED and account_id:
+        # Salt okunur: kullanıcı hiç sohbet etmemişse boş boş bir chat_sessions
+        # satırı oluşturmaz — yalnızca POST /asistan/mesaj ilk mesajda oturum açar.
+        chat_session_id = get_current_chat_session_id(request, account_id)
+        if chat_session_id:
+            chat_messages = list_recent_messages(chat_session_id)
+            chat_step = load_chat_state(chat_session_id).step
+
     return templates.TemplateResponse(
         request,
         "anasayfa.html",
@@ -132,6 +149,9 @@ def home_page(request: Request, mesgul: bool = False):
             "others_pending": others_pending,
             "active_policy_count": len(get_active_policies()),
             "scan_busy": mesgul,
+            "chat_enabled": CHAT_ENABLED,
+            "chat_messages": chat_messages,
+            "chat_step": chat_step,
         },
     )
 

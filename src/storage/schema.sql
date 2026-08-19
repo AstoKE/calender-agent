@@ -223,3 +223,29 @@ CREATE TABLE IF NOT EXISTS localization_preferences (
     date_format_pref    TEXT,
     timezone            TEXT
 );
+
+-- Chatbox: kalıcı konuşma durumu + geçmişi (bkz. plan "Web Chatbox").
+-- Bir oturum = tarayıcı sekmesi başına, aktif hesaba bağlı, tek seferde
+-- yalnızca BİR akış (create_event XOR query_calendar XOR update_event)
+-- yürüten durum makinesi. flow/step state_json'dan denormalize — bozuk/
+-- yarım kalmış bir oturumun ham SQL ile (JSON parse etmeden) görülebilmesi
+-- için, candidate_events.status'un neden ayrı bir sütun olduğu gerekçesiyle
+-- aynı.
+CREATE TABLE IF NOT EXISTS chat_sessions (
+    session_id      TEXT PRIMARY KEY,
+    account_id      TEXT NOT NULL REFERENCES accounts(id),
+    flow            TEXT,                         -- NULL | create_event | query_calendar | update_event
+    step            TEXT,
+    state_json      TEXT NOT NULL DEFAULT '{}',    -- ChatState.model_dump(mode="json")
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS chat_messages (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id      TEXT NOT NULL REFERENCES chat_sessions(session_id),
+    role            TEXT NOT NULL,                 -- user | assistant
+    text            TEXT NOT NULL,
+    created_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id, id);

@@ -2,8 +2,10 @@
 
 Tam sol navigasyon (§16) + yedi ekranın hepsi gerçek içerik — Ana Sayfa,
 Takvim, Gelen Öneriler, E-posta Hesapları, Kurallarım, Düzeltmelerim,
-Ayarlar (bkz. src/ui/routes.py). Chatbox (Ana Sayfa'daki asistan slotu)
-hâlâ kapsam dışı — ayrı bir dilim.
+Ayarlar (bkz. src/ui/routes.py). Ana Sayfa'daki asistan slotu artık gerçek
+bir sohbet kutusu — create_event/query_calendar/update_event/define_policy
++ ACM'nin "gelecekte de uygulayayım mı?" akışı (bkz. src/ui/chat_routes.py,
+src/services/chat_flow.py).
 
 Bu proje kişisel/yerel-öncelikli tek kullanıcı için (bkz. CLAUDE.md) — web
 tarafında ayrı bir login/auth katmanı YOK, sunucu yalnızca localhost'a
@@ -51,6 +53,12 @@ async def lifespan(app: FastAPI):
     # (çift tıklama, iki sekme) engellemek için tek-uçuş koruması. Adversarial
     # bir senaryo değil, GIL altında set.add/discard bu amaç için yeterli.
     app.state.scan_in_progress = set()
+    # Çift gönderim koruması (bkz. plan "Web Chatbox" Riskler): aynı sohbet
+    # oturumu için art arda iki POST /asistan/mesaj (çift tıklama, iki sekme)
+    # aynı adımı (örn. preview_confirm) iki kez işleyip takvime iki kez
+    # yazabilir — scan_in_progress ile aynı bellek-içi tek-uçuş deseni,
+    # session_id bazlı.
+    app.state.chat_in_progress = set()
     yield
 
 
@@ -111,6 +119,12 @@ app.add_middleware(CSRFGuardMiddleware)
 from src.ui.routes import router  # noqa: E402 — döngüsel import'u önlemek için app tanımlandıktan sonra
 
 app.include_router(router)
+
+# chat_routes.py routes.py'yi içe aktarıyor (_get_calendar, CHAT_ENABLED) —
+# yukarıdaki import'tan SONRA gelmeli.
+from src.ui.chat_routes import router as chat_router  # noqa: E402
+
+app.include_router(chat_router)
 
 
 if __name__ == "__main__":

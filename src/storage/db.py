@@ -42,6 +42,14 @@ def init_db(db_path: Path | None = None) -> None:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     schema_sql = SCHEMA_PATH.read_text(encoding="utf-8")
     with sqlite3.connect(db_path) as conn:
+        # WAL: dosya başlığında kalıcı bir ayar, bir kez burada set edilmesi
+        # yeterli — sonraki TÜM bağlantılar (get_connection dahil) otomatik
+        # WAL modunda açılır. Web sunucusunun eşzamanlı istekleri (her biri
+        # kendi kısa sqlite3.connect'ini açıyor, bkz. get_connection) rollback-
+        # journal modunda birbirini kilitleyebiliyordu (canlı testte
+        # "database is locked" ile bulundu); WAL'da okuyucular yazıcıyı
+        # bloklamıyor, yalnızca yazıcı-yazıcı çakışması kalıyor.
+        conn.execute("PRAGMA journal_mode = WAL")
         conn.executescript(schema_sql)
         _apply_adhoc_migrations(conn)
         conn.commit()
@@ -51,7 +59,11 @@ def init_db(db_path: Path | None = None) -> None:
 def get_connection(db_path: Path | None = None) -> Iterator[sqlite3.Connection]:
     if db_path is None:
         db_path = DEFAULT_DB_PATH
-    conn = sqlite3.connect(db_path)
+    # timeout: Python'ın varsayılanı (5sn) kısa kilit çakışmalarında bile
+    # anında "database is locked" fırlatabiliyordu — 15sn, geriye kalan
+    # (artık çok kısa olması gereken, bkz. chat_flow.py'nin get_connection
+    # kullanım deseni) yazma çakışmalarına beklemek için pay tanıyor.
+    conn = sqlite3.connect(db_path, timeout=15.0)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     try:

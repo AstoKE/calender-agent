@@ -321,14 +321,15 @@ def test_anasayfa_calendar_unavailable_does_not_500(client, monkeypatch):
     assert response.status_code == 200
 
 
-def test_anasayfa_shows_assistant_slot_with_no_form(client, monkeypatch):
+def test_anasayfa_shows_assistant_chat_with_form(client, monkeypatch):
+    # Web Chatbox (Faz 5) CHAT_ENABLED=True yaptı — _asistan_slot.html'in
+    # yerini gerçek bir sohbet formu aldı (bkz. plan).
     ensure_account_registered("acc1", provider="google", email="a@example.com")
     monkeypatch.setattr("src.ui.routes.get_calendar_or_none", lambda request, account_id: None)
     response = client.get("/anasayfa")
     assert response.status_code == 200
-    assert 'class="assistant-slot"' in response.text
-    # Slot bilinçli olarak devre dışı: içinde hiç <form> olmamalı (bkz. plan)
-    assert "<form" not in response.text.split('class="assistant-slot"')[1].split("</section>")[0]
+    assert 'class="assistant-chat"' in response.text
+    assert 'action="/asistan/mesaj"' in response.text
 
 
 def test_anasayfa_pending_preview_uses_same_card_as_oneriler(client, monkeypatch):

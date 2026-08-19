@@ -557,3 +557,87 @@ code {
     border-radius: var(--radius-sm);
     word-break: break-all;
 }
+
+/* --- Asistan sohbeti (bkz. plan "Web Chatbox" Faz 5) — enabled hali
+   assistant-slot ile aynı dış çerçeveyi (kart görünümü) paylaşır ama
+   .assistant-slot'un kendisi devre dışı durumda kaldığı için (bkz.
+   partials/_asistan_slot.html) ayrı bir sınıf kümesi. */
+
+.assistant-chat {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--space-5);
+    margin: var(--space-6) 0;
+}
+
+.assistant-chat__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    margin-bottom: var(--space-3);
+}
+
+.assistant-chat__header h2 {
+    margin: 0;
+}
+
+.assistant-chat__reset {
+    background: none;
+    border: none;
+    color: var(--color-text-muted);
+    font-size: 0.8rem;
+    text-decoration: underline;
+    cursor: pointer;
+    padding: 0;
+}
+
+.assistant-chat__reset:hover {
+    color: var(--color-accent-text);
+}
+
+.assistant-chat__messages {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    max-height: 22rem;
+    overflow-y: auto;
+    margin-bottom: var(--space-4);
+}
+
+.chat-bubble {
+    margin: 0;
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-md);
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-width: 85%;
+    font-size: 0.9rem;
+}
+
+.chat-bubble--user {
+    align-self: flex-end;
+    background: var(--color-accent);
+    color: #fff;
+}
+
+.chat-bubble--assistant {
+    align-self: flex-start;
+    background: var(--color-surface-sunken);
+}
+
+.assistant-chat__form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+}
+
+.assistant-chat__input-row {
+    display: flex;
+    gap: var(--space-2);
+}
+
+.assistant-chat__input-row input[type="text"] {
+    flex: 1;
+}
