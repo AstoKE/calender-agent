@@ -283,7 +283,10 @@ def test_takvim_ok_state_renders_events(client, monkeypatch):
     response = client.get("/takvim?hafta=2026-08-17")
     assert response.status_code == 200
     assert "Proje Toplantısı" in response.text
-    assert 'class="calendar-grid"' in response.text
+    # Saat-ızgarası (bkz. src/services/calendar_view.py layout_timed_entries) —
+    # eski basit "calendar-grid" listesinin yerini aldı.
+    assert 'class="timegrid__entry"' in response.text
+    assert 'class="timegrid-wrap"' in response.text
 
 
 def test_takvim_invalid_week_param_falls_back_without_500(client, monkeypatch):

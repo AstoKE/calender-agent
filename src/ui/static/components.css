@@ -261,43 +261,305 @@ h1 .icon {
     text-decoration: none;
 }
 
-/* --- Takvim (haftalık grid — bkz. plan Faz 5). Tek markup: dar ekranda
-   grid-template-columns 1'e düşer, aynı içerik ajanda listesi gibi
-   akar — ayrı bir mobil şablon yok. --- */
+/* --- Takvim: sol panel + ana içerik yerleşimi (bkz. Google Calendar'ın
+   mini ay takvimi + hafta görünümü yerleşimi — sıfır JS, dar ekranda
+   sidebar üstte yığılıyor, bkz. aşağıdaki 48rem media query). --- */
+
+.takvim-layout {
+    display: flex;
+    gap: var(--space-6);
+    align-items: flex-start;
+}
+
+.takvim-sidebar {
+    flex: 0 0 16rem;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+}
+
+.takvim-main {
+    flex: 1;
+    min-width: 0;
+}
+
+.date-jump-form {
+    display: flex;
+    gap: var(--space-2);
+}
+
+.date-jump-form input[type="date"] {
+    flex: 1;
+    min-width: 0;
+}
+
+/* --- Mini ay takvimi (bkz. src/services/calendar_view.py month_grid) --- */
+
+.mini-cal__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: var(--space-2);
+}
+
+.mini-cal__title {
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+
+.mini-cal__nav {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.75rem;
+    height: 1.75rem;
+    border-radius: 50%;
+    color: var(--color-text-muted);
+    text-decoration: none;
+}
+
+.mini-cal__nav:hover {
+    background: var(--color-surface-sunken);
+}
+
+.mini-cal__weekdays,
+.mini-cal__grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+}
+
+.mini-cal__weekdays span {
+    text-align: center;
+    font-size: 0.68rem;
+    color: var(--color-text-muted);
+    padding-bottom: var(--space-1);
+}
+
+.mini-cal__day {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    aspect-ratio: 1;
+    border-radius: 50%;
+    font-size: 0.78rem;
+    color: var(--color-text);
+    text-decoration: none;
+}
+
+.mini-cal__day:hover {
+    background: var(--color-surface-sunken);
+}
+
+.mini-cal__day.is-outside-month {
+    color: var(--color-text-muted);
+    opacity: 0.55;
+}
+
+.mini-cal__day.is-current-week {
+    background: var(--color-accent-subtle);
+    border-radius: var(--radius-sm);
+}
+
+.mini-cal__day.is-today {
+    background: var(--color-accent);
+    color: #fff;
+    font-weight: 600;
+    border-radius: 50%;
+}
+
+/* --- Takvim toolbar (hafta gezinme) --- */
 
 .calendar-toolbar {
     display: flex;
+    align-items: center;
     gap: var(--space-2);
     margin-bottom: var(--space-4);
 }
 
-.calendar-grid {
-    display: grid;
-    grid-template-columns: repeat(7, 1fr);
-    gap: var(--space-2);
-    align-items: start;
+.calendar-toolbar__title {
+    margin: 0 0 0 var(--space-2);
+    font-size: 1.1rem;
 }
 
-.calendar-day {
-    background: var(--color-surface);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-md);
+@media (max-width: 48rem) {
+    .takvim-layout {
+        flex-direction: column;
+    }
+
+    .takvim-sidebar {
+        flex-basis: auto;
+        width: 100%;
+    }
+}
+
+/* --- Takvim: saat-ızgarası (bkz. src/services/calendar_view.py
+   layout_timed_entries) — Google Calendar benzeri haftalık görünüm.
+   Header/tüm-gün şeridi/saat gövdesi AYNI --timegrid-cols şablonunu
+   paylaşıyor ki sütunlar üç ayrı grid arasında hizalı kalsın. Sıfır JS:
+   yatay kaydırma (mobilde) ve dikey kaydırma (saat gövdesi) native
+   overflow ile, "şu an" çizgisi route'ta hesaplanıp inline grid-row ile
+   yerleştiriliyor (bkz. takvim.html). */
+
+.timegrid-wrap {
+    /* NOT: minmax(Xrem, 1fr) KULLANMA — masaüstünde .timegrid-scroll'un
+       overflow-x:hidden'ı gövde ızgarasını kırpıyor ama header/tüm-gün
+       şeridinde eşdeğer bir kısıtlama yok, bu yüzden konteyner minmax'ın alt
+       sınırına sığmayınca yalnızca gövdedeki hafta sonu sütunları kayboluyor,
+       başlık satırı sıkışık da olsa hepsini gösteriyor (canlı testte görüldü
+       — "hafta sonu günleri kısmı yok" raporu). Salt "1fr" hiçbir zaman
+       taşmaz, üç grid de her zaman aynı şekilde küçülür. Mobildeki media
+       query kasıtlı olarak sabit rem genişlik + overflow-x:auto kullanıyor —
+       oradaki yatay kaydırma istenen davranış, burası değil. */
+    --timegrid-cols: 3.5rem repeat(7, 1fr);
+}
+
+.timegrid-header,
+.timegrid-allday {
+    display: grid;
+    grid-template-columns: var(--timegrid-cols);
+}
+
+.timegrid-header__day,
+.timegrid-allday__day {
     padding: var(--space-2);
-    min-height: 7rem;
+    border-left: 1px solid var(--color-border);
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+}
+
+.timegrid-header__day.is-today {
+    color: var(--color-accent-text);
+    font-weight: 600;
+}
+
+.timegrid-header__day.is-weekend,
+.timegrid-allday__day.is-weekend {
+    /* Nötr gri yerine bilinçli olarak --color-accent-subtle (açık mavi) —
+       tasarım sisteminde zaten var olan tek "açık mavi" token, yeni bir
+       renk eklemeden istenen ayrımı sağlıyor (bkz. tokens.css). */
+    background: var(--color-accent-subtle);
+}
+
+.timegrid-allday__day {
     display: flex;
     flex-direction: column;
     gap: var(--space-1);
+    padding-top: var(--space-1);
+    padding-bottom: var(--space-1);
 }
 
-.calendar-day.is-today {
-    border-color: var(--color-accent);
-    border-width: 2px;
+.timegrid-scroll {
+    max-height: 34rem;
+    overflow-y: auto;
+    overflow-x: hidden;
+    border-top: 1px solid var(--color-border);
 }
 
-.calendar-day__header {
-    font-size: 0.75rem;
+.timegrid {
+    display: grid;
+    grid-template-columns: var(--timegrid-cols);
+    /* 1.25rem/slot -> 5rem (80px) / saat. Eski değer (0.75rem, 48px/saat)
+       kısa (15-30dk) etkinliklerde iki satırlık (saat+başlık) içeriği
+       sığdıramıyordu, metin görünmez oluyordu — canlı testte görüldü. */
+    grid-template-rows: repeat(96, 1.25rem);
+    position: relative;
+}
+
+.timegrid__hour-label {
+    grid-column: 1;
+    padding-right: var(--space-2);
+    text-align: right;
+    font-size: 0.7rem;
     color: var(--color-text-muted);
-    margin-bottom: var(--space-1);
+    transform: translateY(-0.5em);
+}
+
+.timegrid__hour-line {
+    border-top: 1px solid var(--color-border);
+}
+
+/* Hafta sonu sütun arka planı — DOM'da saat çizgilerinden ÖNCE render edilir
+   (bkz. takvim.html) ki z-index'siz normal boyama sırasıyla çizgiler bunun
+   üzerine, etkinlik kutuları (z-index:2) ikisinin de üzerine gelsin. */
+.timegrid__day-bg.is-weekend {
+    background: var(--color-accent-subtle);
+}
+
+.timegrid__now-line {
+    border-top: 2px solid var(--color-danger);
+    position: relative;
+    z-index: 3;
+}
+
+.timegrid__now-line::before {
+    content: "";
+    position: absolute;
+    left: -4px;
+    top: -4px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--color-danger);
+}
+
+/* position:absolute BURADA ÖNEMLİ bir CSS Grid detayına bağlı: bir grid
+   öğesinin abspos containing block'u yalnızca grid-column/grid-row'un HEM
+   başlangıcı HEM bitişi kesin (auto olmayan) ise o hücreye kırpılır. Şablonda
+   (takvim.html) "grid-column: N" (bitiş belirtilmeden) yazılırsa tarayıcı
+   bitişi auto sayar ve containing block hücreye değil ızgaranın geri kalanına
+   yayılır — bir etkinlik görsel olarak komşu günlerin üzerine taşıp haftanın
+   tamamını kaplıyormuş gibi görünür (canlı testte tam olarak bu görüldü).
+   Şablon bu yüzden HER ZAMAN "N / span 1" yazmalı, yalnızca "N" değil. */
+.timegrid__entry {
+    position: absolute;
+    top: 1px;
+    bottom: 1px;
+    z-index: 2;
+    /* Kutular artık (yatay genişletme + saat başına 80px sonrası) çoğu
+       etkinlik için tam başlığı sığdıracak kadar büyük — bu yüzden metin
+       normal akışta SARILIYOR (white-space:normal), tek satıra sıkıştırıp
+       ellipsis ile kesmiyoruz. Yalnızca kutunun kendisinden TAŞAN kısım
+       overflow:hidden ile gizleniyor (çok kısa süreli etkinliklerde hâlâ
+       olabilir) — tam başlık her durumda title="" (native tooltip) ile de
+       erişilebilir kalıyor. */
+    display: block;
+    padding: 3px var(--space-2);
+    border-radius: var(--radius-sm);
+    background: var(--color-accent);
+    color: #fff;
+    font-size: 0.78rem;
+    line-height: 1.3;
+    text-decoration: none;
+    white-space: normal;
+    overflow: hidden;
+}
+
+.timegrid__entry:hover,
+.timegrid__entry:focus-visible {
+    background: var(--color-accent-text);
+}
+
+.timegrid__entry-time {
+    font-weight: 600;
+    opacity: 0.9;
+}
+
+.timegrid__entry-title {
+    margin-left: var(--space-1);
+}
+
+@media (max-width: 48rem) {
+    .timegrid-wrap {
+        --timegrid-cols: 3.25rem repeat(7, 6rem);
+        overflow-x: auto;
+    }
+
+    .timegrid-header,
+    .timegrid-allday,
+    .timegrid {
+        width: max-content;
+        min-width: 100%;
+    }
 }
 
 .calendar-entry {
@@ -314,12 +576,6 @@ h1 .icon {
 .calendar-entry--all-day {
     background: var(--color-success-subtle);
     color: var(--color-success);
-}
-
-@media (max-width: 48rem) {
-    .calendar-grid {
-        grid-template-columns: 1fr;
-    }
 }
 
 /* --- Ana Sayfa (bkz. plan Faz 6) --- */

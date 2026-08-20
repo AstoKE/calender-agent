@@ -25,24 +25,115 @@
 </details>
 
 {% elif state == "ok" %}
-<div class="calendar-toolbar">
-    <a class="btn btn-edit" href="/takvim?hafta={{ prev_week }}">← {{ t("takvim.prev_week") }}</a>
-    <a class="btn btn-edit" href="/takvim?hafta={{ today_iso }}">{{ t("takvim.today") }}</a>
-    <a class="btn btn-edit" href="/takvim?hafta={{ next_week }}">{{ t("takvim.next_week") }} →</a>
-</div>
+{% set current_week_days = buckets | map(attribute="day") | list %}
+<div class="takvim-layout">
+    <aside class="takvim-sidebar">
+        <form method="get" action="/takvim" class="date-jump-form">
+            <label class="sr-only" for="date-jump-input">{{ t("takvim.jump_to_date") }}</label>
+            <input type="date" id="date-jump-input" name="hafta" value="{{ anchor_iso }}" />
+            <button type="submit" class="btn btn-edit">{{ t("takvim.go") }}</button>
+        </form>
 
-<div class="calendar-grid">
-{% for bucket in buckets %}
-    <div class="calendar-day {{ 'is-today' if bucket.day == today }}">
-        <div class="calendar-day__header">{{ fmt_day_header(bucket.day) }}</div>
-        {% for entry in bucket.all_day_entries %}
-        <span class="calendar-entry calendar-entry--all-day">{{ entry.title or t("common.untitled") }}</span>
-        {% endfor %}
-        {% for entry in bucket.timed_entries %}
-        <span class="calendar-entry">{{ fmt_time(entry.start) }} {{ entry.title or t("common.untitled") }}</span>
-        {% endfor %}
+        <nav class="mini-cal" aria-label="{{ t('takvim.jump_to_date') }}">
+            <div class="mini-cal__header">
+                <a class="mini-cal__nav" href="/takvim?hafta={{ mini_prev_month }}" aria-label="{{ t('takvim.mini_prev_month') }}">
+                    <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-left"></use></svg>
+                </a>
+                <span class="mini-cal__title">{{ fmt_month_year(anchor) }}</span>
+                <a class="mini-cal__nav" href="/takvim?hafta={{ mini_next_month }}" aria-label="{{ t('takvim.mini_next_month') }}">
+                    <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-right"></use></svg>
+                </a>
+            </div>
+            <div class="mini-cal__weekdays">
+                {% for wd in weekday_short_labels %}<span>{{ wd }}</span>{% endfor %}
+            </div>
+            <div class="mini-cal__grid">
+                {% for week in mini_calendar %}
+                    {% for d in week %}
+                    <a href="/takvim?hafta={{ d.day.isoformat() }}"
+                       class="mini-cal__day
+                              {{ 'is-today' if d.day == today }}
+                              {{ 'is-current-week' if d.day in current_week_days }}
+                              {{ 'is-outside-month' if not d.in_current_month }}">
+                        {{ d.day.day }}
+                    </a>
+                    {% endfor %}
+                {% endfor %}
+            </div>
+        </nav>
+    </aside>
+
+    <div class="takvim-main">
+        <div class="calendar-toolbar">
+            <a class="btn btn-edit btn-icon" href="/takvim?hafta={{ prev_week }}" aria-label="{{ t('takvim.prev_week') }}">
+                <svg class="icon" width="18" height="18" aria-hidden="true"><use href="#icon-chevron-left"></use></svg>
+            </a>
+            <a class="btn btn-edit" href="/takvim?hafta={{ today_iso }}">{{ t("takvim.today") }}</a>
+            <a class="btn btn-edit btn-icon" href="/takvim?hafta={{ next_week }}" aria-label="{{ t('takvim.next_week') }}">
+                <svg class="icon" width="18" height="18" aria-hidden="true"><use href="#icon-chevron-right"></use></svg>
+            </a>
+            <h2 class="calendar-toolbar__title">{{ fmt_month_year(anchor) }}</h2>
+        </div>
+
+        <div class="timegrid-wrap">
+            <div class="timegrid-header">
+                <div class="timegrid-header__spacer"></div>
+                {% for bucket in buckets %}
+                <div class="timegrid-header__day {{ 'is-today' if bucket.day == today }} {{ 'is-weekend' if bucket.day.weekday() >= 5 }}">
+                    {{ fmt_day_header(bucket.day) }}
+                </div>
+                {% endfor %}
+            </div>
+
+            {% if buckets | selectattr("all_day_entries") | list %}
+            <div class="timegrid-allday">
+                <div class="timegrid-allday__label">{{ t("takvim.all_day") }}</div>
+                {% for bucket in buckets %}
+                <div class="timegrid-allday__day {{ 'is-today' if bucket.day == today }} {{ 'is-weekend' if bucket.day.weekday() >= 5 }}">
+                    {% for entry in bucket.all_day_entries %}
+                    <span class="calendar-entry calendar-entry--all-day">{{ entry.title or t("common.untitled") }}</span>
+                    {% endfor %}
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+
+            <div class="timegrid-scroll">
+                <div class="timegrid">
+                    {% for bucket in buckets %}
+                    {% if bucket.day.weekday() >= 5 %}
+                    <div class="timegrid__day-bg is-weekend" style="grid-column: {{ loop.index + 1 }} / span 1; grid-row: 1 / -1;"></div>
+                    {% endif %}
+                    {% endfor %}
+
+                    {% for h in range(24) %}
+                    <div class="timegrid__hour-label" style="grid-row: {{ h * 4 + 1 }} / span 4;">
+                        {{ "%02d:00" | format(h) }}
+                    </div>
+                    <div class="timegrid__hour-line" style="grid-row: {{ h * 4 + 1 }} / span 4; grid-column: 2 / -1;"></div>
+                    {% endfor %}
+
+                    {% for bucket in buckets %}
+                        {% set day_col = loop.index + 1 %}
+                        {% if bucket.day == today %}
+                        <div class="timegrid__now-line" style="grid-row: {{ now_row }} / span 1; grid-column: {{ day_col }} / span 1;"></div>
+                        {% endif %}
+                        {% for pos in bucket.positioned_entries %}
+                        {% set width_pct = 100 / pos.col_count %}
+                        <a class="timegrid__entry"
+                           href="{{ pos.entry.html_link or '#' }}" target="_blank" rel="noopener"
+                           style="grid-column: {{ day_col }} / span 1; grid-row: {{ pos.row_start }} / {{ pos.row_end }};
+                                  left: {{ pos.col_index * width_pct }}%; width: calc({{ width_pct }}% - 4px);"
+                           title="{{ pos.entry.title or t('common.untitled') }} ({{ fmt_range(pos.entry.start, pos.entry.end) }})">
+                            <span class="timegrid__entry-time">{{ fmt_time(pos.entry.start) }}</span>
+                            <span class="timegrid__entry-title">{{ pos.entry.title or t("common.untitled") }}</span>
+                        </a>
+                        {% endfor %}
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
     </div>
-{% endfor %}
 </div>
 {% endif %}
 {% endblock %}

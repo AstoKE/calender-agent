@@ -20,7 +20,8 @@ ortadan kalktı; yeni route'lar dosyada istenilen yere eklenebilir."""
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 from urllib.parse import quote
 
 from fastapi import APIRouter, Form, Request
@@ -51,7 +52,15 @@ from src.policies.derivation import derive_and_save_policy, save_derived_policy
 from src.policies.store import deactivate_policy_by_id, get_active_policies, list_policies, reactivate_policy
 from src.providers.json_generation import JsonGenerationError
 from src.services.availability import find_conflicts
-from src.services.calendar_view import day_bounds, group_by_day, parse_google_event, week_bounds
+from src.services.calendar_view import (
+    SLOT_MINUTES,
+    adjacent_month_anchor,
+    day_bounds,
+    group_by_day,
+    month_grid,
+    parse_google_event,
+    week_bounds,
+)
 from src.services.scan_inbox import scan_account_inbox
 from src.services.timeutil import DEFAULT_TIMEZONE
 from src.storage.db import DEFAULT_DB_PATH
@@ -265,6 +274,12 @@ def calendar_page(request: Request, hafta: str | None = None):
     entries = [entry for raw in raw_events if (entry := parse_google_event(raw, tz_name)) is not None]
     buckets = group_by_day(entries, time_min.date(), 7)
 
+    # "Şu an" çizgisi (Google Calendar'daki kırmızı çizgi benzeri, bkz.
+    # takvim.html) yalnızca bugün görüntülenen haftadaysa anlamlı — SLOT_MINUTES
+    # dakikalık grid'e göre saat-ızgarasındaki satır konumu hesaplanır.
+    now = datetime.now(ZoneInfo(tz_name))
+    now_row = (now.hour * 60 + now.minute) // SLOT_MINUTES + 1
+
     return templates.TemplateResponse(
         request,
         "takvim.html",
@@ -276,6 +291,12 @@ def calendar_page(request: Request, hafta: str | None = None):
             "today_iso": date.today().isoformat(),
             "prev_week": (anchor - timedelta(days=7)).isoformat(),
             "next_week": (anchor + timedelta(days=7)).isoformat(),
+            "now_row": now_row,
+            "anchor": anchor,
+            "anchor_iso": anchor.isoformat(),
+            "mini_calendar": month_grid(anchor),
+            "mini_prev_month": adjacent_month_anchor(anchor, -1).isoformat(),
+            "mini_next_month": adjacent_month_anchor(anchor, 1).isoformat(),
         },
     )
 

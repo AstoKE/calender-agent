@@ -24,8 +24,10 @@ from src.localization.formatting import (
     format_date,
     format_datetime,
     format_day_header,
+    format_month_year,
     format_time,
     format_time_range,
+    weekday_short_labels,
 )
 from src.ui.nav import NAV_ITEMS
 from src.ui.presenters import avatar_color, describe_structured_action, diff_snapshots, initials
@@ -49,6 +51,8 @@ def i18n_context(request: Request) -> dict:
         "fmt_datetime": lambda dt: format_datetime(dt, lang),
         "fmt_range": lambda a, b: format_time_range(a, b, lang),
         "fmt_day_header": lambda d: format_day_header(d, lang),
+        "fmt_month_year": lambda d: format_month_year(d, lang),
+        "weekday_short_labels": weekday_short_labels(lang),
         "supported_languages": SUPPORTED_LANGUAGES,
     }
 

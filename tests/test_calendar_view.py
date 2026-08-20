@@ -8,8 +8,12 @@ from datetime import date, datetime
 
 from src.services.calendar_view import (
     CalendarEntry,
+    SLOTS_PER_DAY,
+    adjacent_month_anchor,
     day_bounds,
     group_by_day,
+    layout_timed_entries,
+    month_grid,
     parse_google_event,
     week_bounds,
 )
@@ -189,3 +193,110 @@ def test_day_bounds_spans_exactly_one_day():
     assert start.date() == date(2026, 8, 19)
     assert (end - start).days == 1
     assert start.tzinfo is not None
+
+
+# --- layout_timed_entries (saat-ızgarası geometrisi) ---
+
+
+def test_layout_single_entry_row_slots():
+    day = date(2026, 8, 19)
+    e = CalendarEntry("a", "A", datetime(2026, 8, 19, 9, 0), datetime(2026, 8, 19, 10, 30), all_day=False)
+    [pos] = layout_timed_entries([e], day)
+    # 09:00 -> slot 36 (9*4), 10:30 -> slot 42 (10*4+2); grid-row 1-indexed
+    assert pos.row_start == 37
+    assert pos.row_end == 43
+    assert pos.col_index == 0
+    assert pos.col_count == 1
+
+
+def test_layout_zero_length_entry_gets_minimum_one_slot():
+    day = date(2026, 8, 19)
+    e = CalendarEntry("a", "A", datetime(2026, 8, 19, 9, 0), datetime(2026, 8, 19, 9, 0), all_day=False)
+    [pos] = layout_timed_entries([e], day)
+    assert pos.row_end == pos.row_start + 1
+
+
+def test_layout_non_overlapping_entries_share_single_column():
+    day = date(2026, 8, 19)
+    e1 = CalendarEntry("a", "A", datetime(2026, 8, 19, 9, 0), datetime(2026, 8, 19, 10, 0), all_day=False)
+    e2 = CalendarEntry("b", "B", datetime(2026, 8, 19, 10, 0), datetime(2026, 8, 19, 11, 0), all_day=False)
+    positions = layout_timed_entries([e1, e2], day)
+    assert all(p.col_count == 1 and p.col_index == 0 for p in positions)
+
+
+def test_layout_overlapping_entries_get_separate_columns():
+    day = date(2026, 8, 19)
+    e1 = CalendarEntry("a", "A", datetime(2026, 8, 19, 9, 0), datetime(2026, 8, 19, 10, 0), all_day=False)
+    e2 = CalendarEntry("b", "B", datetime(2026, 8, 19, 9, 30), datetime(2026, 8, 19, 10, 30), all_day=False)
+    positions = layout_timed_entries([e1, e2], day)
+    by_id = {p.entry.event_id: p for p in positions}
+    assert by_id["a"].col_index != by_id["b"].col_index
+    assert by_id["a"].col_count == 2
+    assert by_id["b"].col_count == 2
+
+
+def test_layout_three_way_overlap_uses_three_columns():
+    day = date(2026, 8, 19)
+    entries = [
+        CalendarEntry("a", "A", datetime(2026, 8, 19, 9, 0), datetime(2026, 8, 19, 11, 0), all_day=False),
+        CalendarEntry("b", "B", datetime(2026, 8, 19, 9, 15), datetime(2026, 8, 19, 10, 0), all_day=False),
+        CalendarEntry("c", "C", datetime(2026, 8, 19, 9, 30), datetime(2026, 8, 19, 10, 0), all_day=False),
+    ]
+    positions = layout_timed_entries(entries, day)
+    col_indices = {p.entry.event_id: p.col_index for p in positions}
+    assert len(set(col_indices.values())) == 3
+    assert all(p.col_count == 3 for p in positions)
+
+
+def test_layout_clips_multiday_timed_entry_to_visible_day_bounds():
+    day = date(2026, 8, 19)
+    spanning = CalendarEntry(
+        "a", "A", datetime(2026, 8, 18, 22, 0), datetime(2026, 8, 20, 6, 0), all_day=False
+    )
+    [pos] = layout_timed_entries([spanning], day)
+    assert pos.row_start == 1
+    assert pos.row_end == SLOTS_PER_DAY + 1
+
+
+# --- month_grid / adjacent_month_anchor (mini takvim, bkz. takvim.html sidebar) ---
+
+
+def test_month_grid_always_six_weeks():
+    weeks = month_grid(date(2026, 8, 19))
+    assert len(weeks) == 6
+    assert all(len(week) == 7 for week in weeks)
+
+
+def test_month_grid_starts_on_monday():
+    weeks = month_grid(date(2026, 8, 19))
+    assert weeks[0][0].day.weekday() == 0
+
+
+def test_month_grid_marks_days_outside_current_month():
+    weeks = month_grid(date(2026, 8, 19))  # Ağustos 2026, 1'i Cumartesi
+    first_week = weeks[0]
+    assert first_week[0].day == date(2026, 7, 27)
+    assert first_week[0].in_current_month is False
+    august_first = next(d for week in weeks for d in week if d.day == date(2026, 8, 1))
+    assert august_first.in_current_month is True
+
+
+def test_month_grid_contains_every_day_of_the_month():
+    weeks = month_grid(date(2026, 8, 19))
+    days_in_month = [d.day for week in weeks for d in week if d.in_current_month]
+    assert len(days_in_month) == 31
+    assert days_in_month[0] == date(2026, 8, 1)
+    assert days_in_month[-1] == date(2026, 8, 31)
+
+
+def test_adjacent_month_anchor_next():
+    assert adjacent_month_anchor(date(2026, 8, 19), 1) == date(2026, 9, 1)
+
+
+def test_adjacent_month_anchor_prev():
+    assert adjacent_month_anchor(date(2026, 8, 19), -1) == date(2026, 7, 1)
+
+
+def test_adjacent_month_anchor_across_year_boundary():
+    assert adjacent_month_anchor(date(2026, 1, 15), -1) == date(2025, 12, 1)
+    assert adjacent_month_anchor(date(2026, 12, 15), 1) == date(2027, 1, 1)

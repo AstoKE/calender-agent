@@ -85,7 +85,7 @@
             {% endfor %}
         </nav>
 
-        <main id="main" class="content">
+        <main id="main" class="content {{ 'content--wide' if active_page == 'takvim' }}">
             {% block content %}{% endblock %}
         </main>
 

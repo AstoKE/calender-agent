@@ -190,6 +190,12 @@ MESSAGES: dict[str, dict[str, str]] = {
     "takvim.prev_week": {"tr": "Önceki hafta", "en": "Previous week"},
     "takvim.today": {"tr": "Bugün", "en": "Today"},
     "takvim.next_week": {"tr": "Sonraki hafta", "en": "Next week"},
+    "takvim.all_day": {"tr": "Tüm gün", "en": "All day"},
+    "takvim.empty_week": {"tr": "Bu hafta hiç etkinlik yok.", "en": "No events this week."},
+    "takvim.jump_to_date": {"tr": "Tarihe git", "en": "Jump to date"},
+    "takvim.go": {"tr": "Git", "en": "Go"},
+    "takvim.mini_prev_month": {"tr": "Önceki ay", "en": "Previous month"},
+    "takvim.mini_next_month": {"tr": "Sonraki ay", "en": "Next month"},
 
     # --- Kurallarım ---
     "kurallarim.title": {"tr": "Kurallarım", "en": "My Rules"},

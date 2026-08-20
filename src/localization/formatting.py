@@ -34,6 +34,23 @@ _WEEKDAY_NAMES: dict[str, list[str]] = {
 _TODAY_KEY = {"tr": "Bugün", "en": "Today"}
 _TOMORROW_KEY = {"tr": "Yarın", "en": "Tomorrow"}
 
+# Mini takvim başlık satırı için kısa gün adları (Pazartesi ilk — datetime.weekday() ile hizalı).
+_WEEKDAY_SHORT: dict[str, list[str]] = {
+    "tr": ["Pt", "Sa", "Ça", "Pe", "Cu", "Ct", "Pz"],
+    "en": ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"],
+}
+
+
+def weekday_short_labels(lang: str) -> list[str]:
+    return _WEEKDAY_SHORT[normalize_language(lang)]
+
+
+def format_month_year(dt: date, lang: str) -> str:
+    """'Ağustos 2026' / 'August 2026' — Takvim ekranının üst başlığı ve mini
+    ay takviminin başlığı için (bkz. takvim.html)."""
+    lang = normalize_language(lang)
+    return f"{month_name(dt.month, lang)} {dt.year}"
+
 
 def month_name(month: int, lang: str) -> str:
     """1-12 -> ay adı. src/services/timeutil.py::format_date_tr de (CLI'nın
