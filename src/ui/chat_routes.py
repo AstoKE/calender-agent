@@ -19,11 +19,12 @@ build_chat_widget_context, src/ui/chat_state.py)."""
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Form, Request, Response
+from fastapi import APIRouter, File, Form, Request, Response, UploadFile
 from fastapi.responses import RedirectResponse
 
 from src.core.logging_config import get_logger
 from src.localization import translate
+from src.providers.base import FileInputCapable
 from src.ui.chat_session import (
     create_new_chat_session,
     get_or_create_chat_session,
@@ -50,8 +51,11 @@ def _chat_fragment_response(request: Request, account_id: str | None):
 
 
 def _chat_fragment_response_for_session(request: Request, session_id: str | None):
+    vision_enabled = isinstance(getattr(request.app.state, "llm", None), FileInputCapable)
     return templates.TemplateResponse(
-        request, "partials/_asistan_chat.html", widget_context_for_session(session_id)
+        request,
+        "partials/_asistan_chat.html",
+        widget_context_for_session(session_id, vision_enabled=vision_enabled),
     )
 
 
@@ -96,6 +100,7 @@ def send_chat_message(
     metin: str = Form(""),
     action: str = Form(""),
     next: str = Form("/anasayfa"),
+    dosya: UploadFile | None = File(None),
 ):
     target = safe_next(next)
     ajax = _is_ajax(request)
@@ -109,14 +114,29 @@ def send_chat_message(
 
     account_id = active_account["id"]
     user_text = (action or metin).strip()
+    # Boş bir <input type="file"> de gönderilince (kullanıcı hiç dosya
+    # seçmemiş) tarayıcı yine de boş dosya adlı bir parça gönderebilir —
+    # `dosya.filename` doluysa gerçekten bir dosya seçilmiş demektir.
+    has_file = dosya is not None and bool(dosya.filename)
 
-    if not user_text:
-        # Boş gönderim (metin de action da yok) — CLI'nın boş Enter'ıyla
-        # aynı: sessizce yok sayılır, henüz sohbet edilmemişse boş boş bir
-        # chat_sessions satırı bile açılmaz (bkz. get_current_chat_session_id).
+    if not user_text and not has_file:
+        # Boş gönderim (metin de action da dosya da yok) — CLI'nın boş
+        # Enter'ıyla aynı: sessizce yok sayılır, henüz sohbet edilmemişse
+        # boş bir chat_sessions satırı bile açılmaz (bkz. get_current_chat_session_id).
         if ajax:
             return _chat_fragment_response(request, account_id)
         return RedirectResponse(target, status_code=303)
+
+    file_bytes: bytes | None = None
+    file_mime_type: str | None = None
+    if has_file:
+        file_bytes = dosya.file.read()
+        file_mime_type = dosya.content_type or "application/octet-stream"
+
+    lang = resolve_language(request, active_account)
+    display_text = metin.strip() if metin.strip() else (
+        translate("chat.file.sent_placeholder", lang) if has_file else _display_text_for_action(action, metin, lang)
+    )
 
     cookie_carrier = Response()
     session_id = get_or_create_chat_session(request, cookie_carrier, account_id)
@@ -129,7 +149,6 @@ def send_chat_message(
         # için aşağıda normal şekilde bir yanıt üretiliyor.
         in_progress.add(session_id)
         try:
-            lang = resolve_language(request, active_account)
             calendar = _get_calendar(request, account_id)
             process_message(
                 session_id,
@@ -138,7 +157,9 @@ def send_chat_message(
                 embedding_provider=request.app.state.embedding_provider,
                 calendar=calendar,
                 lang=lang,
-                display_text=_display_text_for_action(action, metin, lang),
+                display_text=display_text,
+                file_bytes=file_bytes,
+                file_mime_type=file_mime_type,
             )
         except Exception:
             logger.exception("Sohbet turu işlenemedi (session=%s)", session_id)

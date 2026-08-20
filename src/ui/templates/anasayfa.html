@@ -137,6 +137,24 @@
             });
     });
 
+    // Dosya eki seçildiğinde adını göster (bkz. _asistan_chat.html — gerçek
+    // <input type=file> .sr-only ile görsel olarak gizli, tarayıcı dosya
+    // adını başka hiçbir yerde kendiliğinden göstermiyor). #asistan-chat her
+    // AJAX yanıtında tamamen değiştiği için burada da document'e delege
+    // ediliyor (yukarıdaki submit dinleyicisiyle aynı gerekçe).
+    document.addEventListener("change", function (event) {
+        if (!event.target.matches("#chat-file-input")) return;
+        var nameEl = document.getElementById("chat-file-name");
+        if (!nameEl) return;
+        var file = event.target.files && event.target.files[0];
+        if (file) {
+            nameEl.textContent = file.name;
+            nameEl.hidden = false;
+        } else {
+            nameEl.hidden = true;
+        }
+    });
+
     scrollAndFocus();
 })();
 </script>

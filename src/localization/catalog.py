@@ -450,6 +450,25 @@ MESSAGES: dict[str, dict[str, str]] = {
         "tr": "Bu mesajı işleyemedim, tekrar ifade eder misiniz?",
         "en": "I couldn't process that message — could you rephrase it?",
     },
+    "chat.file.extraction_failed": {
+        "tr": "Bu dosyadan bir etkinlik bilgisi çıkaramadım, tekrar dener misiniz?",
+        "en": "I couldn't extract event details from that file — could you try again?",
+    },
+    "chat.file.unsupported_provider": {
+        "tr": "Dosyadan etkinlik ekleme yalnızca Gemini backend'i etkinken kullanılabilir.",
+        "en": "Adding events from a file is only available with the Gemini backend enabled.",
+    },
+    "chat.file.unsupported_type": {
+        "tr": "Bu dosya türü desteklenmiyor — yalnızca fotoğraf (JPEG/PNG/WEBP/HEIC) veya PDF yükleyebilirsiniz.",
+        "en": "This file type isn't supported — you can upload a photo (JPEG/PNG/WEBP/HEIC) or a PDF.",
+    },
+    "chat.file.too_large": {
+        "tr": "Dosya çok büyük — en fazla {max_mb} MB yükleyebilirsiniz.",
+        "en": "File is too large — the maximum size is {max_mb} MB.",
+    },
+    "chat.attach_file": {"tr": "Dosya ekle", "en": "Attach file"},
+    "chat.file.sent_placeholder": {"tr": "Dosya gönderildi", "en": "File sent"},
+    "chat.create.batch_progress": {"tr": "Etkinlik {index}/{total}:", "en": "Event {index}/{total}:"},
     "chat.create.ask_title": {"tr": "Etkinliğin başlığı ne olsun?", "en": "What should the event be called?"},
     "chat.create.ask_duration": {
         "tr": "Süre ne kadar? (örn: 30, 1 saat)",

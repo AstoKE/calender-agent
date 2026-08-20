@@ -39,6 +39,36 @@ class LLMProvider(ABC):
         """Runtime/model şu an kullanılabilir mi (yüklü mü, servis ayakta mı)."""
 
 
+class FileInputCapable(ABC):
+    """Dosya girişi (fotoğraf, PDF, ...) destekleyen provider'lar için EK,
+    opsiyonel arayüz — LLMProvider'IN KENDİSİNE bilerek eklenmedi. Bugün
+    yalnızca GeminiProvider bunu destekliyor (varsayılan FoundryLocalProvider
+    metin-only); intent/mail-sınıflandırma/policy gibi LLMProvider'ın HER
+    çağıranına hiç kullanmayacakları bir metod dayatmak yerine, isteyen kod
+    (bkz. src/services/chat_flow.py) `isinstance(llm, FileInputCapable)` ile
+    kontrol edip yoksa zarifçe düşer (örn. "bu özellik yalnızca Gemini
+    backend'i etkinken kullanılabilir").
+
+    Görsel özelinde AYRI bir arayüz DEĞİL — Gemini API'de fotoğraf ve PDF
+    aynı mekanizmayı (ham bayt + mime_type, bkz. `Part.from_bytes`)
+    kullanıyor, isim ve imza bilerek dosya-türünden bağımsız tutuldu (bkz.
+    src/services/vertical_prototype.py::_ACCEPTED_FILE_MIME_TYPES — hangi
+    mime_type'ların gerçekten kabul edildiği tek yerde, çağıran katmanda)."""
+
+    @abstractmethod
+    def generate_from_file(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        file_bytes: bytes,
+        mime_type: str,
+        json_output: bool = False,
+    ) -> str:
+        """`LLMProvider.generate`'in dosya girişli karşılığı — context_chunks/
+        allow_thinking YOK (bu çağrı yalnızca tek-atımlık dosyadan-çıkarım
+        için, RAG bağlamı ya da reasoning modu ile birleştirilmiyor)."""
+
+
 class EmbeddingProvider(ABC):
     """Metin embedding'i üreten yerel modeller için ortak arayüz."""
 

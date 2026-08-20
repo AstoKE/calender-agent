@@ -24,6 +24,7 @@ from datetime import datetime, timezone
 
 from fastapi import Request
 
+from src.providers.base import FileInputCapable
 from src.services.chat_flow import ChatState, advance
 from src.storage.db import get_connection
 from src.ui.chat_session import get_current_chat_session_id
@@ -70,7 +71,16 @@ def list_recent_messages(session_id: str, limit: int = MESSAGE_HISTORY_LIMIT) ->
 
 
 def process_message(
-    session_id: str, user_text: str, *, llm, embedding_provider, calendar, lang: str, display_text: str | None = None
+    session_id: str,
+    user_text: str,
+    *,
+    llm,
+    embedding_provider,
+    calendar,
+    lang: str,
+    display_text: str | None = None,
+    file_bytes: bytes | None = None,
+    file_mime_type: str | None = None,
 ) -> list[dict]:
     """Bir sohbet turunu uçtan uca işler: state'i yükler, kullanıcı mesajını
     yazar, `advance()`'i HİÇBİR bağlantı açık değilken çalıştırır (bkz. modül
@@ -84,7 +94,9 @@ def process_message(
     olarak ayırıyor: "approve" gibi ham İngilizce token'ın kendisi işleme
     doğru şekilde gitmeli, ama kullanıcıya "approve" yazan bir balon
     göstermek yerine düğmenin kendi çevrilmiş etiketi ("Onayla") gösterilir
-    (bkz. canlı testte bulunan UI kusuru)."""
+    (bkz. canlı testte bulunan UI kusuru). Bir dosya eklendiğinde de aynı
+    ayrım işe yarıyor: chat_routes.py balonda "Dosya gönderildi" gösterir,
+    `advance()`'e giden `file_bytes`/`file_mime_type` ise gerçek veri."""
     state = load_chat_state(session_id)
 
     with get_connection() as conn:
@@ -93,6 +105,7 @@ def process_message(
     new_state, replies = advance(
         state, user_text,
         llm=llm, embedding_provider=embedding_provider, calendar=calendar, lang=lang,
+        file_bytes=file_bytes, file_mime_type=file_mime_type,
     )
 
     with get_connection() as conn:
@@ -103,7 +116,7 @@ def process_message(
     return list_recent_messages(session_id)
 
 
-def widget_context_for_session(session_id: str | None) -> dict:
+def widget_context_for_session(session_id: str | None, *, vision_enabled: bool = False) -> dict:
     """`_asistan_chat.html`'in ihtiyaç duyduğu `chat_messages`/`chat_step`'i
     BİLİNEN bir `session_id`'den üretir. `chat_routes.py::send_chat_message`
     yeni bir oturum açtığında (bkz. get_or_create_chat_session) bunu doğrudan
@@ -111,12 +124,18 @@ def widget_context_for_session(session_id: str | None) -> dict:
     GÜVENEMEZ, çünkü o cookie'yi taşıyan Set-Cookie başlığı henüz TARAYICIYA
     gitmemiştir; aynı istek nesnesinin `request.cookies`'i hâlâ eski (cookie'siz)
     hâlini gösterir — canlı testte tam olarak bu yüzden yeni açılan bir
-    oturumun ilk mesajı fragment'ta hiç görünmüyordu, bulunup düzeltildi."""
+    oturumun ilk mesajı fragment'ta hiç görünmüyordu, bulunup düzeltildi.
+
+    `vision_enabled` (bkz. FileInputCapable): şablonun "dosya ekle" butonunu
+    gösterip göstermeyeceği — varsayılan (Foundry Local) provider dosya
+    girişini desteklemiyor, çağıran bunu `request.app.state.llm`'den
+    hesaplayıp geçirmeli (bkz. build_chat_widget_context)."""
     if not session_id:
-        return {"chat_messages": [], "chat_step": None}
+        return {"chat_messages": [], "chat_step": None, "vision_enabled": vision_enabled}
     return {
         "chat_messages": list_recent_messages(session_id),
         "chat_step": load_chat_state(session_id).step,
+        "vision_enabled": vision_enabled,
     }
 
 
@@ -126,6 +145,9 @@ def build_chat_widget_context(request: Request, account_id: str | None) -> dict:
     oturuma karşı çalışan AJAX yollarında (bkz. chat_routes.py) kullanılır.
     Salt okunur: hesap yoksa ya da hiç sohbet edilmemişse boş boş bir
     chat_sessions satırı oluşturmaz."""
+    vision_enabled = isinstance(getattr(request.app.state, "llm", None), FileInputCapable)
     if not account_id:
-        return widget_context_for_session(None)
-    return widget_context_for_session(get_current_chat_session_id(request, account_id))
+        return widget_context_for_session(None, vision_enabled=vision_enabled)
+    return widget_context_for_session(
+        get_current_chat_session_id(request, account_id), vision_enabled=vision_enabled
+    )

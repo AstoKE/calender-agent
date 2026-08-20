@@ -35,7 +35,7 @@
         {% endif %}
     </div>
 
-    <form method="post" action="/asistan/mesaj" class="assistant-chat__form">
+    <form method="post" action="/asistan/mesaj" class="assistant-chat__form" enctype="multipart/form-data">
         <input type="hidden" name="next" value="/anasayfa" />
 
         {% if chat_step == "preview_confirm" %}
@@ -72,7 +72,27 @@
         </div>
         {% endif %}
 
+        {% if vision_enabled and not chat_step %}
+        {# ChatGPT'nin giriş satırındaki "+" düğmesiyle aynı yerleşim (bkz.
+           kullanıcının referans ekran görüntüsü) — yalnızca TAZE bir sohbette
+           gösterilir (bkz. chat_flow.py::advance, bir netleştirme/onay adımı
+           sırasında eklenen dosya sessizce yok sayılıyor). Gerçek <input
+           type=file> görsel olarak gizli (.sr-only), <label for> ona tıklama
+           olmadan native dosya seçiciyi açıyor (sıfır JS); seçilen dosya adını
+           GÖSTERMEK içinse (native input gizli olduğundan tarayıcı bunu
+           kendiliğinden gösteremiyor) anasayfa.html'deki script'e küçük bir
+           değişiklik-dinleyicisi eklendi. #}
+        <p id="chat-file-name" class="hint assistant-chat__file-name" hidden></p>
+        {% endif %}
+
         <div class="assistant-chat__input-row">
+            {% if vision_enabled and not chat_step %}
+            <label for="chat-file-input" class="assistant-chat__attach-btn" title="{{ t('chat.attach_file') }}">
+                <svg class="icon" width="20" height="20" aria-hidden="true"><use href="#icon-plus"></use></svg>
+                <input type="file" id="chat-file-input" name="dosya" class="sr-only"
+                       accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf" />
+            </label>
+            {% endif %}
             <input type="text" name="metin" placeholder="{{ t('chat.placeholder') }}" autocomplete="off" />
             <button type="submit" class="btn btn-approve">{{ t("chat.send") }}</button>
         </div>

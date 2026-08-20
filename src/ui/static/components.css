@@ -1110,3 +1110,37 @@ code {
     flex: 1;
 }
 
+/* Dosyadan etkinlik ekleme (bkz. FileInputCapable, yalnızca Gemini backend'i
+   etkinken görünür) — ChatGPT'nin giriş satırındaki "+" düğmesiyle aynı
+   yerleşim. Gerçek <input type=file> .sr-only ile görsel olarak gizli,
+   <label for> ona tıklayınca native dosya seçiciyi açıyor (sıfır JS);
+   seçilen dosyanın adını göstermek için TEK küçük JS parçası var (bkz.
+   anasayfa.html script bloğu — native input gizli olduğundan tarayıcı
+   bunu kendiliğinden gösteremiyor). */
+.assistant-chat__attach-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: 50%;
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
+    color: var(--color-text-muted);
+    cursor: pointer;
+}
+
+.assistant-chat__attach-btn:hover {
+    background: var(--color-surface-sunken);
+    color: var(--color-text);
+}
+
+.assistant-chat__attach-btn:has(:focus-visible) {
+    box-shadow: var(--focus-ring);
+}
+
+.assistant-chat__file-name {
+    margin: 0 0 var(--space-2);
+}
+

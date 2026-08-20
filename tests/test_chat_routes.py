@@ -10,11 +10,13 @@ iskeletini doğrular. `_get_calendar` de sahte bir bağlayıcıyla değiştirili
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from fastapi.testclient import TestClient
 
 from src.connectors.account_registry import ensure_account_registered
-from src.providers.base import EmbeddingProvider, LLMProvider
+from src.providers.base import EmbeddingProvider, FileInputCapable, LLMProvider
 from src.storage.db import get_connection
 
 
@@ -49,11 +51,75 @@ class _NullCalendar:
     def list_events(self, *args, **kwargs):
         return []
 
+    def get_freebusy(self, *args, **kwargs):
+        return []
+
+    def create_event(self, *args, **kwargs):
+        return "fake-event-id"
+
+
+_SINGLE_EVENT_FILE_RESPONSE = json.dumps([
+    {"event_type": "meeting", "title": "Webinar: AI Trends", "start_datetime": "2026-09-01T14:00:00",
+     "duration_minutes": 60, "location": None, "ambiguous_fields": []},
+])
+
+
+class _DummyVisionLLMProvider(LLMProvider, FileInputCapable):
+    """FileInputCapable UYGULAYAN sahte — dosyadan etkinlik ekleme testleri
+    (bkz. src/services/chat_flow.py::_dispatch_file_upload) için `client`
+    fixture'ındaki `_DummyLLMProvider`'ın yerine geçer, gerçek Gemini API'yi
+    HİÇ çağırmaz.
+
+    `file_response` sınıf seviyesinde: app.py lifespan bu sınıfı KENDİSİ
+    instantiate ettiği için (bkz. vision_client fixture) constructor'a
+    senaryoya özel bir yanıt geçirmenin pratik bir yolu yok — testler bunun
+    yerine `monkeypatch.setattr(_DummyVisionLLMProvider, "file_response", ...)`
+    ile isteğe özel bir JSON LİSTESİ (bkz. extract_candidate_events_from_file'ın
+    beklediği sözleşme) verebilir."""
+
+    file_response = _SINGLE_EVENT_FILE_RESPONSE
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def generate(self, system_prompt, user_prompt, context_chunks=None, json_output=False, allow_thinking=False):
+        return "{}" if json_output else ""
+
+    def generate_from_file(self, system_prompt, user_prompt, file_bytes, mime_type, json_output=False):
+        return type(self).file_response
+
+    def is_available(self):
+        return True
+
 
 @pytest.fixture
 def client(temp_db, monkeypatch):
+    # HEM FoundryLocal HEM Gemini dalını sahteyle değiştiriyoruz — bu makinenin
+    # .env'inde LLM_PROVIDER=gemini set (canlı Gemini testleri için), yalnızca
+    # FoundryLocalProvider'ı yamalamak bu ortamda SESSİZCE etkisiz kalıyordu
+    # (app.py hâlâ gerçek GeminiProvider'ı kuruyordu — bulundu, testler bu
+    # ortamdan bağımsız olmalı, hangi .env'de çalışırsa çalışsın).
     monkeypatch.setattr("src.ui.app.FoundryLocalProvider", _DummyLLMProvider)
     monkeypatch.setattr("src.ui.app.FoundryLocalEmbeddingProvider", _DummyEmbeddingProvider)
+    monkeypatch.setattr("src.ui.app.GeminiProvider", _DummyLLMProvider)
+    monkeypatch.setattr("src.ui.app.GeminiEmbeddingProvider", _DummyEmbeddingProvider)
+    monkeypatch.setattr("src.ui.chat_routes._get_calendar", lambda request, account_id: _NullCalendar())
+    from src.ui.app import app
+
+    with TestClient(app) as test_client:
+        yield test_client
+
+
+@pytest.fixture
+def vision_client(temp_db, monkeypatch):
+    """`client` ile AYNI ama her iki dalı da (FoundryLocal VE Gemini, bkz.
+    client fixture'ındaki not) görsel/PDF girişini destekleyen bir sahteyle
+    değiştiriyor — "Gemini backend'i etkin" durumunu gerçek API'ye hiç
+    dokunmadan simüle eder."""
+    monkeypatch.setattr("src.ui.app.FoundryLocalProvider", _DummyVisionLLMProvider)
+    monkeypatch.setattr("src.ui.app.FoundryLocalEmbeddingProvider", _DummyEmbeddingProvider)
+    monkeypatch.setattr("src.ui.app.GeminiProvider", _DummyVisionLLMProvider)
+    monkeypatch.setattr("src.ui.app.GeminiEmbeddingProvider", _DummyEmbeddingProvider)
     monkeypatch.setattr("src.ui.chat_routes._get_calendar", lambda request, account_id: _NullCalendar())
     from src.ui.app import app
 
@@ -328,3 +394,152 @@ def test_free_text_message_is_shown_verbatim(client):
     )
     assert response.status_code == 200
     assert "approve etmek istiyorum" in response.text
+
+
+# --- Dosyadan (görsel/PDF) etkinlik ekleme (bkz. FileInputCapable, src/services/chat_flow.py::_dispatch_file_upload) ---
+
+
+def test_attach_row_hidden_without_vision_capable_provider(client):
+    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    response = client.get("/anasayfa")
+    assert response.status_code == 200
+    assert 'name="dosya"' not in response.text
+
+
+def test_attach_row_shown_with_vision_capable_provider(vision_client):
+    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    response = vision_client.get("/anasayfa")
+    assert response.status_code == 200
+    assert 'name="dosya"' in response.text
+    assert 'enctype="multipart/form-data"' in response.text
+
+
+def test_file_upload_extracts_event_and_reaches_preview(vision_client):
+    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    response = vision_client.post(
+        "/asistan/mesaj",
+        data={"next": "/anasayfa"},
+        files={"dosya": ("davetiye.jpg", b"FAKE_JPEG_BYTES", "image/jpeg")},
+        headers={"X-Requested-With": "fetch"},
+    )
+    assert response.status_code == 200
+    assert "Webinar: AI Trends" in response.text
+    assert "Dosya gönderildi" in response.text  # bilgi metni olmadan yollanan dosya icin placeholder balon
+
+
+def test_file_upload_with_caption_shows_caption_not_placeholder(vision_client):
+    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    response = vision_client.post(
+        "/asistan/mesaj",
+        data={"metin": "bu davetiyeyi ekle", "next": "/anasayfa"},
+        files={"dosya": ("davetiye.jpg", b"FAKE_JPEG_BYTES", "image/jpeg")},
+        headers={"X-Requested-With": "fetch"},
+    )
+    assert response.status_code == 200
+    assert "bu davetiyeyi ekle" in response.text
+    assert "Webinar: AI Trends" in response.text
+
+
+def test_file_only_message_is_not_treated_as_empty(vision_client):
+    """metin bos, action bos, yalnizca dosya var — bos gonderim gibi sessizce
+    yok sayilmamali (bkz. chat_routes.py::send_chat_message has_file kontrolu)."""
+    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    response = vision_client.post(
+        "/asistan/mesaj",
+        files={"dosya": ("davetiye.jpg", b"FAKE_JPEG_BYTES", "image/jpeg")},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert vision_client.cookies.get("chat_session")  # bir oturum acildi, bos gonderimde acilmazdi
+
+
+def test_file_upload_unsupported_mime_type_shows_error(vision_client):
+    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    response = vision_client.post(
+        "/asistan/mesaj",
+        files={"dosya": ("notes.txt", b"plain text", "text/plain")},
+        headers={"X-Requested-With": "fetch"},
+    )
+    assert response.status_code == 200
+    assert "desteklenmiyor" in response.text
+
+
+def test_file_upload_without_vision_provider_shows_error(client):
+    """`client` (vision_client DEĞİL) — FoundryLocal sahtesi FileInputCapable
+    DEĞİL, kullanıcıya nedenini soylemeli, sessizce yutmamali."""
+    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    response = client.post(
+        "/asistan/mesaj",
+        files={"dosya": ("davetiye.jpg", b"FAKE_JPEG_BYTES", "image/jpeg")},
+        headers={"X-Requested-With": "fetch"},
+    )
+    assert response.status_code == 200
+    assert "Gemini" in response.text
+
+
+# --- Çoklu-etkinlik: bir dosyada birden fazla ayrı etkinlik (bkz. canlı testte
+# bulunan senaryo — bir takvim ekran görüntüsünde iki toplantı, model bir JSON
+# LİSTESİ döndürdü) — ChatState.queued_candidates/_finish_candidate akışı ---
+
+
+_TWO_EVENT_FILE_RESPONSE = json.dumps([
+    {"event_type": "meeting", "title": "Likidite ve Yatırım Portföy Yönetimi",
+     "start_datetime": "2026-08-25T14:00:00", "duration_minutes": 60,
+     "location": None, "ambiguous_fields": []},
+    {"event_type": "meeting", "title": "Bankacılıkta Yatırım Hizmetleri",
+     "start_datetime": "2026-08-25T15:30:00", "duration_minutes": 60,
+     "location": None, "ambiguous_fields": []},
+])
+
+
+def test_file_upload_with_two_events_shows_first_with_batch_progress(vision_client, monkeypatch):
+    monkeypatch.setattr(_DummyVisionLLMProvider, "file_response", _TWO_EVENT_FILE_RESPONSE)
+    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    response = vision_client.post(
+        "/asistan/mesaj",
+        files={"dosya": ("program.jpg", b"FAKE_JPEG_BYTES", "image/jpeg")},
+        headers={"X-Requested-With": "fetch"},
+    )
+    assert response.status_code == 200
+    assert "1/2" in response.text
+    assert "Likidite ve Yatırım Portföy Yönetimi" in response.text
+    assert "Bankacılıkta Yatırım Hizmetleri" not in response.text  # ikincisi henüz sırada
+
+
+def test_approving_first_of_two_events_automatically_starts_second(vision_client, monkeypatch):
+    monkeypatch.setattr(_DummyVisionLLMProvider, "file_response", _TWO_EVENT_FILE_RESPONSE)
+    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    vision_client.post(
+        "/asistan/mesaj",
+        files={"dosya": ("program.jpg", b"FAKE_JPEG_BYTES", "image/jpeg")},
+        headers={"X-Requested-With": "fetch"},
+    )
+
+    response = vision_client.post(
+        "/asistan/mesaj", data={"action": "approve"}, headers={"X-Requested-With": "fetch"}
+    )
+    assert response.status_code == 200
+    assert "2/2" in response.text
+    assert "Bankacılıkta Yatırım Hizmetleri" in response.text
+
+
+def test_approving_last_of_two_events_finishes_normally(vision_client, monkeypatch):
+    monkeypatch.setattr(_DummyVisionLLMProvider, "file_response", _TWO_EVENT_FILE_RESPONSE)
+    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    vision_client.post(
+        "/asistan/mesaj",
+        files={"dosya": ("program.jpg", b"FAKE_JPEG_BYTES", "image/jpeg")},
+        headers={"X-Requested-With": "fetch"},
+    )
+    vision_client.post("/asistan/mesaj", data={"action": "approve"}, headers={"X-Requested-With": "fetch"})
+
+    response = vision_client.post(
+        "/asistan/mesaj", data={"action": "approve"}, headers={"X-Requested-With": "fetch"}
+    )
+    assert response.status_code == 200
+    assert response.text.count("Takvime eklendi.") == 2  # her iki etkinlik de onaylandı
+
+    session_id = vision_client.cookies.get("chat_session")
+    with get_connection() as conn:
+        step = conn.execute("SELECT step FROM chat_sessions WHERE session_id = ?", (session_id,)).fetchone()["step"]
+    assert step is None  # sohbet idle durumuna döndü, sırada bekleyen kalmadı

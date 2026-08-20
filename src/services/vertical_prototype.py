@@ -26,9 +26,9 @@ from src.core.logging_config import configure_logging, get_logger
 from src.core.models import CandidateEvent, CandidateStatus, EventType, IntentType, SourceType
 from src.memory.correction_memory import candidate_snapshot, capture_correction_interactively, capture_edit_correction
 from src.policies.derivation import VALID_IMPORTANCE_VALUES, derive_and_save_policy
-from src.providers.base import EmbeddingProvider, LLMProvider
+from src.providers.base import EmbeddingProvider, FileInputCapable, LLMProvider
 from src.providers.foundry_local import FoundryLocalEmbeddingProvider, FoundryLocalProvider
-from src.providers.json_generation import JsonGenerationError, generate_json
+from src.providers.json_generation import JsonGenerationError, generate_json, generate_json_from_file
 from src.rag.policy_retrieval import retrieve_policies_for_event
 from src.services.availability import find_conflicts, suggest_alternative_slots
 from src.services.extraction import build_candidate_from_fields
@@ -95,6 +95,64 @@ def extract_candidate_event(llm: FoundryLocalProvider, user_text: str) -> Candid
         source_languages=[],
         extraction_reason="Kullanıcı mesajından doğrudan çıkarıldı (konuşma akışı).",
     )
+
+
+# Gemini'nin desteklediği, bu özellik için anlamlı dosya türleri (bkz.
+# FileInputCapable) — davetiye/bilet/randevu onayı ya fotoğraf ya da PDF
+# olarak gelir. chat_routes.py hem `accept=` attribute'u hem de sunucu
+# tarafı doğrulama için TEK kaynak olarak bunu kullanır.
+ACCEPTED_FILE_MIME_TYPES = {
+    "image/jpeg", "image/png", "image/webp", "image/heic", "image/heif",
+    "application/pdf",
+}
+
+_FILE_EXTRACTION_INSTRUCTION = (
+    "Ekteki dosya bir davetiye, afiş, bilet, randevu onayı, ekran görüntüsü veya "
+    "benzeri bir kaynak olabilir (fotoğraf ya da PDF). İçinde BİR ya da BİRDEN "
+    "FAZLA ayrı etkinlik olabilir (örn. bir haftalık program, birden fazla "
+    "toplantı listesi). Her ayrı etkinlik için yukarıdaki kurallara göre bilgi "
+    "çıkar. SADECE geçerli bir JSON LİSTESİ döndür — tek etkinlik olsa bile "
+    "[{...}] şeklinde, ASLA çıplak {...} nesnesi değil — başka hiçbir açıklama "
+    "ekleme."
+)
+
+
+def extract_candidate_events_from_file(
+    llm: FileInputCapable, file_bytes: bytes, mime_type: str, user_text: str = ""
+) -> list[CandidateEvent]:
+    """`extract_candidate_event`'in dosya (görsel/PDF) girişli, ÇOKLU-etkinlik
+    destekleyen karşılığı — bir dosyada (örn. bir günün birden fazla toplantısı,
+    canlı testte görüldü) birden fazla ayrı etkinlik olabileceğinden HER ZAMAN
+    bir liste döner (tek etkinlikli dosyalarda da tek elemanlı). AYNI sistem
+    promptunu (tarih/saat bağlamı + JSON şeması + "uydurma" kuralları) kullanır,
+    yalnızca kullanıcının serbest metni yerine `generate_json_from_file` ile
+    dosya gönderilir. Kullanıcı fotoğrafla birlikte bir not da yazmışsa (örn.
+    "bu İngilizce, TR saatine çevir") talimata eklenir — mail body_text'in
+    aksine bu güvenilmeyen bir dış kaynak DEĞİL (kullanıcının kendi yazdığı),
+    prompt injection önsözü gerekmez (bkz. src/providers/gemini.py
+    _UNTRUSTED_CONTEXT_PREAMBLE)."""
+    user_prompt = _FILE_EXTRACTION_INSTRUCTION
+    if user_text.strip():
+        user_prompt += f"\n\nKullanıcının ek notu: {user_text.strip()}"
+    parsed = generate_json_from_file(llm, _extraction_system_prompt(), user_prompt, file_bytes, mime_type)
+    if not isinstance(parsed, list):
+        # Prompttaki "her zaman liste döndür" talimatına rağmen model tek
+        # etkinlikli bir dosyada yine de çıplak bir nesne döndürebiliyor
+        # (canlı testte görüldü) — talimata güvenmek yerine deterministik
+        # bir son kontrol.
+        parsed = [parsed]
+    if not parsed:
+        raise JsonGenerationError("Dosyadan hiçbir etkinlik çıkarılamadı (boş liste döndü).")
+    return [
+        build_candidate_from_fields(
+            fields,
+            source_type=SourceType.CONVERSATION,
+            source_references=[],
+            source_languages=[],
+            extraction_reason="Yüklenen dosyadan (görsel/PDF) çıkarıldı.",
+        )
+        for fields in parsed
+    ]
 
 
 MAX_CLARIFICATION_ATTEMPTS = 3

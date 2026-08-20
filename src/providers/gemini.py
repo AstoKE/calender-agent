@@ -20,7 +20,7 @@ import os
 from google import genai
 from google.genai import types
 
-from src.providers.base import EmbeddingProvider, LLMProvider
+from src.providers.base import EmbeddingProvider, FileInputCapable, LLMProvider
 
 DEFAULT_CHAT_MODEL = "gemini-3.5-flash-lite"
 DEFAULT_EMBEDDING_MODEL = "gemini-embedding-001"
@@ -46,7 +46,7 @@ def _api_key() -> str:
     return key
 
 
-class GeminiProvider(LLMProvider):
+class GeminiProvider(LLMProvider, FileInputCapable):
     def __init__(self, model: str = DEFAULT_CHAT_MODEL):
         self._client = genai.Client(api_key=_api_key())
         self._model = model
@@ -81,6 +81,26 @@ class GeminiProvider(LLMProvider):
             # (hata vermiyor), yani ikisiyle de uyumlu tek seçim bu.
             config_kwargs["thinking_config"] = types.ThinkingConfig(thinking_level=types.ThinkingLevel.MINIMAL)
 
+        response = self._client.models.generate_content(
+            model=self._model, contents=contents, config=types.GenerateContentConfig(**config_kwargs)
+        )
+        return response.text or ""
+
+    def generate_from_file(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        file_bytes: bytes,
+        mime_type: str,
+        json_output: bool = False,
+    ) -> str:
+        # types.Part.from_bytes: SDK'da doğrulanmış gerçek imza (data=, mime_type=
+        # keyword-only) — hem görsel hem PDF için AYNI mekanizma, Gemini içeride
+        # mime_type'a göre kendi doküman/görsel anlama yolunu seçiyor.
+        contents = [types.Part.from_bytes(data=file_bytes, mime_type=mime_type), user_prompt]
+        config_kwargs: dict = {"system_instruction": system_prompt}
+        if json_output:
+            config_kwargs["response_mime_type"] = "application/json"
         response = self._client.models.generate_content(
             model=self._model, contents=contents, config=types.GenerateContentConfig(**config_kwargs)
         )
