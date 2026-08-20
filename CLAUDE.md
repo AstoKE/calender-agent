@@ -89,6 +89,7 @@ Detaylar için `src/providers/foundry_local.py`'nin başındaki not.
 - Mail gövdesi kalıcı saklanmıyor — `email_messages.body_excerpt` en fazla 2000 karakter (bkz. `BODY_EXCERPT_MAX_CHARS`).
 - OAuth token'ları `data/` altında (git'e dahil değil), `chmod 600` (Windows'ta no-op ama zararsız).
 - SQLite tek dosya: `data/calendar_agent.db`. Şema `src/storage/schema.sql`; `src/storage/db.py::init_db()` idempotent + geriye dönük sütun ekleyen küçük bir ad-hoc migration mekanizması içeriyor (tam bir migration framework değil, MVP için yeterli — yeni bir sütun eklerken `_ADHOC_COLUMN_MIGRATIONS` listesine ekle).
+- **Bilinçli istisna — Düzenle formundaki harita (bkz. `duzenle.html`):** Kullanıcı açıkça harita+arama+adres çözümleme istedi, bu yerel-öncelikli ilkeye doğası gereği aykırı (Gemini LLM seçeneğiyle aynı "bilinçli sapma" deseni). Leaflet kütüphanesi CDN'den DEĞİL kendi sunucumuzdan servis ediliyor (`src/ui/static/vendor/leaflet/`, elle indirildi — `pip`/`npm` bağımlılığı yok), ama harita karoları (OpenStreetMap) ve arama/ters-geocoding (Nominatim, API anahtarı gerektirmeyen tek ücretsiz seçenek) gerçekten dış servise gidiyor — yalnızca kullanıcı "Haritadan seç" panelini açtığında/kullandığında (`<details>` ile lazy-init, sayfa yüklenirken otomatik değil).
 
 ## Nasıl çalıştırılır / test edilir
 

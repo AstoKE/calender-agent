@@ -1,5 +1,8 @@
 {% extends "base.html" %}
 {% block title %}{{ t("duzenle.title") }} — {{ t("app.brand") }}{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css" />
+{% endblock %}
 {% block content %}
 {% set c = pending.candidate %}
 <h1>{{ t("duzenle.title") }}</h1>
@@ -25,22 +28,217 @@
     </label>
     <label>
         {{ t("duzenle.field.duration") }}
-        <input type="number" name="duration_minutes" value="{{ c.duration_minutes or '' }}" />
+        <input type="number" name="duration_minutes" id="duration-input" value="{{ c.duration_minutes or '' }}" />
     </label>
-    <label>
-        {{ t("duzenle.field.importance") }}
-        <select name="importance">
-            <option value="" {% if not c.importance %}selected{% endif %}>{{ t("common.unspecified") }}</option>
-            <option value="low" {% if c.importance == "low" %}selected{% endif %}>{{ t("enum.importance.low") }}</option>
-            <option value="normal" {% if c.importance == "normal" %}selected{% endif %}>{{ t("enum.importance.normal") }}</option>
-            <option value="high" {% if c.importance == "high" %}selected{% endif %}>{{ t("enum.importance.high") }}</option>
-        </select>
-    </label>
+    <div class="quick-fill" role="group" aria-label="{{ t('duzenle.duration_shortcuts') }}">
+        {% for minutes in (30, 60, 120) %}
+        <button type="button" class="quick-fill__btn" onclick="document.getElementById('duration-input').value={{ minutes }}">
+            {{ minutes }} {{ t("common.minutes") }}
+        </button>
+        {% endfor %}
+    </div>
+
+    <fieldset class="segmented-field">
+        <legend>{{ t("duzenle.field.importance") }}</legend>
+        <div class="segmented">
+            {% for value in ("low", "normal", "high") %}
+            <input type="radio" id="importance-{{ value }}" name="importance" value="{{ value }}"
+                   class="segmented__input sr-only" {% if c.importance == value %}checked{% endif %} />
+            <label for="importance-{{ value }}" class="segmented__label">{{ t("enum.importance." ~ value) }}</label>
+            {% endfor %}
+        </div>
+    </fieldset>
     <label>
         {{ t("duzenle.field.location") }}
-        <input type="text" name="location" value="{{ c.location or '' }}" />
+        <input type="text" name="location" id="location-input" value="{{ c.location or '' }}" />
     </label>
+    <div class="quick-fill">
+        <button type="button" id="use-location-btn" class="quick-fill__btn">
+            <svg class="icon" width="14" height="14" aria-hidden="true"><use href="#icon-pin"></use></svg>
+            {{ t("duzenle.use_current_location") }}
+        </button>
+        <span id="location-status" class="hint" role="status"></span>
+    </div>
+
+    <details class="map-picker" open>
+        <summary class="map-picker__toggle">{{ t("duzenle.pick_from_map") }}</summary>
+        <div class="map-picker__panel">
+            <div class="map-picker__search">
+                <input type="text" id="map-search-input" placeholder="{{ t('duzenle.map_search_placeholder') }}" />
+                <button type="button" id="map-search-btn" class="btn btn-edit">{{ t("common.search") }}</button>
+            </div>
+            <ul id="map-search-results" class="map-picker__results"></ul>
+            <div id="location-map" class="map-picker__map"></div>
+            <p class="hint">{{ t("duzenle.map_attribution") }}</p>
+        </div>
+    </details>
+
     <button type="submit" class="btn btn-approve">{{ t("common.save") }}</button>
     <a class="btn btn-edit" href="{{ next_url }}">{{ t("common.cancel") }}</a>
 </form>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/vendor/leaflet/leaflet.js"></script>
+<script>
+(function () {
+    // BİLİNÇLİ İSTİSNA (bkz. .env.example'daki Gemini notuyla aynı gerekçe
+    // deseni): proje varsayılan olarak yerel-öncelikli/minimum-ağ-çağrısı
+    // ilkesine sahip, ama görsel bir harita + arama + adres çözümleme bu
+    // ilkeyle doğası gereği çelişir — kullanıcı açıkça bunu istedi. Leaflet
+    // kütüphanesinin kendisi CDN'den DEĞİL, kendi sunucumuzdan servis
+    // ediliyor (bkz. src/ui/static/vendor/leaflet/) — yalnızca harita
+    // karoları (OpenStreetMap) ve arama/ters-geocoding (Nominatim, API
+    // anahtarı GEREKTİRMEYEN tek ücretsiz seçenek — Google Maps/Places aksi
+    // halde faturalandırma hesabı ister) gerçekten dış servise gidiyor, ve
+    // BUNLAR da yalnızca kullanıcı haritayı AÇIKÇA açtığında/kullandığında
+    // (aşağıdaki <details> lazy-init) — sayfa yüklenirken otomatik değil.
+
+    var locationInput = document.getElementById("location-input");
+    var statusEl = document.getElementById("location-status");
+
+    function reverseGeocode(lat, lon, onDone) {
+        // Nominatim kullanım ilkesi (bkz. yorum yukarıda): tek istek, kişisel/
+        // düşük hacimli kullanım için tasarlanmış — burada yalnızca kullanıcının
+        // AÇIKÇA tetiklediği tekil aksiyonlarda (tıklama/arama) çağrılıyor,
+        // otomatik/toplu değil.
+        fetch("https://nominatim.openstreetmap.org/reverse?format=json&lat=" + lat + "&lon=" + lon)
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                onDone(data && data.display_name ? data.display_name : null);
+            })
+            .catch(function () { onDone(null); });
+    }
+
+    function setLocationText(lat, lon, address) {
+        var coords = lat.toFixed(5) + ", " + lon.toFixed(5);
+        locationInput.value = address ? address + " (" + coords + ")" : coords;
+    }
+
+    // --- "Mevcut konumumu kullan" (native Geolocation, harita GEREKTİRMEZ —
+    // ama artık koordinatın yanı sıra okunabilir adresi de Nominatim ile
+    // çözüyor, bkz. reverseGeocode) ---
+    var useLocationBtn = document.getElementById("use-location-btn");
+    if (useLocationBtn) {
+        useLocationBtn.addEventListener("click", function () {
+            if (!("geolocation" in navigator)) {
+                statusEl.textContent = {{ t("duzenle.location_unsupported") | tojson }};
+                return;
+            }
+            statusEl.textContent = {{ t("duzenle.location_loading") | tojson }};
+            navigator.geolocation.getCurrentPosition(
+                function (pos) {
+                    var lat = pos.coords.latitude, lon = pos.coords.longitude;
+                    setLocationText(lat, lon, null);
+                    statusEl.textContent = "";
+                    reverseGeocode(lat, lon, function (address) {
+                        if (address) setLocationText(lat, lon, address);
+                        if (window.__locationMap) window.__locationMap.focusOn(lat, lon);
+                    });
+                },
+                function () {
+                    statusEl.textContent = {{ t("duzenle.location_denied") | tojson }};
+                },
+                { timeout: 10000 }
+            );
+        });
+    }
+
+    // --- Haritadan seç paneli: yalnızca <details> ilk açıldığında lazy-init
+    // edilir (bkz. yukarıdaki not — gereksiz karo/ağ çağrısını önler) ---
+    var details = document.querySelector(".map-picker");
+    if (!details) return;
+    var mapInitialized = false;
+
+    function initMap() {
+        if (mapInitialized) return;
+        mapInitialized = true;
+
+        // NOT: marker ikon yolları için Leaflet.Icon.Default'u ELLE
+        // ayarlamaya ÇALIŞMA — leaflet.css kendi yanındaki images/ klasörünü
+        // zaten doğru otomatik algılıyor (self-host ettiğimiz için bu
+        // algılama güvenilir), elle bir mutlak yol vermek Leaflet'in kendi
+        // algıladığı yolun ÜZERİNE bir daha ekleniyor ve path'i ikiye
+        // katlıyor (canlı testte 404 olarak görüldü — .../images//static/...
+        // şeklinde tekrarlanan bir URL). Hiç dokunmadan bırak.
+
+        var startLat = 39.9208, startLon = 32.8541, startZoom = 6; // Türkiye geneli, nötr varsayılan
+
+        var map = L.map("location-map").setView([startLat, startLon], startZoom);
+        L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+            maxZoom: 19,
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+        }).addTo(map);
+
+        var marker = null;
+        function placeMarker(lat, lon) {
+            if (marker) { marker.setLatLng([lat, lon]); }
+            else { marker = L.marker([lat, lon]).addTo(map); }
+        }
+        map.focusOn = function (lat, lon) { map.setView([lat, lon], 15); placeMarker(lat, lon); };
+        window.__locationMap = map;
+
+        map.on("click", function (e) {
+            var lat = e.latlng.lat, lon = e.latlng.lng;
+            placeMarker(lat, lon);
+            setLocationText(lat, lon, null);
+            reverseGeocode(lat, lon, function (address) {
+                if (address) setLocationText(lat, lon, address);
+            });
+        });
+
+        var searchInput = document.getElementById("map-search-input");
+        var searchBtn = document.getElementById("map-search-btn");
+        var resultsList = document.getElementById("map-search-results");
+
+        function runSearch() {
+            var query = searchInput.value.trim();
+            resultsList.innerHTML = "";
+            if (!query) return;
+            fetch("https://nominatim.openstreetmap.org/search?format=json&limit=5&q=" + encodeURIComponent(query))
+                .then(function (r) { return r.json(); })
+                .then(function (results) {
+                    (results || []).forEach(function (item) {
+                        var li = document.createElement("li");
+                        li.textContent = item.display_name;
+                        li.className = "map-picker__result";
+                        li.addEventListener("click", function () {
+                            var lat = parseFloat(item.lat), lon = parseFloat(item.lon);
+                            map.focusOn(lat, lon);
+                            setLocationText(lat, lon, item.display_name);
+                            resultsList.innerHTML = "";
+                            searchInput.value = "";
+                        });
+                        resultsList.appendChild(li);
+                    });
+                });
+        }
+        searchBtn.addEventListener("click", runSearch);
+        searchInput.addEventListener("keydown", function (e) {
+            if (e.key === "Enter") { e.preventDefault(); runSearch(); }
+        });
+    }
+
+    function openMap() {
+        initMap();
+        // Leaflet kapalı bir <details> içinde 0 yükseklikle init edilirse
+        // karo boyutlarını yanlış hesaplar — açıldıktan hemen sonra
+        // yeniden boyutlandırmasını tetikliyoruz.
+        setTimeout(function () { if (window.__locationMap) window.__locationMap.invalidateSize(); }, 0);
+    }
+
+    // Panel artık varsayılan olarak AÇIK geliyor (bkz. duzenle.html <details
+    // ... open>) — bu durumda tarayıcı sayfa yüklenirken "toggle" olayı
+    // ATEŞLEMEZ (yalnızca kullanıcı sonradan açıp/kapatınca ateşler), bu
+    // yüzden ilk durumu da ayrıca kontrol ediyoruz.
+    if (details.open) {
+        openMap();
+    }
+    details.addEventListener("toggle", function () {
+        if (details.open) {
+            openMap();
+        }
+    });
+})();
+</script>
 {% endblock %}

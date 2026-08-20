@@ -78,10 +78,28 @@ MESSAGES: dict[str, dict[str, str]] = {
     "duzenle.source": {"tr": "Kaynak", "en": "Source"},
     "duzenle.warning.incomplete": {"tr": "Eksik/belirsiz alanlar", "en": "Missing/ambiguous fields"},
     "duzenle.field.title": {"tr": "Başlık", "en": "Title"},
-    "duzenle.field.datetime": {"tr": "Tarih/saat (YYYY-MM-DDTHH:MM:SS)", "en": "Date/time (YYYY-MM-DDTHH:MM:SS)"},
+    "duzenle.field.datetime": {"tr": "Tarih/saat", "en": "Date/time"},
     "duzenle.field.duration": {"tr": "Süre (dakika)", "en": "Duration (minutes)"},
     "duzenle.field.importance": {"tr": "Önem", "en": "Importance"},
     "duzenle.field.location": {"tr": "Konum", "en": "Location"},
+    "duzenle.duration_shortcuts": {"tr": "Süre kısayolları", "en": "Duration shortcuts"},
+    "duzenle.use_current_location": {"tr": "Mevcut konumumu kullan", "en": "Use my current location"},
+    "duzenle.location_loading": {"tr": "Konum alınıyor…", "en": "Getting location…"},
+    "duzenle.location_denied": {
+        "tr": "Konuma erişilemedi — tarayıcı izni reddetmiş olabilir.",
+        "en": "Couldn't access location — the browser may have denied permission.",
+    },
+    "duzenle.location_unsupported": {
+        "tr": "Tarayıcınız konum özelliğini desteklemiyor.",
+        "en": "Your browser doesn't support location.",
+    },
+    "duzenle.pick_from_map": {"tr": "Haritadan seç", "en": "Pick from map"},
+    "duzenle.map_search_placeholder": {"tr": "Bir yer veya adres arayın…", "en": "Search for a place or address…"},
+    "duzenle.map_attribution": {
+        "tr": "Harita verisi © OpenStreetMap katkıda bulunanları. Arama/konum çözümleme Nominatim ile yapılır.",
+        "en": "Map data © OpenStreetMap contributors. Search/geocoding via Nominatim.",
+    },
+    "common.search": {"tr": "Ara", "en": "Search"},
 
     # --- Çakışma onayı ---
     "cakisma.title": {"tr": "Çakışma bulundu", "en": "Conflict found"},
