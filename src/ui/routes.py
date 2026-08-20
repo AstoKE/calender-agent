@@ -67,7 +67,7 @@ from src.storage.db import DEFAULT_DB_PATH
 from src.storage.preferences import set_preference
 from src.ui.calendar_access import get_calendar_or_none
 from src.ui.chat_state import build_chat_widget_context
-from src.ui.session import resolve_active_account, safe_next, set_session_cookies
+from src.ui.session import VALID_THEMES, resolve_active_account, safe_next, set_session_cookies
 from src.ui.templating import templates
 
 router = APIRouter()
@@ -168,6 +168,14 @@ def set_language(request: Request, dil: str = Form(...), next: str = Form("/anas
         set_preference("ui.language", lang)
     response = RedirectResponse(safe_next(next), status_code=303)
     set_session_cookies(response, lang=lang)
+    return response
+
+
+@router.post("/tema")
+def set_theme(tema: str = Form(...), next: str = Form("/anasayfa")):
+    theme = tema if tema in VALID_THEMES else "system"
+    response = RedirectResponse(safe_next(next), status_code=303)
+    set_session_cookies(response, theme=theme)
     return response
 
 

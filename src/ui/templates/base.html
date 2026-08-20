@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="{{ lang }}">
+<html lang="{{ lang }}"{% if theme != 'system' %} data-theme="{{ theme }}"{% endif %}>
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -35,6 +35,26 @@
                                     {% if lang == code %}disabled{% endif %}>
                                 <span>{{ code | upper }}</span>
                                 {% if lang == code %}<svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-check"></use></svg>{% endif %}
+                            </button>
+                            {% endfor %}
+                        </form>
+                    </div>
+                </details>
+
+                <details class="menu">
+                    <summary class="menu__trigger" aria-label="{{ t('common.theme') }}">
+                        <svg class="icon" width="20" height="20" aria-hidden="true"><use href="#icon-theme"></use></svg>
+                        <svg class="icon icon--chevron" width="16" height="16" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
+                    </summary>
+                    <div class="menu__panel">
+                        <form method="post" action="/tema">
+                            <input type="hidden" name="next" value="{{ request.url.path }}" />
+                            {% for value in ("light", "dark", "system") %}
+                            <button type="submit" name="tema" value="{{ value }}"
+                                    class="menu__item {{ 'menu__item--active' if theme == value }}"
+                                    {% if theme == value %}disabled{% endif %}>
+                                <span>{{ t("theme." ~ value) }}</span>
+                                {% if theme == value %}<svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-check"></use></svg>{% endif %}
                             </button>
                             {% endfor %}
                         </form>

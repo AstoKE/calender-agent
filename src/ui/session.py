@@ -15,7 +15,10 @@ from src.storage.preferences import get_preference
 
 ACCOUNT_COOKIE = "active_account"
 LANGUAGE_COOKIE = "ui_lang"
+THEME_COOKIE = "ui_theme"
 COOKIE_MAX_AGE = 400 * 24 * 3600  # ~13 ay — tarayıcıların izin verdiği pratik üst sınıra yakın
+VALID_THEMES = {"light", "dark", "system"}
+DEFAULT_THEME = "system"
 
 
 def resolve_active_account(request: Request, accounts: list[dict] | None = None) -> dict | None:
@@ -63,6 +66,19 @@ def resolve_language(request: Request, active_account: dict | None = None) -> st
     return normalize_language(None)
 
 
+def resolve_theme(request: Request) -> str:
+    """"light"/"dark"/"system" — cookie'de tutulur, hesaba/DB'ye bağlı DEĞİL
+    (dil/hesap ile aynı gerekçe: tarayıcı sekmesine özgü bir görünüm tercihi).
+    "system" (varsayılan) demek <html>'e HİÇ data-theme yazılmaz demektir —
+    kararı tamamen CSS'teki prefers-color-scheme media query'sine bırakır
+    (bkz. tokens.css); yalnızca kullanıcı açıkça light/dark seçtiğinde
+    sistem ayarını görmezden gelen bir override yazılır."""
+    cookie_theme = request.cookies.get(THEME_COOKIE)
+    if cookie_theme in VALID_THEMES:
+        return cookie_theme
+    return DEFAULT_THEME
+
+
 def safe_next(raw: str | None, fallback: str = "/anasayfa") -> str:
     """Açık-yönlendirme (open redirect) koruması: '/' ile başlamalı, '//' veya
     '\\' içermemeli (host-relative görünüp aslında başka bir origin'e
@@ -74,7 +90,9 @@ def safe_next(raw: str | None, fallback: str = "/anasayfa") -> str:
     return raw
 
 
-def set_session_cookies(response: Response, *, lang: str | None = None, account_id: str | None = None) -> None:
+def set_session_cookies(
+    response: Response, *, lang: str | None = None, account_id: str | None = None, theme: str | None = None
+) -> None:
     if lang is not None:
         response.set_cookie(
             LANGUAGE_COOKIE, lang, max_age=COOKIE_MAX_AGE, path="/", httponly=True, samesite="lax"
@@ -82,4 +100,8 @@ def set_session_cookies(response: Response, *, lang: str | None = None, account_
     if account_id is not None:
         response.set_cookie(
             ACCOUNT_COOKIE, account_id, max_age=COOKIE_MAX_AGE, path="/", httponly=True, samesite="lax"
+        )
+    if theme is not None:
+        response.set_cookie(
+            THEME_COOKIE, theme, max_age=COOKIE_MAX_AGE, path="/", httponly=True, samesite="lax"
         )

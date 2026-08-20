@@ -186,6 +186,45 @@ def test_set_language_unsafe_next_falls_back_to_anasayfa(client):
     assert response.headers["location"] == "/anasayfa"
 
 
+# --- Tema (bkz. src/ui/session.py resolve_theme, tokens.css) ---
+
+
+def test_pages_render_without_data_theme_when_no_cookie_set(client):
+    response = client.get("/anasayfa")
+    assert response.status_code == 200
+    assert '<html lang="tr">' in response.text
+    assert "data-theme" not in response.text
+
+
+def test_set_theme_dark_persists_via_cookie_and_sets_data_theme_attribute(client):
+    response = client.post("/tema", data={"tema": "dark", "next": "/oneriler"}, follow_redirects=False)
+    assert response.status_code == 303
+    assert response.headers["location"] == "/oneriler"
+    assert response.cookies.get("ui_theme") == "dark"
+
+    followed = client.get("/oneriler")
+    assert '<html lang="tr" data-theme="dark">' in followed.text
+
+
+def test_set_theme_light_sets_data_theme_attribute(client):
+    client.post("/tema", data={"tema": "light", "next": "/anasayfa"})
+    response = client.get("/anasayfa")
+    assert '<html lang="tr" data-theme="light">' in response.text
+
+
+def test_set_theme_back_to_system_removes_data_theme_attribute(client):
+    client.post("/tema", data={"tema": "dark", "next": "/anasayfa"})
+    client.post("/tema", data={"tema": "system", "next": "/anasayfa"})
+    response = client.get("/anasayfa")
+    assert "data-theme" not in response.text
+
+
+def test_set_theme_invalid_value_falls_back_to_system(client):
+    response = client.post("/tema", data={"tema": "purple", "next": "/anasayfa"}, follow_redirects=False)
+    assert response.status_code == 303
+    assert response.cookies.get("ui_theme") == "system"
+
+
 def test_select_unknown_account_does_not_set_cookie(client):
     response = client.post(
         "/hesap-sec", data={"account_id": "bilinmeyen-id", "next": "/oneriler"}, follow_redirects=False

@@ -1,8 +1,15 @@
 /* Tasarım token'ları — SADECE :root custom property'leri (bkz. plan Faz 3).
    Google Workspace yönü: beyaz/ferah, mavi vurgu, yuvarlak hatlar.
-   Karanlık mod bu dilimde YOK; her renk token olduğundan sonradan tek bir
-   @media (prefers-color-scheme: dark) bloğu bunları yeniden tanımlayabilir
-   — ama boş bir blok bırakmıyoruz, o blok dolduğunda eklenecek. */
+
+   Karanlık mod (bkz. src/ui/session.py resolve_theme, aşağıdaki iki blok):
+   üç durum var — "system" (kullanıcı hiç seçim yapmamış → yalnızca
+   prefers-color-scheme karar verir, <html>'e data-theme YAZILMAZ), "light"
+   (data-theme="light", sistem koyu olsa bile açık kalır), "dark"
+   (data-theme="dark", sistem açık olsa bile koyu kalır). Bu yüzden iki ayrı
+   override bloğu var: biri @media içinde ve yalnızca data-theme="light"
+   YOKSA uygulanır (sistem koyu + kullanıcı override etmemiş), diğeri
+   data-theme="dark" attribute selector'ı ile (kullanıcının açık seçimi,
+   sistem ayarından bağımsız her zaman kazanır). */
 
 :root {
     --color-surface: #ffffff;
@@ -51,4 +58,55 @@
     --rail-width: 240px;
     --tabbar-height: 64px;
     --breakpoint-mobile: 48rem;
+}
+
+/* --color-accent (#1a73e8) BİLEREK karanlık modda da AYNI kalıyor —
+   uygulama genelinde yalnızca dolgu (üzerinde beyaz metin, örn. .btn-approve,
+   .timegrid__entry) veya ikon rengi olarak kullanılıyor (bkz. yukarıdaki
+   yorum + canlı denetim), asla doğrudan yüzey arka planı üzerinde küçük
+   metin olarak değil — o rol zaten --color-accent-text'te, ki bu token
+   karanlıkta AÇIKÇA daha da açık bir maviye dönüyor (küçük metin/link,
+   koyu yüzeyle kontrastı --color-accent'in kendisinden daha kritik). */
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+        --color-surface: #202124;
+        --color-surface-sunken: #2a2b2e;
+        --color-border: #3c4043;
+        --color-text: #e8eaed;
+        --color-text-muted: #9aa0a6;
+
+        --color-accent-text: #8ab4f8;
+        --color-accent-subtle: #263042;
+
+        --color-danger: #f28b82;
+        --color-danger-subtle: #3c2a27;
+        --color-warning: #fdd663;
+        --color-warning-subtle: #3c3018;
+        --color-success: #81c995;
+        --color-success-subtle: #253b2c;
+
+        --shadow-1: 0 1px 2px rgba(0, 0, 0, .6), 0 1px 3px 1px rgba(0, 0, 0, .4);
+        --shadow-2: 0 1px 3px rgba(0, 0, 0, .6), 0 4px 8px 3px rgba(0, 0, 0, .4);
+    }
+}
+
+:root[data-theme="dark"] {
+    --color-surface: #202124;
+    --color-surface-sunken: #2a2b2e;
+    --color-border: #3c4043;
+    --color-text: #e8eaed;
+    --color-text-muted: #9aa0a6;
+
+    --color-accent-text: #8ab4f8;
+    --color-accent-subtle: #263042;
+
+    --color-danger: #f28b82;
+    --color-danger-subtle: #3c2a27;
+    --color-warning: #fdd663;
+    --color-warning-subtle: #3c3018;
+    --color-success: #81c995;
+    --color-success-subtle: #253b2c;
+
+    --shadow-1: 0 1px 2px rgba(0, 0, 0, .6), 0 1px 3px 1px rgba(0, 0, 0, .4);
+    --shadow-2: 0 1px 3px rgba(0, 0, 0, .6), 0 4px 8px 3px rgba(0, 0, 0, .4);
 }

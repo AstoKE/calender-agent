@@ -32,6 +32,10 @@ MESSAGES: dict[str, dict[str, str]] = {
     "common.skip_to_content": {"tr": "İçeriğe geç", "en": "Skip to content"},
     "common.language": {"tr": "Dil", "en": "Language"},
     "common.accounts": {"tr": "Hesaplar", "en": "Accounts"},
+    "common.theme": {"tr": "Görünüm", "en": "Theme"},
+    "theme.light": {"tr": "Açık", "en": "Light"},
+    "theme.dark": {"tr": "Koyu", "en": "Dark"},
+    "theme.system": {"tr": "Sistem", "en": "System"},
     "common.primary_navigation": {"tr": "Ana navigasyon", "en": "Primary navigation"},
     "common.more": {"tr": "Diğer", "en": "More"},
 

@@ -31,7 +31,7 @@ from src.localization.formatting import (
 )
 from src.ui.nav import NAV_ITEMS
 from src.ui.presenters import avatar_color, describe_structured_action, diff_snapshots, initials
-from src.ui.session import resolve_active_account, resolve_language
+from src.ui.session import resolve_active_account, resolve_language, resolve_theme
 
 logger = get_logger("ui.templating")
 
@@ -68,10 +68,10 @@ def shell_context(request: Request) -> dict:
         active_account = getattr(request.state, "active_account", None)
         if active_account is None:
             active_account = resolve_active_account(request, accounts)
-        return {"accounts": accounts, "active_account": active_account}
+        return {"accounts": accounts, "active_account": active_account, "theme": resolve_theme(request)}
     except Exception:
         logger.exception("shell_context başarısız oldu, boş kabukla devam ediliyor")
-        return {"accounts": [], "active_account": None}
+        return {"accounts": [], "active_account": None, "theme": "system"}
 
 
 templates = Jinja2Templates(
