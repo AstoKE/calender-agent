@@ -17,7 +17,7 @@ from src.providers.base import EmbeddingProvider, LLMProvider
 from src.providers.json_generation import generate_json
 from src.rag.correction_retrieval import retrieve_similar_classification_corrections
 from src.services.extraction import build_candidate_from_fields
-from src.services.timeutil import DEFAULT_TIMEZONE
+from src.services.timeutil import DEFAULT_TIMEZONE, ensure_timezone
 
 BODY_PREVIEW_MAX_CHARS = 1500
 
@@ -196,7 +196,12 @@ def extract_candidate_from_email(llm: LLMProvider, email: UnifiedEmail) -> Candi
     raw_start = fields.get("start_datetime")
     if raw_start:
         try:
-            if abs((datetime.fromisoformat(raw_start) - today).total_seconds()) < 120:
+            # ensure_timezone: model bazen offset'siz (naive) bir saat döndürüyor
+            # (canlı testte görüldü) — "today" (aware) ile doğrudan çıkarma
+            # TypeError'a yol açardı; naive değeri DEFAULT_TIMEZONE varsayarak
+            # karşılaştırılabilir hale getiriyoruz (bkz. timeutil.ensure_timezone
+            # docstring'i, aynı desen candidate.start_datetime için de kullanılıyor).
+            if abs((ensure_timezone(raw_start) - today).total_seconds()) < 120:
                 fields["start_datetime"] = None
                 ambiguous = set(fields.get("ambiguous_fields") or [])
                 ambiguous.add("start_datetime")

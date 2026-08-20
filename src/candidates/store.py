@@ -187,7 +187,15 @@ def update_candidate_fields(candidate_id: str, **fields) -> None:
             value = int(value)
         setattr(candidate, key, value)
 
-    candidate.ambiguous_fields = [f for f in candidate.ambiguous_fields if f in CLARIFIABLE_FIELDS]
+    # "f in CLARIFIABLE_FIELDS" tek başına yanlıştı — bu statik bir isim
+    # listesi (bkz. extraction.py), alanın HÂLÂ değersiz olup olmadığını
+    # değil. Kullanıcı formda değeri doldursa bile ambiguous_fields'ta
+    # kalıyordu, "Eksik/belirsiz alanlar" uyarısı hiç kapanmıyordu (canlı
+    # testte görüldü). vertical_prototype.py'deki doğru desenle aynı hizaya
+    # getirildi: alan yalnızca hâlâ değersizse listede kalır.
+    candidate.ambiguous_fields = [
+        f for f in candidate.ambiguous_fields if f in CLARIFIABLE_FIELDS and not getattr(candidate, f, None)
+    ]
     candidate.missing_fields = [
         name
         for name in CLARIFIABLE_FIELDS
