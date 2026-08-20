@@ -17,6 +17,7 @@ from pathlib import Path
 from fastapi import Request
 from fastapi.templating import Jinja2Templates
 
+from src.candidates.store import count_pending_candidates, list_pending_candidates
 from src.connectors.account_registry import list_accounts
 from src.core.logging_config import get_logger
 from src.localization import DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES, translator_for
@@ -68,10 +69,28 @@ def shell_context(request: Request) -> dict:
         active_account = getattr(request.state, "active_account", None)
         if active_account is None:
             active_account = resolve_active_account(request, accounts)
-        return {"accounts": accounts, "active_account": active_account, "theme": resolve_theme(request)}
+        # Bildirim çanı (bkz. base.html topbar) — bekleyen öneriler zaten
+        # Gelen Öneriler/Ana Sayfa'nın kullandığı aynı sorgu, burada sadece
+        # her sayfada (dil/tema gibi) erişilebilir hale getiriliyor. Ayrı
+        # isimler (pending_* değil notif_*) bilerek seçildi: anasayfa.html
+        # kendi route'unda AYNI veriyi kendi pending_count/pending_preview
+        # adlarıyla ayrıca hesaplıyor (sayfaya özgü "tümü"/"diğer hesaplar"
+        # mantığı burada tekrarlanmıyor) — iki farklı amaç, iki farklı isim.
+        notif_items: list = []
+        notif_count = 0
+        if active_account:
+            notif_count = count_pending_candidates(active_account["id"])
+            notif_items = list_pending_candidates(active_account["id"])[:5]
+        return {
+            "accounts": accounts,
+            "active_account": active_account,
+            "theme": resolve_theme(request),
+            "notif_count": notif_count,
+            "notif_items": notif_items,
+        }
     except Exception:
         logger.exception("shell_context başarısız oldu, boş kabukla devam ediliyor")
-        return {"accounts": [], "active_account": None, "theme": "system"}
+        return {"accounts": [], "active_account": None, "theme": "system", "notif_count": 0, "notif_items": []}
 
 
 templates = Jinja2Templates(

@@ -21,6 +21,28 @@
             </div>
             <div class="topbar__actions">
                 <details class="menu">
+                    <summary class="menu__trigger" aria-label="{{ t('common.notifications') }}">
+                        <svg class="icon" width="20" height="20" aria-hidden="true"><use href="#icon-bell"></use></svg>
+                        {% if notif_count > 0 %}
+                        <span class="notif-badge">{{ notif_count if notif_count <= 9 else "9+" }}</span>
+                        {% endif %}
+                    </summary>
+                    <div class="menu__panel menu__panel--wide">
+                        {% if not notif_items %}
+                        <p class="empty-state">{{ t("common.notifications_none") }}</p>
+                        {% else %}
+                        {% for item in notif_items %}
+                        <a href="/oneriler" class="notif-item">
+                            <span class="notif-item__title">{{ item.candidate.title or t("common.untitled") }}</span>
+                            <span class="notif-item__meta">{{ item.sender }}</span>
+                        </a>
+                        {% endfor %}
+                        {% endif %}
+                        <a class="menu__footer-link" href="/oneriler">{{ t("nav.oneriler") }}</a>
+                    </div>
+                </details>
+
+                <details class="menu">
                     <summary class="menu__trigger" aria-label="{{ t('common.language') }}">
                         <svg class="icon" width="20" height="20" aria-hidden="true"><use href="#icon-globe"></use></svg>
                         <span>{{ lang | upper }}</span>
@@ -101,6 +123,9 @@
                {% if active_page == item.slug %}aria-current="page"{% endif %}>
                 <svg class="icon" width="20" height="20" aria-hidden="true"><use href="#{{ item.icon }}"></use></svg>
                 <span>{{ t(item.label_key) }}</span>
+                {% if item.slug == "oneriler" and notif_count > 0 %}
+                <span class="nav-badge">{{ notif_count if notif_count <= 9 else "9+" }}</span>
+                {% endif %}
             </a>
             {% endfor %}
         </nav>
@@ -115,6 +140,9 @@
                {% if active_page == item.slug %}aria-current="page"{% endif %}>
                 <svg class="icon" width="22" height="22" aria-hidden="true"><use href="#{{ item.icon }}"></use></svg>
                 <span>{{ t(item.label_key) }}</span>
+                {% if item.slug == "oneriler" and notif_count > 0 %}
+                <span class="nav-badge">{{ notif_count if notif_count <= 9 else "9+" }}</span>
+                {% endif %}
             </a>
             {% endfor %}
             <details class="tabbar__more">

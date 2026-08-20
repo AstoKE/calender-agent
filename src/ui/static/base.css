@@ -171,6 +171,23 @@ a {
     color: var(--color-accent-text);
 }
 
+/* Bekleyen öneri sayacı (bkz. base.html — yalnızca "Gelen Öneriler"
+   öğesinde, notif_count > 0 iken). Masaüstü rail'de satırın sonuna
+   yaslanan sade bir rozet; mobil tabbar'da (dikey ikon+etiket düzeni,
+   aşağıdaki 48rem media query'de override edilir) ikonun köşesine
+   mutlak konumlanan küçük bir rozete dönüşür. */
+.nav-badge {
+    margin-left: auto;
+    flex-shrink: 0;
+    background: var(--color-danger);
+    color: #fff;
+    font-size: 0.7rem;
+    font-weight: 600;
+    line-height: 1;
+    padding: 3px 6px;
+    border-radius: var(--radius-pill);
+}
+
 .content {
     grid-area: main;
     padding: var(--space-6);
@@ -340,6 +357,7 @@ legend {
 
     .tabbar a,
     .tabbar__more > summary {
+        position: relative;
         flex: 1;
         display: flex;
         flex-direction: column;
@@ -350,6 +368,17 @@ legend {
         color: var(--color-text-muted);
         text-decoration: none;
         list-style: none;
+    }
+
+    /* Dikey ikon+etiket düzeninde "satır sonuna yasla" mantıklı değil —
+       ikonun sağ-üst köşesine mutlak konumlanan küçük bir rozete dönüşüyor. */
+    .tabbar a .nav-badge {
+        position: absolute;
+        top: 2px;
+        right: 22%;
+        margin-left: 0;
+        padding: 1px 4px;
+        font-size: 0.6rem;
     }
 
     .tabbar a.active {

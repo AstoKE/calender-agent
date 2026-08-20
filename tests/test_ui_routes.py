@@ -116,6 +116,42 @@ def _persisted_correction(feedback: str = "yanlış süre", **correction_kwargs)
     return save_user_correction(candidate, feedback, **correction_kwargs)
 
 
+def _pending_candidate_for_account(account_id: str, title: str = "Proje toplantısı") -> None:
+    """Bildirim çanı/rozet testleri için: `_persisted_correction`'ın ilk
+    yarısı — hesap+mail+candidate zincirini kurar ama düzeltme kaydetmez,
+    hesap zaten ensure_account_registered ile kayıtlı olmalı (email_messages.
+    account_id -> accounts.id FK'si var, INSERT OR IGNORE bunu tolere eder)."""
+    email_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO email_threads (thread_id, account_id, participants, languages_seen, last_message_at) "
+            "VALUES (?,?,?,?,?)",
+            (f"thread-{email_id}", account_id, "[]", "[]", now),
+        )
+        conn.execute(
+            """
+            INSERT INTO email_messages (
+                id, account_id, provider, message_id, thread_id, subject, sender,
+                recipients, received_at, detected_language, body_excerpt, labels, processed
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,0)
+            """,
+            (email_id, account_id, "gmail", f"msg-{email_id}", f"thread-{email_id}", "Test mail",
+             "alerts@example.com", "[]", now, "tr", "", "[]"),
+        )
+    candidate = CandidateEvent(
+        candidate_id=str(uuid.uuid4()),
+        source_type=SourceType.EMAIL,
+        event_type=EventType.MEETING,
+        title=title,
+        start_datetime=datetime(2026, 8, 20, 14, 0, tzinfo=timezone.utc),
+        duration_minutes=60,
+        status=CandidateStatus.READY_FOR_CONFIRMATION,
+        extraction_reason="test",
+    )
+    save_new_candidate(candidate, source_email_row_id=email_id)
+
+
 def test_root_redirects_to_anasayfa(client):
     response = client.get("/", follow_redirects=False)
     assert response.status_code in (302, 307)
@@ -388,6 +424,54 @@ def test_anasayfa_scan_busy_shows_notice(client, monkeypatch):
     response = client.get("/anasayfa?mesgul=1")
     assert response.status_code == 200
     assert 'class="warning"' in response.text
+
+
+# --- Bildirim çanı / rozetler (bkz. src/ui/templating.py shell_context) ---
+
+
+def test_notification_bell_empty_state_when_no_pending(client, monkeypatch):
+    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    monkeypatch.setattr("src.ui.routes.get_calendar_or_none", lambda request, account_id: None)
+    response = client.get("/anasayfa")
+    assert response.status_code == 200
+    assert "notif-badge" not in response.text
+    assert "nav-badge" not in response.text
+    assert 'class="info-banner"' not in response.text
+
+
+def test_notification_bell_shows_badge_and_preview_with_pending(client, monkeypatch):
+    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    _pending_candidate_for_account("acc1", title="Webinar Daveti")
+    monkeypatch.setattr("src.ui.routes.get_calendar_or_none", lambda request, account_id: None)
+
+    response = client.get("/anasayfa")
+    assert response.status_code == 200
+    assert '<span class="notif-badge">1</span>' in response.text
+    assert '<span class="nav-badge">1</span>' in response.text
+    assert 'class="notif-item"' in response.text
+    assert "Webinar Daveti" in response.text
+    assert 'class="info-banner"' in response.text
+
+
+def test_notification_bell_appears_on_every_page(client, monkeypatch):
+    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    _pending_candidate_for_account("acc1")
+    response = client.get("/kurallarim")
+    assert response.status_code == 200
+    assert "#icon-bell" in response.text
+    assert '<span class="notif-badge">1</span>' in response.text
+
+
+def test_notification_badge_caps_at_nine_plus(client, monkeypatch):
+    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    for i in range(10):
+        _pending_candidate_for_account("acc1", title=f"Etkinlik {i}")
+    monkeypatch.setattr("src.ui.routes.get_calendar_or_none", lambda request, account_id: None)
+    response = client.get("/anasayfa")
+    assert '<span class="notif-badge">9+</span>' in response.text
+    assert '<span class="nav-badge">9+</span>' in response.text
+    # panel yalnızca ilk 5'i onizlemeli, tumunu degil
+    assert response.text.count('class="notif-item"') == 5
 
 
 def test_tara_active_account_single_flight_guard(client, monkeypatch):

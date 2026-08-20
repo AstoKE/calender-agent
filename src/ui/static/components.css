@@ -79,6 +79,31 @@ h1 .icon {
     flex-shrink: 0;
 }
 
+/* Yeni öneri bildirimi (bkz. anasayfa.html) — .warning ile AYNI kalıp ama
+   bilerek farklı renk: burası "dikkat, sorun var" değil "size iyi bir şey
+   var, gelip bakın" demek istiyor, sarı/amber ton yanlış çağrışım yapardı. */
+.info-banner {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    color: var(--color-accent-text);
+    background: var(--color-accent-subtle);
+    border-radius: var(--radius-sm);
+    padding: var(--space-3) var(--space-4);
+    font-size: 0.9rem;
+    font-weight: 500;
+    text-decoration: none;
+    margin-bottom: var(--space-4);
+}
+
+.info-banner:hover {
+    box-shadow: var(--shadow-1);
+}
+
+.info-banner .icon {
+    flex-shrink: 0;
+}
+
 .card-actions {
     display: flex;
     align-items: center;
@@ -403,6 +428,56 @@ h1 .icon {
     border-top: 1px solid var(--color-border);
     font-size: 0.85rem;
     text-decoration: none;
+}
+
+/* --- Bildirim çanı (bkz. base.html topbar — dil/tema menüleriyle aynı
+   sıfır-JS <details> deseni). Rozet .menu'nün position:relative'ine göre
+   köşeye konumlanıyor. --- */
+
+.notif-badge {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    min-width: 1.1rem;
+    height: 1.1rem;
+    padding: 0 3px;
+    border-radius: var(--radius-pill);
+    background: var(--color-danger);
+    color: #fff;
+    font-size: 0.65rem;
+    font-weight: 600;
+    line-height: 1.1rem;
+    text-align: center;
+}
+
+.notif-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-sm);
+    text-decoration: none;
+    color: var(--color-text);
+}
+
+.notif-item:hover {
+    background: var(--color-surface-sunken);
+}
+
+.notif-item__title {
+    font-size: 0.85rem;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.notif-item__meta {
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 /* --- Takvim: sol panel + ana içerik yerleşimi (bkz. Google Calendar'ın

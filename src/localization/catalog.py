@@ -32,6 +32,8 @@ MESSAGES: dict[str, dict[str, str]] = {
     "common.skip_to_content": {"tr": "İçeriğe geç", "en": "Skip to content"},
     "common.language": {"tr": "Dil", "en": "Language"},
     "common.accounts": {"tr": "Hesaplar", "en": "Accounts"},
+    "common.notifications": {"tr": "Bildirimler", "en": "Notifications"},
+    "common.notifications_none": {"tr": "Yeni bildirim yok.", "en": "No new notifications."},
     "common.theme": {"tr": "Görünüm", "en": "Theme"},
     "theme.light": {"tr": "Açık", "en": "Light"},
     "theme.dark": {"tr": "Koyu", "en": "Dark"},
@@ -175,6 +177,10 @@ MESSAGES: dict[str, dict[str, str]] = {
     },
     "anasayfa.stat_pending": {"tr": "Bekleyen öneri", "en": "Pending suggestions"},
     "anasayfa.stat_rules": {"tr": "Aktif kural", "en": "Active rules"},
+    "anasayfa.new_suggestions_banner": {
+        "tr": "{n} yeni öneriniz var — incelemek için tıklayın",
+        "en": "You have {n} new suggestion(s) — click to review",
+    },
     "anasayfa.scan_cta": {"tr": "Gelen kutusunu şimdi tara", "en": "Scan inbox now"},
 
     # --- Asistan slotu (bkz. plan: chatbox ayrı dilim, slot şimdi ayrılıyor) ---
