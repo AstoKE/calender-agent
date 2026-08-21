@@ -184,6 +184,28 @@ def group_by_day(entries: list[CalendarEntry], first_day: date, days: int) -> li
     return ordered
 
 
+def default_scroll_row(buckets: list[DayBucket], fallback_hour: int = 7, lead_in_slots: int = 2) -> int:
+    """Takvim ekranının saat-ızgarasının İLK açılışta kaydırılacağı satır —
+    canlı testte bulundu: ızgara 00:00'dan başlayıp `.timegrid-scroll`
+    (bkz. components.css, max-height: 34rem) yalnızca birkaç saati
+    gösterdiğinden, o hafta tüm etkinlikler sabah 7'den sonraysa (yaygın
+    durum) kullanıcı hiçbir şey görmeden boş bir gece yarısı görünümüyle
+    karşılaşıyor, ilk etkinliği görmek için elle aşağı kaydırması gerekiyordu.
+
+    Görüntülenen haftadaki EN ERKEN etkinliğin satırından (varsa) biraz
+    önce başlar; erken bir etkinlik yoksa (ya da hepsi `fallback_hour`'dan
+    GEÇse — o zaman da hâlâ `fallback_hour`, boş sabahı göstermeye gerek
+    yok) `fallback_hour`'dan başlar. Sonuç asla 1'in altına inmez (grid
+    1-indexed)."""
+    fallback_row = fallback_hour * (60 // SLOT_MINUTES) + 1
+    earliest_row = min(
+        (pos.row_start for bucket in buckets for pos in bucket.positioned_entries),
+        default=fallback_row,
+    )
+    target_row = min(earliest_row, fallback_row)
+    return max(1, target_row - lead_in_slots)
+
+
 def day_bounds(anchor: date, tz_name: str) -> tuple[datetime, datetime]:
     """`anchor` gününün 00:00'ından bir sonraki günün 00:00'ına kadar — Ana
     Sayfa'nın "bugün" şeridi için (bkz. plan Faz 6)."""

@@ -136,4 +136,31 @@
     </div>
 </div>
 {% endif %}
+
+{% block scripts %}
+{% if state == "ok" %}
+{# NOT: bu `{% if %}` yukarıdaki `{% if state == "ok" %}` bloğunun İÇİNDE
+   DEĞİL, bilerek `{% block %}`'un GÖVDESİNDE tekrarlanıyor — `{% extends %}`
+   kullanan bir child template'te, block TANIMLARI çevreleyen if/endif'ten
+   BAĞIMSIZ olarak çıkarılıp parent'ın çağırdığı yere yerleştiriliyor (bkz.
+   canlı testte bulunan bug: block'u dıştaki `{% if %}`'in içine koymak,
+   diğer state'lerde `scroll_to_row` tanımsızken bile script'in render
+   edilmeye ÇALIŞILMASINA yol açıp `UndefinedError` fırlatıyordu). #}
+<script>
+// Sayfa yüklenirken saat-ızgarası varsayılan olarak 00:00'dan başlıyordu
+// (bkz. .timegrid-scroll, max-height: 34rem — yalnızca birkaç saat
+// gösteriyor) — o hafta tüm etkinlikler sabahtan sonraysa kullanıcı hiçbir
+// şey görmeden karşılaşıyordu (canlı testte bulundu). `scroll_to_row`
+// (routes.py::default_scroll_row) o haftanın en erken etkinliğine (ya da
+// makul bir varsayılana) göre sunucu tarafında hesaplanıyor; burada yalnızca
+// satır sayısını piksele çevirip ilk kaydırmayı uyguluyoruz.
+(function () {
+    var el = document.querySelector(".timegrid-scroll");
+    if (!el) return;
+    var remPx = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+    el.scrollTop = ({{ scroll_to_row - 1 }}) * 1.25 * remPx;
+})();
+</script>
+{% endif %}
+{% endblock %}
 {% endblock %}

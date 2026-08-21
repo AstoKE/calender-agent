@@ -11,6 +11,7 @@ from src.services.calendar_view import (
     SLOTS_PER_DAY,
     adjacent_month_anchor,
     day_bounds,
+    default_scroll_row,
     group_by_day,
     layout_timed_entries,
     month_grid,
@@ -300,3 +301,44 @@ def test_adjacent_month_anchor_prev():
 def test_adjacent_month_anchor_across_year_boundary():
     assert adjacent_month_anchor(date(2026, 1, 15), -1) == date(2025, 12, 1)
     assert adjacent_month_anchor(date(2026, 12, 15), 1) == date(2027, 1, 1)
+
+
+# --- default_scroll_row (bkz. canlı testte bulunan sorun: ızgara 00:00'dan
+# başlayıp sabah 7'den sonraki etkinlikleri gizliyordu) ---
+
+
+def test_default_scroll_row_no_events_uses_fallback_hour():
+    first_day = date(2026, 8, 17)
+    buckets = group_by_day([], first_day, 7)
+    # fallback_hour=7 -> row 29, lead_in_slots=2 -> 27
+    assert default_scroll_row(buckets) == 27
+
+
+def test_default_scroll_row_early_event_scrolls_before_it():
+    first_day = date(2026, 8, 17)
+    e = CalendarEntry("a", "A", datetime(2026, 8, 18, 6, 0), datetime(2026, 8, 18, 6, 30), all_day=False)
+    buckets = group_by_day([e], first_day, 7)
+    # 06:00 -> slot 24 -> row_start 25; lead_in_slots=2 -> 23
+    assert default_scroll_row(buckets) == 23
+
+
+def test_default_scroll_row_late_events_still_uses_fallback_hour():
+    """Tüm etkinlikler fallback saatinden GEÇse bile fallback'ten daha ileri
+    kaydırılmaz — boş sabahı gereksiz yere göstermemek için."""
+    first_day = date(2026, 8, 17)
+    e = CalendarEntry("a", "A", datetime(2026, 8, 18, 14, 0), datetime(2026, 8, 18, 15, 0), all_day=False)
+    buckets = group_by_day([e], first_day, 7)
+    assert default_scroll_row(buckets) == 27  # yine fallback_hour=7 temelli
+
+
+def test_default_scroll_row_never_below_one():
+    first_day = date(2026, 8, 17)
+    e = CalendarEntry("a", "A", datetime(2026, 8, 18, 0, 0), datetime(2026, 8, 18, 0, 15), all_day=False)
+    buckets = group_by_day([e], first_day, 7)
+    assert default_scroll_row(buckets) == 1
+
+
+def test_default_scroll_row_custom_fallback_and_lead_in():
+    first_day = date(2026, 8, 17)
+    buckets = group_by_day([], first_day, 7)
+    assert default_scroll_row(buckets, fallback_hour=9, lead_in_slots=0) == 9 * 4 + 1
