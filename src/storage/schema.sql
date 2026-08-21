@@ -87,6 +87,8 @@ CREATE TABLE IF NOT EXISTS candidate_events (
     extraction_reason         TEXT,
     retrieved_policy_ids      TEXT,               -- JSON dizi
     retrieved_correction_ids  TEXT,               -- JSON dizi
+    google_event_id           TEXT,               -- takvime yazıldığında/güncellendiğinde dolar
+    previous_snapshot         TEXT,               -- JSON, UPDATE_SUGGESTED iken önceki alan değerleri
     created_at                TEXT NOT NULL,
     updated_at                TEXT NOT NULL
 );

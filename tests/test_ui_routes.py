@@ -785,3 +785,121 @@ def test_language_persists_via_user_preferences_when_no_account(client):
 
     response = client.get("/anasayfa")
     assert '<html lang="en">' in response.text
+
+
+# --- Mail-kaynaklı UPDATE_SUGGESTED (bkz. docs/architecture-plan.md §8.3) ---
+
+
+class _UpdateTrackingCalendar:
+    """Onayla/reddet route'larının create_event/update_event'ten HANGİSİNİ
+    çağırdığını ayırt etmek için — bkz. src/services/chat_flow.py FakeCalendar
+    ile aynı desen."""
+
+    def __init__(self):
+        self.created_events: list[dict] = []
+        self.updated_events: list[tuple[str, dict]] = []
+
+    def list_events(self, time_min, time_max, calendar_id="primary"):
+        return []
+
+    def get_freebusy(self, time_min, time_max, calendar_id="primary"):
+        return []
+
+    def create_event(self, event, calendar_id="primary"):
+        self.created_events.append(event)
+        return "evt-new-1"
+
+    def update_event(self, event_id, changes, calendar_id="primary"):
+        self.updated_events.append((event_id, changes))
+
+
+def _update_suggested_candidate(account_id: str) -> str:
+    """Onaylanmış (takvime yazılmış) bir candidate'ı, aynı thread'deki bir
+    yanıt maili üzerinden UPDATE_SUGGESTED durumuna geçirir — approve/reject
+    route'larının bu durumdaki dallanmasını test etmek için. Döner:
+    candidate_id."""
+    from src.candidates.store import apply_update_suggestion, set_candidate_google_event_id
+
+    email_id = str(uuid.uuid4())
+    reply_email_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO email_threads (thread_id, account_id, participants, languages_seen, last_message_at) "
+            "VALUES (?,?,?,?,?)",
+            ("thread-shared", account_id, "[]", "[]", now),
+        )
+        for eid in (email_id, reply_email_id):
+            conn.execute(
+                """
+                INSERT INTO email_messages (
+                    id, account_id, provider, message_id, thread_id, subject, sender,
+                    recipients, received_at, detected_language, body_excerpt, labels, processed
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,0)
+                """,
+                (eid, account_id, "gmail", f"msg-{eid}", "thread-shared", "Test mail",
+                 "alerts@example.com", "[]", now, "tr", "", "[]"),
+            )
+    candidate = CandidateEvent(
+        candidate_id=str(uuid.uuid4()),
+        source_type=SourceType.EMAIL,
+        event_type=EventType.MEETING,
+        title="Proje toplantısı",
+        start_datetime=datetime(2026, 8, 20, 14, 0, tzinfo=timezone.utc),
+        duration_minutes=60,
+        location="Oda 101",
+        status=CandidateStatus.ADDED_TO_CALENDAR,
+        extraction_reason="test",
+    )
+    save_new_candidate(candidate, source_email_row_id=email_id)
+    set_candidate_google_event_id(candidate.candidate_id, "evt-original-1")
+    apply_update_suggestion(candidate.candidate_id, {"location": "Oda 202"}, reply_email_id)
+    return candidate.candidate_id
+
+
+def test_approve_update_suggested_calls_update_event_not_create(client, monkeypatch):
+    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    candidate_id = _update_suggested_candidate("acc1")
+
+    calendar = _UpdateTrackingCalendar()
+    monkeypatch.setattr("src.ui.routes._get_calendar", lambda request, account_id: calendar)
+
+    response = client.post(f"/oneriler/{candidate_id}/onayla", data={}, follow_redirects=False)
+    assert response.status_code == 303
+    assert calendar.created_events == []
+    assert len(calendar.updated_events) == 1
+    assert calendar.updated_events[0][0] == "evt-original-1"
+
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT status FROM candidate_events WHERE candidate_id = ?", (candidate_id,)
+        ).fetchone()
+    assert row["status"] == "UPDATED_IN_CALENDAR"
+
+
+def test_reject_update_suggested_reverts_instead_of_rejecting(client):
+    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    candidate_id = _update_suggested_candidate("acc1")
+
+    response = client.post(f"/oneriler/{candidate_id}/reddet", data={}, follow_redirects=False)
+    assert response.status_code == 303
+
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT status, location, previous_snapshot FROM candidate_events WHERE candidate_id = ?",
+            (candidate_id,),
+        ).fetchone()
+    assert row["status"] == "ADDED_TO_CALENDAR"
+    assert row["location"] == "Oda 101"
+    assert row["previous_snapshot"] is None
+
+
+def test_oneriler_shows_update_suggested_badge_and_diff(client):
+    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    _update_suggested_candidate("acc1")
+
+    response = client.get("/oneriler")
+    assert response.status_code == 200
+    assert "diff-table" in response.text
+    assert "Oda 101" in response.text
+    assert "Oda 202" in response.text

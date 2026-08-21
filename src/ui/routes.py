@@ -32,6 +32,8 @@ from src.candidates.store import (
     get_pending_candidate,
     list_pending_candidates,
     record_candidate_audit,
+    revert_update_suggestion,
+    set_candidate_google_event_id,
     update_candidate_fields,
     update_candidate_status,
 )
@@ -497,15 +499,26 @@ def approve(request: Request, candidate_id: str, force: bool = Form(False), next
                 {"pending": pending, "conflicts": conflicts, "active_page": "oneriler", "next_url": next_url},
             )
 
-    event_id = calendar.create_event(
-        {
-            "summary": candidate.title,
-            "location": candidate.location,
-            "start": {"dateTime": start_dt.isoformat(), "timeZone": DEFAULT_TIMEZONE},
-            "end": {"dateTime": end_dt.isoformat(), "timeZone": DEFAULT_TIMEZONE},
-        }
-    )
+    changes = {
+        "summary": candidate.title,
+        "location": candidate.location,
+        "start": {"dateTime": start_dt.isoformat(), "timeZone": DEFAULT_TIMEZONE},
+        "end": {"dateTime": end_dt.isoformat(), "timeZone": DEFAULT_TIMEZONE},
+    }
+
+    if candidate.status == CandidateStatus.UPDATE_SUGGESTED and pending.get("google_event_id"):
+        # Mail-kaynaklı güncelleme önerisi (bkz. docs/architecture-plan.md §8.3):
+        # yeni bir etkinlik YARATMAZ, aynı Google etkinliğini yamalar.
+        calendar.update_event(pending["google_event_id"], changes)
+        update_candidate_status(candidate_id, CandidateStatus.UPDATED_IN_CALENDAR)
+        record_candidate_audit(
+            "approve_update", candidate_id, f"Web'den güncelleme onaylandı, event_id={pending['google_event_id']}"
+        )
+        return RedirectResponse(next_url, status_code=303)
+
+    event_id = calendar.create_event(changes)
     update_candidate_status(candidate_id, CandidateStatus.ADDED_TO_CALENDAR)
+    set_candidate_google_event_id(candidate_id, event_id)
     record_candidate_audit("approve_and_write", candidate_id, f"Web'den onaylandı, event_id={event_id}")
     return RedirectResponse(next_url, status_code=303)
 
@@ -518,6 +531,18 @@ def reject(candidate_id: str, reason: str = Form(""), next: str = Form("/onerile
     # get_pending_candidate onu artık bulamaz (WHERE status IN (...) filtresi).
     pending = get_pending_candidate(candidate_id)
     if pending is None:
+        return RedirectResponse(next_url, status_code=303)
+
+    if pending["candidate"].status == CandidateStatus.UPDATE_SUGGESTED:
+        # Bir güncelleme ÖNERİSİNİ reddetmek REJECTED anlamına gelmez (o "bunu
+        # hiç takvime ekleme" demek) — gerçek takvim etkinliği zaten var ve
+        # değişmedi, yalnızca önerilen değişiklik geri alınır (bkz. plan).
+        revert_update_suggestion(candidate_id)
+        record_candidate_audit(
+            "reject_update", candidate_id, reason.strip() or "Güncelleme önerisi reddedildi (sebep belirtilmedi)."
+        )
+        if reason.strip():
+            save_user_correction(pending["candidate"], reason.strip())
         return RedirectResponse(next_url, status_code=303)
 
     update_candidate_status(candidate_id, CandidateStatus.REJECTED)

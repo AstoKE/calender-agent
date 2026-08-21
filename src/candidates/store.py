@@ -14,6 +14,7 @@ import uuid
 from datetime import datetime, timezone
 
 from src.core.models import CandidateEvent, CandidateStatus
+from src.memory.correction_memory import candidate_snapshot
 from src.services.extraction import CLARIFIABLE_FIELDS
 from src.services.timeutil import DEFAULT_TIMEZONE, ensure_timezone
 from src.storage.db import get_connection
@@ -113,7 +114,7 @@ _PENDING_QUERY = """
     FROM candidate_events c
     JOIN candidate_sources cs ON cs.candidate_id = c.candidate_id AND cs.relation_type = 'origin'
     JOIN email_messages em ON em.id = cs.email_message_id
-    WHERE c.status IN ('NEEDS_INFORMATION', 'READY_FOR_CONFIRMATION')
+    WHERE c.status IN ('NEEDS_INFORMATION', 'READY_FOR_CONFIRMATION', 'UPDATE_SUGGESTED')
 """
 
 
@@ -143,7 +144,7 @@ def count_pending_candidates(account_id: str | None = None) -> int:
     query = "SELECT COUNT(*) FROM candidate_events c JOIN candidate_sources cs " \
         "ON cs.candidate_id = c.candidate_id AND cs.relation_type = 'origin' " \
         "JOIN email_messages em ON em.id = cs.email_message_id " \
-        "WHERE c.status IN ('NEEDS_INFORMATION', 'READY_FOR_CONFIRMATION')"
+        "WHERE c.status IN ('NEEDS_INFORMATION', 'READY_FOR_CONFIRMATION', 'UPDATE_SUGGESTED')"
     params: tuple = ()
     if account_id is not None:
         query += " AND em.account_id = ?"
@@ -164,6 +165,12 @@ def _row_to_pending_dict(row) -> dict:
         "account_id": row["source_account_id"],
         "sender": row["source_sender"],
         "subject": row["source_subject"],
+        "google_event_id": row["google_event_id"] if "google_event_id" in row.keys() else None,
+        "previous_snapshot": (
+            json.loads(row["previous_snapshot"])
+            if "previous_snapshot" in row.keys() and row["previous_snapshot"]
+            else None
+        ),
     }
 
 
@@ -236,6 +243,122 @@ def update_candidate_status(candidate_id: str, status: CandidateStatus) -> None:
         conn.execute(
             "UPDATE candidate_events SET status = ?, updated_at = ? WHERE candidate_id = ?",
             (status.value, datetime.now(timezone.utc).isoformat(), candidate_id),
+        )
+
+
+def set_candidate_google_event_id(candidate_id: str, event_id: str) -> None:
+    """`calendar.create_event()`/`update_event()` başarılı olduktan hemen sonra
+    çağrılır — bu id daha önce hiçbir yerde saklanmıyordu, bu yüzden mail
+    kaynaklı bir güncelleme önerisi bile onaylansa `update_event`'e hangi
+    Google etkinliğinin hedefleneceği bilinemiyordu."""
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE candidate_events SET google_event_id = ?, updated_at = ? WHERE candidate_id = ?",
+            (event_id, datetime.now(timezone.utc).isoformat(), candidate_id),
+        )
+
+
+def find_related_candidate_by_thread(thread_id: str, exclude_email_row_id: str) -> dict | None:
+    """Aynı Gmail thread'inde daha önce işlenmiş (bu yeni mailin kendisi HARİÇ)
+    bir candidate var mı? REJECTED/DISMISSED hariç tutulur — kullanıcı bir
+    öneriyi açıkça reddettiyse, aynı thread'deki sonraki bir mail onu sessizce
+    diriltmemeli. Birden fazla eşleşme varsa en son güncelleneni döner (bkz.
+    docs/architecture-plan.md §9 "aynı thread_id -> kesin sinyal")."""
+    if not thread_id:
+        return None
+    query = (
+        "SELECT c.*, em.account_id AS source_account_id, em.sender AS source_sender, "
+        "em.subject AS source_subject "
+        "FROM candidate_events c "
+        "JOIN candidate_sources cs ON cs.candidate_id = c.candidate_id "
+        "JOIN email_messages em ON em.id = cs.email_message_id "
+        "WHERE em.thread_id = ? AND em.id != ? AND c.status NOT IN ('REJECTED', 'DISMISSED') "
+        "ORDER BY c.updated_at DESC LIMIT 1"
+    )
+    with get_connection() as conn:
+        row = conn.execute(query, (thread_id, exclude_email_row_id)).fetchone()
+    return _row_to_pending_dict(row) if row else None
+
+
+def apply_update_suggestion(candidate_id: str, changed_fields: dict, source_email_row_id: str) -> None:
+    """Mevcut candidate'ın alanlarının ÜZERİNE önerilen değişikliği yazar,
+    ama önce eski hâlin anlık görüntüsünü `previous_snapshot`'a kaydeder
+    (Öneriler ekranında önce/sonra göstermek + reddedilirse geri almak için,
+    bkz. `revert_update_suggestion`). `candidate_snapshot` zaten Düzeltmelerim
+    ekranının diff'i için var olan aynı alan kümesini kullanıyor (reuse)."""
+    with get_connection() as conn:
+        row = conn.execute("SELECT * FROM candidate_events WHERE candidate_id = ?", (candidate_id,)).fetchone()
+    if row is None:
+        raise ValueError(f"Candidate bulunamadı: {candidate_id}")
+    candidate = row_to_candidate(row)
+    previous = candidate_snapshot(candidate)
+
+    for key, value in changed_fields.items():
+        if key == "start_datetime" and value:
+            value = ensure_timezone(value)
+        elif key == "duration_minutes" and value is not None:
+            value = int(value)
+        setattr(candidate, key, value)
+
+    now = datetime.now(timezone.utc).isoformat()
+    with get_connection() as conn:
+        conn.execute(
+            """
+            UPDATE candidate_events SET
+                title = ?, start_datetime = ?, duration_minutes = ?, importance = ?,
+                location = ?, previous_snapshot = ?, status = ?, updated_at = ?
+            WHERE candidate_id = ?
+            """,
+            (
+                candidate.title,
+                candidate.start_datetime.isoformat() if candidate.start_datetime else None,
+                candidate.duration_minutes,
+                candidate.importance,
+                candidate.location,
+                json.dumps(previous),
+                CandidateStatus.UPDATE_SUGGESTED.value,
+                now,
+                candidate_id,
+            ),
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO candidate_sources (candidate_id, email_message_id, relation_type, created_at) "
+            "VALUES (?,?,?,?)",
+            (candidate_id, source_email_row_id, "update", now),
+        )
+
+
+def revert_update_suggestion(candidate_id: str) -> None:
+    """Bir güncelleme önerisi reddedildiğinde çağrılır: `previous_snapshot`'taki
+    alanları geri yükler, durumu `ADDED_TO_CALENDAR`'a döndürür (gerçek
+    takvim etkinliği hiç değişmedi, yalnızca öneri iptal edildi — bu yüzden
+    `REJECTED` DEĞİL, o "bunu hiç takvime ekleme" anlamına gelir)."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT previous_snapshot FROM candidate_events WHERE candidate_id = ?", (candidate_id,)
+        ).fetchone()
+    if row is None or not row["previous_snapshot"]:
+        return
+    previous = json.loads(row["previous_snapshot"])
+    now = datetime.now(timezone.utc).isoformat()
+    with get_connection() as conn:
+        conn.execute(
+            """
+            UPDATE candidate_events SET
+                title = ?, start_datetime = ?, duration_minutes = ?, importance = ?,
+                location = ?, previous_snapshot = NULL, status = ?, updated_at = ?
+            WHERE candidate_id = ?
+            """,
+            (
+                previous.get("title"),
+                previous.get("start_datetime"),
+                previous.get("duration_minutes"),
+                previous.get("importance"),
+                previous.get("location"),
+                CandidateStatus.ADDED_TO_CALENDAR.value,
+                now,
+                candidate_id,
+            ),
         )
 
 

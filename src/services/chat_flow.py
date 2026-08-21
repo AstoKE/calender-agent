@@ -58,6 +58,7 @@ from src.services.vertical_prototype import (
     extract_candidate_events_from_file,
     record_audit,
     save_candidate,
+    set_candidate_google_event_id,
     update_candidate_status,
 )
 from src.storage.db import get_connection
@@ -544,6 +545,7 @@ def _finalize_create_event(
 
     with get_connection() as conn:
         update_candidate_status(conn, candidate.candidate_id, CandidateStatus.ADDED_TO_CALENDAR)
+        set_candidate_google_event_id(conn, candidate.candidate_id, event_id)
         record_audit(conn, "approve_and_write", candidate.candidate_id, f"Google Calendar event_id={event_id} (web sohbet)")
 
     if not state.edited_structured_action:

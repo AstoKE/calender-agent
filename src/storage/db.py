@@ -18,6 +18,8 @@ DEFAULT_DB_PATH = Path(__file__).resolve().parents[2] / "data" / "calendar_agent
 _ADHOC_COLUMN_MIGRATIONS = [
     ("email_messages", "labels", "TEXT"),
     ("user_corrections", "correction_type", "TEXT"),
+    ("candidate_events", "google_event_id", "TEXT"),
+    ("candidate_events", "previous_snapshot", "TEXT"),
 ]
 
 

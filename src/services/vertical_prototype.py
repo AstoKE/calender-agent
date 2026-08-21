@@ -404,6 +404,17 @@ def update_candidate_status(conn, candidate_id: str, status: CandidateStatus) ->
     )
 
 
+def set_candidate_google_event_id(conn, candidate_id: str, event_id: str) -> None:
+    """`candidates/store.py::set_candidate_google_event_id`'nin conn-paylaşımlı
+    (CLI/web sohbet akışı) karşılığı — mail kaynaklı bir güncelleme önerisi
+    onaylandığında `update_event`'e hangi Google etkinliğinin hedefleneceğini
+    bilebilmek için bu id'nin ilk kez burada saklanması gerekiyor."""
+    conn.execute(
+        "UPDATE candidate_events SET google_event_id = ?, updated_at = ? WHERE candidate_id = ?",
+        (event_id, datetime.now(timezone.utc).isoformat(), candidate_id),
+    )
+
+
 def record_audit(conn, action: str, entity_id: str, reason: str, entity_type: str = "candidate_event") -> None:
     conn.execute(
         """
@@ -746,6 +757,7 @@ def review_and_confirm_candidate(
             )
 
             update_candidate_status(conn, candidate.candidate_id, CandidateStatus.ADDED_TO_CALENDAR)
+            set_candidate_google_event_id(conn, candidate.candidate_id, event_id)
             record_audit(conn, "approve_and_write", candidate.candidate_id, f"Google Calendar event_id={event_id}")
 
     # ACM yakalaması bu `with` bloğu KAPANDIKTAN sonra çağrılıyor: kendi

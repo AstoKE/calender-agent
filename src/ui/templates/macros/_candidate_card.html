@@ -7,6 +7,25 @@
 {% set c = item.candidate %}
 <article class="card">
     <h2>{{ c.title or t("common.untitled") }}</h2>
+
+    {% if c.status == "UPDATE_SUGGESTED" %}
+    <p class="chip chip--neutral">{{ t("oneriler.update_suggested_badge") }}</p>
+    {% set diffs = diff_snapshots(item.previous_snapshot, candidate_snapshot(c), t) %}
+    {% if diffs %}
+    <p class="hint">{{ t("oneriler.update_diff_heading") }}</p>
+    <table class="diff-table">
+        <thead>
+            <tr><th></th><th>{{ t("duzeltmelerim.field.before") }}</th><th>{{ t("duzeltmelerim.field.after") }}</th></tr>
+        </thead>
+        <tbody>
+            {% for label, before, after in diffs %}
+            <tr><th>{{ label }}</th><td>{{ before }}</td><td>{{ after }}</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% endif %}
+    {% endif %}
+
     <dl class="card-fields">
         <dt>{{ t("oneriler.field.time") }}</dt>
         <dd>

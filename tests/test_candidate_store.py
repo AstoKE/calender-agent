@@ -2,8 +2,11 @@ import uuid
 from datetime import datetime, timezone
 
 from src.candidates.store import (
+    apply_update_suggestion,
+    find_related_candidate_by_thread,
     get_pending_candidate,
     list_pending_candidates,
+    revert_update_suggestion,
     save_new_candidate,
     update_candidate_fields,
     update_candidate_status,
@@ -12,8 +15,11 @@ from src.core.models import CandidateEvent, CandidateStatus, EventType, SourceTy
 from src.storage.db import get_connection
 
 
-def _insert_account_and_email(account_id="acc1", email_id=None, sender="alerts@example.com", subject="Test mail"):
+def _insert_account_and_email(
+    account_id="acc1", email_id=None, sender="alerts@example.com", subject="Test mail", thread_id=None
+):
     email_id = email_id or str(uuid.uuid4())
+    thread_id = thread_id or f"thread-{email_id}"
     now = datetime.now(timezone.utc).isoformat()
     with get_connection() as conn:
         conn.execute(
@@ -22,9 +28,9 @@ def _insert_account_and_email(account_id="acc1", email_id=None, sender="alerts@e
             (account_id, f"{account_id}@example.com", now),
         )
         conn.execute(
-            "INSERT INTO email_threads (thread_id, account_id, participants, languages_seen, last_message_at) "
+            "INSERT OR IGNORE INTO email_threads (thread_id, account_id, participants, languages_seen, last_message_at) "
             "VALUES (?,?,?,?,?)",
-            (f"thread-{email_id}", account_id, "[]", "[]", now),
+            (thread_id, account_id, "[]", "[]", now),
         )
         conn.execute(
             """
@@ -33,7 +39,7 @@ def _insert_account_and_email(account_id="acc1", email_id=None, sender="alerts@e
                 recipients, received_at, detected_language, body_excerpt, labels, processed
             ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,0)
             """,
-            (email_id, account_id, "gmail", f"msg-{email_id}", f"thread-{email_id}", subject, sender,
+            (email_id, account_id, "gmail", f"msg-{email_id}", thread_id, subject, sender,
              "[]", now, "tr", "", "[]"),
         )
     return email_id
@@ -133,3 +139,85 @@ def test_update_candidate_fields_ignores_blank_values(temp_db):
 
     result = get_pending_candidate(candidate.candidate_id)
     assert result["candidate"].title == "Proje toplantısı"
+
+
+def test_find_related_candidate_by_thread_matches_same_thread(temp_db):
+    origin_email_id = _insert_account_and_email(thread_id="thread-shared")
+    candidate = _candidate(status=CandidateStatus.ADDED_TO_CALENDAR)
+    save_new_candidate(candidate, source_email_row_id=origin_email_id)
+
+    reply_email_id = _insert_account_and_email(email_id="reply-1", thread_id="thread-shared")
+
+    related = find_related_candidate_by_thread("thread-shared", exclude_email_row_id=reply_email_id)
+    assert related is not None
+    assert related["candidate"].candidate_id == candidate.candidate_id
+
+
+def test_find_related_candidate_by_thread_ignores_other_threads(temp_db):
+    origin_email_id = _insert_account_and_email(thread_id="thread-a")
+    candidate = _candidate(status=CandidateStatus.ADDED_TO_CALENDAR)
+    save_new_candidate(candidate, source_email_row_id=origin_email_id)
+
+    assert find_related_candidate_by_thread("thread-b", exclude_email_row_id="whatever") is None
+
+
+def test_find_related_candidate_by_thread_excludes_rejected(temp_db):
+    origin_email_id = _insert_account_and_email(thread_id="thread-shared")
+    candidate = _candidate(status=CandidateStatus.REJECTED)
+    save_new_candidate(candidate, source_email_row_id=origin_email_id)
+
+    reply_email_id = _insert_account_and_email(email_id="reply-1", thread_id="thread-shared")
+
+    assert find_related_candidate_by_thread("thread-shared", exclude_email_row_id=reply_email_id) is None
+
+
+def test_apply_update_suggestion_snapshots_and_applies_changes(temp_db):
+    origin_email_id = _insert_account_and_email(thread_id="thread-shared")
+    candidate = _candidate(status=CandidateStatus.ADDED_TO_CALENDAR, location="Oda 101")
+    save_new_candidate(candidate, source_email_row_id=origin_email_id)
+    reply_email_id = _insert_account_and_email(email_id="reply-1", thread_id="thread-shared")
+
+    apply_update_suggestion(candidate.candidate_id, {"location": "Oda 202"}, reply_email_id)
+
+    result = get_pending_candidate(candidate.candidate_id)
+    assert result["candidate"].status == CandidateStatus.UPDATE_SUGGESTED
+    assert result["candidate"].location == "Oda 202"
+    assert result["previous_snapshot"]["location"] == "Oda 101"
+
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT relation_type FROM candidate_sources WHERE candidate_id = ? AND email_message_id = ?",
+            (candidate.candidate_id, reply_email_id),
+        ).fetchone()
+        assert row["relation_type"] == "update"
+
+
+def test_revert_update_suggestion_restores_previous_fields(temp_db):
+    origin_email_id = _insert_account_and_email(thread_id="thread-shared")
+    candidate = _candidate(status=CandidateStatus.ADDED_TO_CALENDAR, location="Oda 101")
+    save_new_candidate(candidate, source_email_row_id=origin_email_id)
+    reply_email_id = _insert_account_and_email(email_id="reply-1", thread_id="thread-shared")
+    apply_update_suggestion(candidate.candidate_id, {"location": "Oda 202"}, reply_email_id)
+
+    revert_update_suggestion(candidate.candidate_id)
+
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT status, location, previous_snapshot FROM candidate_events WHERE candidate_id = ?",
+            (candidate.candidate_id,),
+        ).fetchone()
+    assert row["status"] == "ADDED_TO_CALENDAR"
+    assert row["location"] == "Oda 101"
+    assert row["previous_snapshot"] is None
+
+
+def test_update_suggested_candidate_listed_as_pending(temp_db):
+    origin_email_id = _insert_account_and_email(thread_id="thread-shared")
+    candidate = _candidate(status=CandidateStatus.ADDED_TO_CALENDAR)
+    save_new_candidate(candidate, source_email_row_id=origin_email_id)
+    reply_email_id = _insert_account_and_email(email_id="reply-1", thread_id="thread-shared")
+    apply_update_suggestion(candidate.candidate_id, {"location": "Oda 202"}, reply_email_id)
+
+    pending = list_pending_candidates()
+    assert len(pending) == 1
+    assert pending[0]["candidate"].candidate_id == candidate.candidate_id

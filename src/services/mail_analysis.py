@@ -1,9 +1,13 @@
 """Mail analizi: takvimlik sınıflandırma + candidate çıkarımı (bkz. docs/architecture-plan.md §4).
 
-Aynı etkinliğe ait maillerin ilişkilendirilmesi (§9C, thread/semantic
-correlation) burada YOK — her mail şu an bağımsız değerlendiriliyor; bu
-sonraki bir iyileştirme (Adaptive Correction Memory ile birlikte ele
-alınacak, bkz. proje task listesi).
+Aynı etkinliğe ait maillerin ilişkilendirilmesi (§9 "aynı thread_id -> kesin
+sinyal") `analyze_possible_update` ile burada yapılıyor — çağıran taraf
+(scan_inbox.py) önce `candidates/store.py::find_related_candidate_by_thread`
+ile aynı thread'deki önceki candidate'ı bulur, sonra bu fonksiyonla "bu bir
+güncelleme mi?" sorusunu LLM'e sorar. Semantic/embedding tabanlı "olası
+ilişkili" fallback (thread eşleşmesi yokken) bilinçli olarak kapsam dışı
+(email_embeddings tablosu hâlâ hiç doldurulmuyor) — ayrı bir gelecek
+iyileştirmesi.
 """
 
 from __future__ import annotations
@@ -179,6 +183,71 @@ def _event_extraction_system_prompt(today: datetime) -> str:
         '"online_meeting_url": string veya null, '
         '"ambiguous_fields": [string]}'
     )
+
+
+_UPDATE_FIELDS = ("title", "start_datetime", "duration_minutes", "location", "importance")
+
+
+def _update_analysis_system_prompt(existing: CandidateEvent, today: datetime) -> str:
+    known = (
+        f'başlık: {existing.title or "?"}, '
+        f'tarih/saat: {existing.start_datetime.isoformat() if existing.start_datetime else "?"}, '
+        f'süre (dk): {existing.duration_minutes or "?"}, '
+        f'konum: {existing.location or "?"}'
+    )
+    return (
+        "Sen bir takvim asistanısın. Kullanıcının aynı e-posta konuşma "
+        "zincirinde (thread) DAHA ÖNCE tespit edilmiş bir etkinlik var. "
+        "Şimdi aynı zincire yeni bir mail geldi. Bu yeni mail o etkinliğin "
+        "TARİH/SAAT/SÜRE/KONUM/BAŞLIK/ÖNEM bilgisinde bir DEĞİŞİKLİK mi "
+        "bildiriyor, yoksa aynı zincirde başka/alakasız bir konu mu?\n"
+        f"Bugünün tarihi: {today.isoformat()} (zaman dilimi: {DEFAULT_TIMEZONE}).\n"
+        f"Bilinen (önceki) etkinlik: {known}\n"
+        "KRİTİK KURALLAR:\n"
+        "1. Yalnızca mailde AÇIKÇA değiştiği belirtilen alanları "
+        "changed_fields'e ekle — emin olmadığın ya da mailde geçmeyen "
+        "alanı EKLEME.\n"
+        "2. Aynı thread'deki bir teşekkür/onay/alakasız mesaj is_update=false "
+        "olmalı, changed_fields boş olmalı.\n"
+        "3. Göreceli tarih ifadelerini (örn. 'yarına alındı') yukarıdaki "
+        "bugünün tarihine göre kendin hesapla.\n"
+        "SADECE geçerli JSON döndür:\n"
+        '{"is_update": true veya false, "changed_fields": {'
+        '"title": string veya atlanabilir, '
+        '"start_datetime": "YYYY-MM-DDTHH:MM:SS" veya atlanabilir, '
+        '"duration_minutes": integer veya atlanabilir, '
+        '"location": string veya atlanabilir, '
+        '"importance": "low|normal|high" veya atlanabilir}}'
+    )
+
+
+def analyze_possible_update(llm: LLMProvider, existing: CandidateEvent, email: UnifiedEmail) -> dict:
+    """Aynı Gmail thread'indeki önceki bir candidate/etkinlikle karşılaştırıp
+    bu yeni mailin bir GÜNCELLEME mi olduğunu, hangi alanların değiştiğini
+    sorar (bkz. docs/architecture-plan.md §8.3/§9 "aynı thread_id -> kesin
+    sinyal"). Döner: {"is_update": bool, "changed_fields": {...}} —
+    changed_fields yalnızca `_UPDATE_FIELDS` (Öneriler ekranındaki diff'in
+    zaten desteklediği alan kümesi, bkz. src/ui/presenters.py
+    _DIFF_FIELD_LABELS) ile sınırlanır, LLM'in uydurduğu bilinmeyen bir
+    anahtar sessizce atılır.
+
+    is_calendar_worthy ile aynı gerekçeyle allow_thinking=True: "alakasız
+    aynı thread mesajı" ile "gerçek bir güncelleme" ayrımı ince, hızlı mod
+    (/no_think) bu tür ince ayrımlarda daha güvenilir değil (bkz. modül
+    üstündeki not)."""
+    today = datetime.now().astimezone()
+    user_prompt = build_email_text(email)
+    data = generate_json(
+        llm, _update_analysis_system_prompt(existing, today), user_prompt, allow_thinking=True
+    )
+    is_update = bool(data.get("is_update"))
+    raw_changed = data.get("changed_fields") or {}
+    changed_fields = {k: v for k, v in raw_changed.items() if k in _UPDATE_FIELDS and v not in (None, "")}
+    logger.info(
+        "analyze_possible_update: %r -> is_update=%s changed_fields=%s",
+        email.subject, is_update, list(changed_fields),
+    )
+    return {"is_update": is_update and bool(changed_fields), "changed_fields": changed_fields}
 
 
 def extract_candidate_from_email(llm: LLMProvider, email: UnifiedEmail) -> CandidateEvent:

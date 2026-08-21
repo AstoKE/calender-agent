@@ -20,12 +20,12 @@ from __future__ import annotations
 
 from typing import Callable
 
-from src.candidates.store import save_new_candidate
+from src.candidates.store import apply_update_suggestion, find_related_candidate_by_thread, save_new_candidate
 from src.connectors.account_registry import select_account
 from src.core.logging_config import configure_logging, get_logger
 from src.providers.base import EmbeddingProvider, LLMProvider
 from src.providers.foundry_local import FoundryLocalEmbeddingProvider, FoundryLocalProvider
-from src.services.mail_analysis import extract_candidate_from_email, is_calendar_worthy
+from src.services.mail_analysis import analyze_possible_update, extract_candidate_from_email, is_calendar_worthy
 from src.services.mail_sync import mark_email_processed, sync_new_emails
 from src.services.vertical_prototype import apply_retrieved_policies
 from src.storage.db import init_db
@@ -67,6 +67,24 @@ def scan_account_inbox(
         if not worthy:
             mark_email_processed(email_row_id)
             continue
+
+        related = find_related_candidate_by_thread(email.thread_id, exclude_email_row_id=email_row_id)
+        if related is not None:
+            try:
+                update_result = analyze_possible_update(llm, related["candidate"], email)
+            except Exception as e:
+                logger.warning("analyze_possible_update failed for %r: %s", email.subject, e)
+                emit(f"[atlandı] \"{email.subject[:60]}\" güncelleme analizi başarısız oldu: {e}\n")
+                skipped_errors += 1
+                continue
+            if update_result["is_update"]:
+                apply_update_suggestion(
+                    related["candidate"].candidate_id, update_result["changed_fields"], email_row_id
+                )
+                mark_email_processed(email_row_id)
+                emit(f"--- Güncelleme önerisi olarak işlendi: {email.subject} ---\n")
+                continue
+            # is_update=False: aynı thread ama alakasız konu — normal (bağımsız) akışa devam.
 
         try:
             candidate = extract_candidate_from_email(llm, email)

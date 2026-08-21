@@ -30,6 +30,7 @@ from src.localization.formatting import (
     format_time_range,
     weekday_short_labels,
 )
+from src.memory.correction_memory import candidate_snapshot
 from src.ui.nav import NAV_ITEMS
 from src.ui.presenters import avatar_color, describe_structured_action, diff_snapshots, initials
 from src.ui.session import resolve_active_account, resolve_language, resolve_theme
@@ -102,3 +103,4 @@ templates.env.globals["initials"] = initials
 templates.env.globals["avatar_color"] = avatar_color
 templates.env.globals["describe_structured_action"] = describe_structured_action
 templates.env.globals["diff_snapshots"] = diff_snapshots
+templates.env.globals["candidate_snapshot"] = candidate_snapshot

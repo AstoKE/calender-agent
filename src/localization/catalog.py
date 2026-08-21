@@ -74,6 +74,11 @@ MESSAGES: dict[str, dict[str, str]] = {
         "tr": "Reddetme sebebi (isteğe bağlı)",
         "en": "Reason for rejecting (optional)",
     },
+    "oneriler.update_suggested_badge": {
+        "tr": "Güncelleme önerisi — aynı mail zincirinde bir değişiklik tespit edildi",
+        "en": "Update suggestion — a change was detected in the same email thread",
+    },
+    "oneriler.update_diff_heading": {"tr": "Önerilen değişiklikler", "en": "Suggested changes"},
 
     # --- Düzenle ---
     "duzenle.title": {"tr": "Düzenle", "en": "Edit"},
