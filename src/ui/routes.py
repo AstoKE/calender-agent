@@ -54,6 +54,7 @@ from src.policies.derivation import derive_and_save_policy, save_derived_policy
 from src.policies.store import deactivate_policy_by_id, get_active_policies, list_policies, reactivate_policy
 from src.providers.json_generation import JsonGenerationError
 from src.services.availability import find_conflicts
+from src.services.calendar_cache import list_events_cached
 from src.services.calendar_view import (
     SLOT_MINUTES,
     adjacent_month_anchor,
@@ -120,7 +121,7 @@ def home_page(request: Request, mesgul: bool = False):
             try:
                 tz_name = get_effective_timezone(active_account["id"])
                 time_min, time_max = day_bounds(date.today(), tz_name)
-                raw_events = calendar.list_events(time_min, time_max)
+                raw_events = list_events_cached(calendar, active_account["id"], time_min, time_max)
                 today_entries = [
                     entry for raw in raw_events if (entry := parse_google_event(raw, tz_name)) is not None
                 ]
@@ -273,7 +274,7 @@ def calendar_page(request: Request, hafta: str | None = None):
 
     time_min, time_max = week_bounds(anchor, tz_name)
     try:
-        raw_events = calendar.list_events(time_min, time_max)
+        raw_events = list_events_cached(calendar, active_account["id"], time_min, time_max)
     except Exception as exc:
         logger.warning("Takvim yüklenemedi (account=%s): %s", active_account["id"], exc)
         return templates.TemplateResponse(

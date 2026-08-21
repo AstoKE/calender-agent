@@ -55,10 +55,25 @@ CREATE TABLE IF NOT EXISTS calendar_events_cache (
     end_datetime        TEXT,
     timezone            TEXT,
     location            TEXT,
+    raw_json            TEXT,               -- Google API'nin ham event dict'i (parse_google_event bunu bekliyor)
     last_synced_at      TEXT,
     UNIQUE (account_id, calendar_id, event_id)
 );
 CREATE INDEX IF NOT EXISTS idx_cal_cache_range ON calendar_events_cache(account_id, start_datetime, end_datetime);
+
+-- Bir (account_id, calendar_id) için en son canlı list_events() çağrısının
+-- kapsadığı aralık + ne zaman yapıldığı — bkz. src/services/calendar_cache.py.
+-- Tek satır: yeni bir istek yalnızca bu aralığın İÇİNDE kalıyorsa VE TTL
+-- dolmadıysa cache'ten sunuluyor, aksi halde canlıya düşülüp bu satır o
+-- yeni (daha geniş/farklı) aralıkla değiştiriliyor.
+CREATE TABLE IF NOT EXISTS calendar_sync_state (
+    account_id          TEXT NOT NULL REFERENCES accounts(id),
+    calendar_id         TEXT NOT NULL,
+    range_start         TEXT NOT NULL,
+    range_end           TEXT NOT NULL,
+    synced_at           TEXT NOT NULL,
+    PRIMARY KEY (account_id, calendar_id)
+);
 
 CREATE TABLE IF NOT EXISTS candidate_events (
     candidate_id            TEXT PRIMARY KEY,

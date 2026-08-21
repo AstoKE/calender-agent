@@ -310,8 +310,10 @@ class _FakeCalendar:
     def __init__(self, events=None, error=None):
         self._events = events or []
         self._error = error
+        self.list_events_call_count = 0
 
     def list_events(self, time_min, time_max, calendar_id="primary"):
+        self.list_events_call_count += 1
         if self._error:
             raise self._error
         return self._events
@@ -362,6 +364,19 @@ def test_takvim_ok_state_renders_events(client, monkeypatch):
     # eski basit "calendar-grid" listesinin yerini aldı.
     assert 'class="timegrid__entry"' in response.text
     assert 'class="timegrid-wrap"' in response.text
+
+
+def test_takvim_reload_same_week_uses_cache_not_live_api(client, monkeypatch):
+    # bkz. src/services/calendar_cache.py: kısa ömürlü write-through cache —
+    # aynı hafta için art arda gelen istekler canlı API'ye ikinci kez gitmemeli.
+    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    fake = _FakeCalendar(events=[])
+    monkeypatch.setattr("src.ui.routes.get_calendar_or_none", lambda request, account_id: fake)
+
+    client.get("/takvim?hafta=2026-08-17")
+    client.get("/takvim?hafta=2026-08-17")
+
+    assert fake.list_events_call_count == 1
 
 
 def test_takvim_invalid_week_param_falls_back_without_500(client, monkeypatch):
