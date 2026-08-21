@@ -64,7 +64,10 @@
 
 <div class="section-heading">
     <h2>{{ t("anasayfa.pending_heading") }}</h2>
-    <a href="/oneriler">{{ t("anasayfa.view_all") }}</a>
+    <a href="/oneriler" class="link-arrow">
+        {{ t("anasayfa.view_all") }}
+        <svg class="icon" width="14" height="14" aria-hidden="true"><use href="#icon-chevron-right"></use></svg>
+    </a>
 </div>
 {% if not pending_preview %}
 <p class="empty-state">{{ t("anasayfa.pending_none") }}</p>

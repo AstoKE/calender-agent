@@ -12,6 +12,15 @@
    sistem ayarından bağımsız her zaman kazanır). */
 
 :root {
+    /* Tarayıcının kendi native UI'ını (scrollbar, <input type=date> takvimi,
+       metin seçim rengi, form kontrolü varsayılanları) bizim tema durumumuzla
+       hizalar — bu olmadan tarayıcı yalnızca İŞLETİM SİSTEMİNİN karanlık/açık
+       tercihine bakıyor, kullanıcı "light"/"dark"i AÇIKÇA seçtiğinde (sistem
+       tersini düşünse bile) native scrollbar/form kontrolleri bizim
+       data-theme'imizle ÇELİŞEBİLİYORDU (canlı testte, koyu sohbet kutusunda
+       açık renkli bir scrollbar olarak görüldü). */
+    color-scheme: light;
+
     --color-surface: #ffffff;
     --color-surface-sunken: #f8f9fa;
     --color-border: #dadce0;
@@ -69,6 +78,8 @@
    koyu yüzeyle kontrastı --color-accent'in kendisinden daha kritik). */
 @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
+        color-scheme: dark;
+
         --color-surface: #202124;
         --color-surface-sunken: #2a2b2e;
         --color-border: #3c4043;
@@ -91,6 +102,8 @@
 }
 
 :root[data-theme="dark"] {
+    color-scheme: dark;
+
     --color-surface: #202124;
     --color-surface-sunken: #2a2b2e;
     --color-border: #3c4043;

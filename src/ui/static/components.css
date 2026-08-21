@@ -810,6 +810,37 @@ h1 .icon {
     margin: 0;
 }
 
+/* "Tümünü gör"/"Geçmiş sohbetler" gibi ikincil gezinme linkleri — çıplak
+   bir <a> (yalnızca base.css'in genel `a { color }` kuralını miras alan,
+   tarayıcı varsayılanı alt çizgili görünüm) tasarım sistemine hiç
+   uymuyordu (bkz. canlı testte bulunan sorun). `.btn` ailesi kadar ağır
+   olmasın diye (bunlar birincil eylem değil, ikincil bir "devamını gör"
+   ipucu) dolgu/kenarlık eklenmedi — yalnızca alt çizgi kaldırılıp küçük bir
+   ok ikonu eklendi, hover'da ok hafifçe sağa kayıyor. */
+.link-arrow {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    color: var(--color-accent-text);
+    font-size: 0.85rem;
+    font-weight: 500;
+    text-decoration: none;
+}
+
+.link-arrow .icon {
+    width: 0.9rem;
+    height: 0.9rem;
+    transition: transform 0.15s ease;
+}
+
+.link-arrow:hover {
+    text-decoration: underline;
+}
+
+.link-arrow:hover .icon {
+    transform: translateX(2px);
+}
+
 .today-strip {
     display: flex;
     flex-wrap: wrap;
@@ -1069,9 +1100,40 @@ code {
     display: flex;
     flex-direction: column;
     gap: var(--space-2);
-    max-height: 22rem;
+    max-height: 24rem;
     overflow-y: auto;
     margin-bottom: var(--space-4);
+    /* Sağda scrollbar için pay (bkz. canlı testte bulunan sorun: balonlar
+       scrollbar'a neredeyse değiyordu) + üst/alt biraz boşluk (kaydırıldığında
+       bir mesajın tam kenara YAPIŞIK kesilmesi yerine, aşağıdaki fade ile
+       birlikte daha yumuşak bir kırpılma hissi versin diye). */
+    padding: var(--space-2) var(--space-2) var(--space-2) 0;
+    /* "Daha fazla mesaj var" ipucu: üst/alt birkaç piksel şeffaflaşıyor —
+       kaydırma konumundan bağımsız, sabit bir görsel ipucu (JS scroll
+       event'i gerektirmeyen basit bir yaklaşım). mask-image renk değil
+       OPAKLIK kontrol ettiği için hem açık hem karanlık temada doğru
+       çalışıyor (arka plan rengine bağımlı değil). */
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0, black 20px, black calc(100% - 20px), transparent 100%);
+    mask-image: linear-gradient(to bottom, transparent 0, black 20px, black calc(100% - 20px), transparent 100%);
+    /* İnce, tema-uyumlu scrollbar — varsayılan native scrollbar karanlık
+       modda AÇIK renkte kalıyordu (bkz. tokens.css'teki yeni color-scheme
+       notu; bu ikisi birbirini tamamlıyor, biri native form kontrollerini
+       biri scrollbar GÖRÜNÜMÜNÜ ele alıyor). */
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-border) transparent;
+}
+
+.assistant-chat__messages::-webkit-scrollbar {
+    width: 6px;
+}
+
+.assistant-chat__messages::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.assistant-chat__messages::-webkit-scrollbar-thumb {
+    background: var(--color-border);
+    border-radius: var(--radius-pill);
 }
 
 .chat-bubble {
@@ -1093,6 +1155,7 @@ code {
 .chat-bubble--assistant {
     align-self: flex-start;
     background: var(--color-surface-sunken);
+    border: 1px solid var(--color-border);
 }
 
 .assistant-chat__form {
