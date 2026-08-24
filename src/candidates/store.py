@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 
 from src.core.models import CandidateEvent, CandidateStatus
 from src.memory.correction_memory import candidate_snapshot
-from src.services.extraction import CLARIFIABLE_FIELDS
+from src.services.extraction import required_fields_for
 from src.services.timeutil import DEFAULT_TIMEZONE, ensure_timezone
 from src.storage.db import get_connection
 
@@ -200,12 +200,16 @@ def update_candidate_fields(candidate_id: str, **fields) -> None:
     # kalıyordu, "Eksik/belirsiz alanlar" uyarısı hiç kapanmıyordu (canlı
     # testte görüldü). vertical_prototype.py'deki doğru desenle aynı hizaya
     # getirildi: alan yalnızca hâlâ değersizse listede kalır.
+    # required_fields_for: DEADLINE tipi etkinliklerde duration_minutes hiç
+    # gerekmiyor (bkz. extraction.py) — CLARIFIABLE_FIELDS sabit listesini
+    # doğrudan kullanmak bu istisnayı burada da tekrar kaybederdi.
+    required = required_fields_for(candidate.event_type)
     candidate.ambiguous_fields = [
-        f for f in candidate.ambiguous_fields if f in CLARIFIABLE_FIELDS and not getattr(candidate, f, None)
+        f for f in candidate.ambiguous_fields if f in required and not getattr(candidate, f, None)
     ]
     candidate.missing_fields = [
         name
-        for name in CLARIFIABLE_FIELDS
+        for name in required
         if not getattr(candidate, name) and name not in candidate.ambiguous_fields
     ]
     candidate.status = (

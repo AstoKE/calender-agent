@@ -98,6 +98,18 @@ def retrieve_policies_for_event(
     # sorgusuyla tesadüfen benzer çıkıp, göndereni hiç eşleşmeyen bir candidate'a
     # da uygulanabilirdi (canlı testte doğrulandı — gerçek bir sızıntıydı).
     candidates = [item for item in candidates if "sender" not in item[0].structured_conditions]
+    # AYNI sızıntı event_type-scope'lu politikalar için de vardı (canlı testte
+    # bulundu): "sınav tarihlerinin anımsatıcıları son 3 gün öncesinden olsun"
+    # (event_type=exam) gibi bir politika, "hatırlatıcı" kavramına semantik
+    # olarak benzediği için toplantı/seyahat/diğer gibi TAMAMEN alakasız
+    # candidate'lara da uygulanıyordu — sort_key aşağıda yalnızca exact_match'i
+    # ÖNE alıyordu, ELEMİYORDU. Global (event_type koşulu YOK) politikalar
+    # her zaman uygulanabilir kalır; BAŞKA bir event_type'a scope'lanmış bir
+    # politika bu candidate için tamamen elenir.
+    candidates = [
+        item for item in candidates
+        if item[0].structured_conditions.get("event_type") in (None, event_type)
+    ]
 
     def sort_key(item: tuple[PersonalPolicy, float]) -> tuple[bool, int, float]:
         policy, similarity = item

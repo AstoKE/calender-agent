@@ -130,6 +130,20 @@ def _create_event_llm(intent_extra=None, **fields) -> _ScriptedLLMProvider:
     )
 
 
+def _create_event_llm_multi(events: list[dict], intent_extra=None) -> _ScriptedLLMProvider:
+    """`_create_event_llm`'in ÇOKLU-etkinlik karşılığı — model bir JSON
+    LİSTESİ döndürdüğünde (bkz. extract_candidate_events_from_text)."""
+    intent_response = {"intent": "create_event", "query_range_start": None, "query_range_end": None}
+    if intent_extra:
+        intent_response.update(intent_extra)
+    return _ScriptedLLMProvider(
+        [
+            ("niyetini sınıflandır", intent_response),
+            ("bir etkinlik bilgisi çıkar", events),
+        ]
+    )
+
+
 def _update_event_llm(**fields) -> _ScriptedLLMProvider:
     update_fields = {
         "title_hint": None,
@@ -195,6 +209,83 @@ def test_create_event_happy_path_no_missing_fields(conn):
     assert state.flow is None  # akış bitti
     assert len(calendar.created_events) == 1
     assert calendar.created_events[0]["summary"] == "Diş hekimi"
+
+
+# --- Serbest metinde çoklu etkinlik (bkz. canlı testte bulunan sorun: model
+# ya iki etkinliği karıştırıp saçma bir candidate üretiyordu, ya da bir JSON
+# LİSTESİ döndürüp eski tek-nesne bekleyen kod AttributeError ile çöküyordu,
+# chat_routes.py'de sessizce yutuluyordu) ---
+
+
+def test_create_event_two_events_in_one_message_queues_second(conn):
+    start1 = _future_dt(days=1, hours=2)
+    start2 = _future_dt(days=2, hours=4)
+    llm = _create_event_llm_multi([
+        {"event_type": "meeting", "title": "Toplantı A", "start_datetime": start1.isoformat(),
+         "duration_minutes": 30, "location": None, "ambiguous_fields": []},
+        {"event_type": "meeting", "title": "Toplantı B", "start_datetime": start2.isoformat(),
+         "duration_minutes": 45, "location": None, "ambiguous_fields": []},
+    ])
+    calendar = FakeCalendar()
+
+    state, messages = _advance(
+        ChatState(), "toplantı A yarın, toplantı B da öbür gün", llm=llm, calendar=calendar
+    )
+
+    assert state.step == STEP_PREVIEW_CONFIRM
+    assert len(state.queued_candidates) == 1
+    assert state.queued_candidates[0].title == "Toplantı B"
+    assert state.batch_total == 2
+    assert state.batch_index == 1
+    assert any("Toplantı A" in m for m in messages)
+    assert any("1/2" in m for m in messages)  # batch_progress mesajı ("Etkinlik 1/2:")
+
+    # İlkini onaylayınca ikincisi otomatik başlamalı (_finish_candidate).
+    state, messages = _advance(state, "approve", llm=llm, calendar=calendar)
+    assert len(calendar.created_events) == 1
+    assert calendar.created_events[0]["summary"] == "Toplantı A"
+    assert state.flow == FLOW_CREATE_EVENT  # ikinci aday için akış devam ediyor
+    assert state.step == STEP_PREVIEW_CONFIRM
+    assert state.candidate.title == "Toplantı B"
+    assert state.queued_candidates == []
+
+    state, messages = _advance(state, "approve", llm=llm, calendar=calendar)
+    assert state.flow is None  # ikinci de bitince akış tamamen kapanıyor
+    assert len(calendar.created_events) == 2
+    assert calendar.created_events[1]["summary"] == "Toplantı B"
+
+
+def test_create_event_single_dict_response_still_works_without_list(conn):
+    # generate_json'ın modelden tek bir çıplak nesne (liste değil) aldığı
+    # eski/çoğunluk durum hâlâ birebir aynı davranmalı (geriye dönük uyumluluk).
+    start = _future_dt(days=1, hours=2)
+    llm = _create_event_llm(title="Diş hekimi", start_datetime=start.isoformat(), duration_minutes=30)
+
+    state, _ = _advance(ChatState(), "yarın diş hekimine gidiyorum", llm=llm)
+
+    assert state.queued_candidates == []
+    assert state.batch_total == 0
+    assert state.candidate.title == "Diş hekimi"
+
+
+def test_multi_day_event_preview_shows_end_date_not_just_time(conn):
+    # Regresyon: "5 gün süren bir tatil" gibi çok günlü bir etkinlik önizlemede
+    # "31 Ağustos 2026, 08:00 – 08:00" gibi anlamsız/sıfır-süreli görünüyordu
+    # (canlı testte bulundu) — süre doğruydu (7200 dk), yalnızca önizleme
+    # bitiş SAATİNİ gösterip TARİHİNİ düşürüyordu.
+    start = (_future_dt(days=2)).replace(hour=8, minute=0, second=0, microsecond=0)
+    llm = _create_event_llm(
+        event_type="travel", title="Tatil", start_datetime=start.isoformat(), duration_minutes=5 * 24 * 60
+    )
+    calendar = FakeCalendar()
+
+    state, messages = _advance(ChatState(), "haftaya pazartesiden 5 gün süren bir tatil", llm=llm, calendar=calendar)
+
+    assert state.step == STEP_PREVIEW_CONFIRM
+    end = start + timedelta(minutes=5 * 24 * 60)
+    preview = "\n".join(messages)
+    assert "08:00 – 08:00" not in preview  # eski hata: bitiş tarihi düşüp saatler çakışıyormuş gibi görünüyordu
+    assert str(end.year) in preview and "08:00" in preview  # bitiş tarihi gerçekten gösteriliyor
 
 
 def test_create_event_reject_does_not_write_calendar(conn):

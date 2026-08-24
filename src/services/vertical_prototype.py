@@ -67,6 +67,10 @@ def _extraction_system_prompt() -> str:
         "start_datetime'a yaz (saat kısmı için en olası tahmini kullan, tarihi "
         "KAYBETME), AYRICA ambiguous_fields listesine \"start_datetime\" ekle.\n"
         "3. Emin olmadığın her alan için tahmin yerine null + ambiguous_fields tercih et.\n"
+        "4. duration_minutes HER ZAMAN dakika cinsinden tam sayıdır — mesajda "
+        "gün/hafta birimiyle belirtilse bile dakikaya çevir (1 gün = 1440, "
+        "1 hafta = 10080). Bu bir teslim tarihi/deadline DEĞİLSE (yalnızca bir "
+        "an değil, bir SÜRE belirtiliyorsa) süreyi mutlaka dakikaya çevirip yaz.\n"
         "Örnekler:\n"
         "- 'yarın 14:00'te diş randevum var' -> start_datetime hesaplanır, "
         "ambiguous_fields EKLENMEZ (saat net).\n"
@@ -75,6 +79,8 @@ def _extraction_system_prompt() -> str:
         "EKLENİR (saat net değil).\n"
         "- 'gelecek hafta toplantım var' -> ambiguous_fields'e \"start_datetime\" "
         "EKLENİR (saat hiç yok).\n"
+        "- '3 gün sürecek bir konferansa gidiyorum, pazartesi başlıyor' -> "
+        "duration_minutes: 4320 (3 * 1440).\n"
         "SADECE geçerli JSON döndür, başka hiçbir açıklama ekleme. Alanlar:\n"
         '{"event_type": "meeting|appointment|exam|deadline|travel|reservation|'
         'personal_commitment|other", '
@@ -95,6 +101,49 @@ def extract_candidate_event(llm: FoundryLocalProvider, user_text: str) -> Candid
         source_languages=[],
         extraction_reason="Kullanıcı mesajından doğrudan çıkarıldı (konuşma akışı).",
     )
+
+
+# CLI (extract_candidate_event, yukarıda) BİLİNÇLİ OLARAK DEĞİŞTİRİLMEDİ — tek
+# seferlik input() döngüsü zaten kullanıcının bir sonraki turda yeniden
+# yazmasına izin veriyor, çoklu-etkinlik karmaşası orada hiç rapor edilmedi.
+# Web chatbox'ta ise serbest metinle "toplantı A yarın 10'da, B de öbür gün
+# 14'te" gibi birden fazla etkinlik tarif edilince model ya ikisini birbirine
+# karıştırıp saçma bir candidate üretiyordu, ya da (talimata rağmen) bir JSON
+# LİSTESİ döndürüp build_candidate_from_fields'in dict.get() çağrısı
+# AttributeError ile çöküyordu (canlı testte bulundu — bu çökme
+# chat_routes.py'de sessizce yutuluyordu, kullanıcıya hiç yanıt gitmiyordu).
+_TEXT_MULTI_EXTRACTION_INSTRUCTION = (
+    "Kullanıcının mesajında BİR ya da BİRDEN FAZLA ayrı etkinlik olabilir "
+    "(örn. 'toplantı A yarın 10'da, toplantı B da öbür gün 14'te'). Her ayrı "
+    "etkinlik için yukarıdaki kurallara göre bilgi çıkar. SADECE geçerli bir "
+    "JSON LİSTESİ döndür — tek etkinlik olsa bile [{...}] şeklinde, ASLA "
+    "çıplak {...} nesnesi değil — başka hiçbir açıklama ekleme."
+)
+
+
+def extract_candidate_events_from_text(llm: LLMProvider, user_text: str) -> list[CandidateEvent]:
+    """`extract_candidate_event`'in ÇOKLU-etkinlik destekleyen karşılığı —
+    yalnızca web chatbox'ın serbest metin girişi için (bkz. yukarıdaki not).
+    `extract_candidate_events_from_file` ile AYNI "her zaman liste döndür,
+    modelin disiplinsizliğine karşı deterministik son kontrol" deseni —
+    tek elemanlı liste (çoğunluk durum) çağıranlar için mevcut davranışla
+    birebir aynıdır."""
+    user_prompt = f"{_TEXT_MULTI_EXTRACTION_INSTRUCTION}\n\nKullanıcının mesajı: {user_text}"
+    parsed = generate_json(llm, _extraction_system_prompt(), user_prompt)
+    if not isinstance(parsed, list):
+        parsed = [parsed]
+    if not parsed:
+        raise JsonGenerationError("Mesajdan hiçbir etkinlik çıkarılamadı (boş liste döndü).")
+    return [
+        build_candidate_from_fields(
+            fields,
+            source_type=SourceType.CONVERSATION,
+            source_references=[],
+            source_languages=[],
+            extraction_reason="Kullanıcı mesajından doğrudan çıkarıldı (konuşma akışı).",
+        )
+        for fields in parsed
+    ]
 
 
 # Gemini'nin desteklediği, bu özellik için anlamlı dosya türleri (bkz.
@@ -242,7 +291,7 @@ def fill_missing_fields_interactively(candidate: CandidateEvent) -> None:
             )
         else:
             for _ in range(MAX_CLARIFICATION_ATTEMPTS):
-                raw = input("Süre ne kadar? (örn: 30, 1 saat) ").strip()
+                raw = input("Süre ne kadar? (örn: 30, 1 saat, 2 gün) ").strip()
                 minutes = parse_duration_minutes(raw)
                 if minutes:
                     candidate.duration_minutes = minutes
@@ -469,7 +518,15 @@ def resolve_conflicts_interactively(calendar: GoogleCalendarConnector, candidate
     if not conflicts:
         return "Yok"
 
-    print(f"\n⚠ Çakışma bulundu: {start_dt:%H:%M}-{end_dt:%H:%M} aralığında zaten bir etkinliğiniz var.")
+    # end_dt başlangıçla AYNI günde değilse (örn. çok günlü bir tatil)
+    # yalnızca saat göstermek "08:00-08:00" gibi anlamsız/sıfır-süreli
+    # görünüyordu — tarih FARKLI olduğunda burada da gösteriliyor (bkz.
+    # aynı köklü hata web tarafında da bulundu, formatting.py::
+    # format_end_time_or_datetime).
+    end_display = (
+        f"{end_dt:%H:%M}" if end_dt.date() == start_dt.date() else f"{format_date_tr(end_dt)}, {end_dt:%H:%M}"
+    )
+    print(f"\n⚠ Çakışma bulundu: {start_dt:%H:%M}-{end_display} aralığında zaten bir etkinliğiniz var.")
     alternatives = suggest_alternative_slots(calendar, candidate.duration_minutes, end_dt)
 
     if not alternatives:

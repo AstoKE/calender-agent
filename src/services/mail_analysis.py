@@ -173,6 +173,10 @@ def _event_extraction_system_prompt(today: datetime) -> str:
         "'bugünün tarihi'yle DOLDURMA — bu yalnızca göreceli ifadeleri "
         "(örn. 'yarın', 'gelecek hafta') çözmek içindir, mailde tarih yoksa "
         "sonuç null olmalı ve ambiguous_fields'e eklenmelidir.\n"
+        "5. duration_minutes HER ZAMAN dakika cinsinden tam sayıdır — mailde "
+        "gün/hafta birimiyle belirtilse bile dakikaya çevir (1 gün = 1440, "
+        "1 hafta = 10080). Örn. '3 gün sürecek bir eğitim' -> "
+        "duration_minutes: 4320.\n"
         "SADECE geçerli JSON döndür. Alanlar:\n"
         '{"event_type": "meeting|appointment|exam|deadline|travel|reservation|'
         'personal_commitment|other", '

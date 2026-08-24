@@ -19,6 +19,7 @@ from src.localization.formatting import (
     format_date,
     format_datetime,
     format_day_header,
+    format_end_time_or_datetime,
     format_relative_day,
     format_time,
     format_time_range,
@@ -117,6 +118,22 @@ def test_format_time_range():
     start = datetime(2026, 8, 19, 14, 0)
     end = datetime(2026, 8, 19, 15, 0)
     assert format_time_range(start, end, "tr") == "14:00–15:00"
+
+
+def test_format_end_time_or_datetime_same_day_shows_only_time():
+    start = datetime(2026, 8, 28, 15, 0)
+    end = datetime(2026, 8, 28, 16, 0)
+    assert format_end_time_or_datetime(start, end, "tr") == "16:00"
+
+
+def test_format_end_time_or_datetime_different_day_shows_full_date():
+    # Regresyon: çok günlü bir etkinliğin (örn. 5 gün süren bir tatil)
+    # bitişi önceden yalnızca saatle gösteriliyordu — "31 Ağustos 2026,
+    # 08:00 – 08:00" gibi anlamsız/sıfır-süreli görünüyordu (canlı testte
+    # bulundu, gerçek süre doğruydu, yalnızca gösterim tarihi düşürüyordu).
+    start = datetime(2026, 8, 31, 8, 0)
+    end = datetime(2026, 9, 5, 8, 0)
+    assert format_end_time_or_datetime(start, end, "tr") == "05 Eylül 2026, 08:00"
 
 
 def test_format_day_header():

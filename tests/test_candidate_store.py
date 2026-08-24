@@ -141,6 +141,25 @@ def test_update_candidate_fields_ignores_blank_values(temp_db):
     assert result["candidate"].title == "Proje toplantısı"
 
 
+def test_update_candidate_fields_deadline_without_duration_stays_ready(temp_db):
+    # bkz. src/services/extraction.py::required_fields_for — DEADLINE
+    # tipinde duration_minutes hiç gerekmiyor, düzenleme formu (yalnızca
+    # title güncellese bile) bunu "eksik" diye yeniden işaretlememeli.
+    email_id = _insert_account_and_email()
+    candidate = _candidate(
+        status=CandidateStatus.READY_FOR_CONFIRMATION,
+        event_type=EventType.DEADLINE,
+        duration_minutes=0,
+    )
+    save_new_candidate(candidate, source_email_row_id=email_id)
+
+    update_candidate_fields(candidate.candidate_id, title="Ödev teslimi")
+
+    result = get_pending_candidate(candidate.candidate_id)
+    assert "duration_minutes" not in result["candidate"].missing_fields
+    assert result["candidate"].status == CandidateStatus.READY_FOR_CONFIRMATION
+
+
 def test_find_related_candidate_by_thread_matches_same_thread(temp_db):
     origin_email_id = _insert_account_and_email(thread_id="thread-shared")
     candidate = _candidate(status=CandidateStatus.ADDED_TO_CALENDAR)

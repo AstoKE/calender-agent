@@ -36,6 +36,15 @@
             {{ minutes }} {{ t("common.minutes") }}
         </button>
         {% endfor %}
+        {# Gün/hafta sürecek etkinlikler (bkz. canlı testte bulunan bulgu: önceden
+           yalnızca dakika/saat girilebiliyordu, çok günlük bir etkinlik için
+           kullanıcı elle 1440/10080 gibi bir sayı yazmak zorunda kalıyordu). #}
+        <button type="button" class="quick-fill__btn" onclick="document.getElementById('duration-input').value=1440">
+            {{ t("duzenle.duration_1_day") }}
+        </button>
+        <button type="button" class="quick-fill__btn" onclick="document.getElementById('duration-input').value=10080">
+            {{ t("duzenle.duration_1_week") }}
+        </button>
     </div>
 
     <fieldset class="segmented-field">
@@ -136,8 +145,17 @@
                         if (window.__locationMap) window.__locationMap.focusOn(lat, lon);
                     });
                 },
-                function () {
-                    statusEl.textContent = {{ t("duzenle.location_denied") | tojson }};
+                function (err) {
+                    // err.code: 1=PERMISSION_DENIED, 2=POSITION_UNAVAILABLE, 3=TIMEOUT —
+                    // önceki sürüm bunu HİÇ ayırt etmiyordu, GPS'siz bir masaüstünde
+                    // gerçek sebep POSITION_UNAVAILABLE olsa bile hep "izin reddedildi"
+                    // diyordu (canlı testte bulundu, kafa karıştırıcıydı).
+                    var messages = {
+                        1: {{ t("duzenle.location_denied") | tojson }},
+                        2: {{ t("duzenle.location_unavailable") | tojson }},
+                        3: {{ t("duzenle.location_timeout") | tojson }}
+                    };
+                    statusEl.textContent = messages[err && err.code] || {{ t("duzenle.location_denied") | tojson }};
                 },
                 { timeout: 10000 }
             );

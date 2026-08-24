@@ -72,9 +72,16 @@ def test_parse_clock_time_pm_hints_do_not_affect_edge_hours(raw, expected):
         ("1,5 saat", 90),
         ("90 dakika", 90),
         ("45", 45),
+        ("3 gün", 4320),
+        ("1 gün", 1440),
+        ("2 hafta", 20160),
+        ("1,5 gün", 2160),
     ],
 )
 def test_parse_duration_minutes_valid(raw, expected_minutes):
+    # "3 gün" -> 4320 gerçek bir regresyon testi: önceden "gün"/"hafta" hiç
+    # tanınmıyordu, sayı yakalanıp doğrudan dakika sayılıyordu (3 gün -> 3
+    # dakika gibi sessiz bir veri bozulması, canlı testte bulundu).
     assert parse_duration_minutes(raw) == expected_minutes
 
 

@@ -33,7 +33,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from src.core.logging_config import get_logger
 from src.core.models import CandidateEvent, CandidateStatus, CorrectionScope, EventType, IntentType, PolicySource
 from src.localization import translate
-from src.localization.formatting import format_datetime, format_time
+from src.localization.formatting import format_datetime, format_end_time_or_datetime, format_time
 from src.memory.correction_memory import (
     _STRUCTURED_ACTION_LABELS,
     candidate_snapshot,
@@ -54,8 +54,8 @@ from src.services.vertical_prototype import (
     _find_matching_events,
     _update_event_extraction_system_prompt,
     apply_retrieved_policies,
-    extract_candidate_event,
     extract_candidate_events_from_file,
+    extract_candidate_events_from_text,
     record_audit,
     save_candidate,
     set_candidate_google_event_id,
@@ -204,11 +204,25 @@ def _dispatch_intent(
 
     if intent.intent == IntentType.CREATE_EVENT:
         try:
-            candidate = extract_candidate_event(llm, user_text)
+            candidates = extract_candidate_events_from_text(llm, user_text)
         except JsonGenerationError:
             return ChatState(), [translate("chat.create.extraction_failed", lang)]
-        applied_messages = apply_retrieved_policies(candidate, embedding_provider)
-        initial_state = ChatState(flow=FLOW_CREATE_EVENT, candidate=candidate)
+
+        # Mesajda birden fazla ayrı etkinlik tarif edilmiş olabilir (bkz.
+        # vertical_prototype.py::extract_candidate_events_from_text) — dosya
+        # yükleme akışıyla (_dispatch_file_upload) AYNI "ilkiyle başla, geri
+        # kalanı queued_candidates'te bekle" deseni, tek-etkinlikli mesajlarda
+        # (çoğunluk durum) davranış hiç değişmez.
+        first, *rest = candidates
+        batch_total = len(candidates)
+        applied_messages = apply_retrieved_policies(first, embedding_provider)
+        initial_state = ChatState(
+            flow=FLOW_CREATE_EVENT,
+            candidate=first,
+            queued_candidates=rest,
+            batch_index=1 if batch_total > 1 else 0,
+            batch_total=batch_total if batch_total > 1 else 0,
+        )
         return _continue_create_event(initial_state, lang=lang, calendar=calendar, embedding_provider=embedding_provider, prefix_messages=applied_messages)
 
     if intent.intent == IntentType.UPDATE_EVENT:
@@ -406,13 +420,16 @@ def _run_conflict_check(
     if not alternatives:
         msg = translate(
             "chat.create.conflict_no_alternatives", lang,
-            start=format_time(start_dt, lang), end=format_time(end_dt, lang),
+            start=format_datetime(start_dt, lang), end=format_end_time_or_datetime(start_dt, end_dt, lang),
         )
         new_state = state.model_copy(update={"step": STEP_ASK_CONFLICT_NO_ALTERNATIVES, "attempts": 0})
         return new_state, prefix_messages + [msg]
 
     lines = [
-        translate("chat.create.conflict_found", lang, start=format_time(start_dt, lang), end=format_time(end_dt, lang)),
+        translate(
+            "chat.create.conflict_found", lang,
+            start=format_datetime(start_dt, lang), end=format_end_time_or_datetime(start_dt, end_dt, lang),
+        ),
         translate("chat.create.alternatives_intro", lang),
     ]
     for i, alt in enumerate(alternatives, 1):
@@ -587,7 +604,7 @@ def _render_preview(candidate: CandidateEvent, conflict_token: str, lang: str) -
     if start:
         time_text = format_datetime(start, lang)
         if end:
-            time_text += f" – {format_time(end, lang)}"
+            time_text += f" – {format_end_time_or_datetime(start, end, lang)}"
 
     reminders_text = (
         ", ".join(translate("chat.create.reminder_item", lang, minutes=r.minutes_before) for r in candidate.reminders)

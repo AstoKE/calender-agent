@@ -54,7 +54,13 @@ def parse_clock_time(raw: str) -> str | None:
 
 
 def parse_duration_minutes(raw: str) -> int | None:
-    """'90', '1 saat', '1.5 saat', '30 dakika' gibi ifadeleri dakikaya çevirir."""
+    """'90', '1 saat', '1.5 saat', '30 dakika', '3 gün', '2 hafta' gibi
+    ifadeleri dakikaya çevirir. "gün"/"hafta" önceden HİÇ tanınmıyordu —
+    '3 gün' sessizce 3 DAKİKAYA dönüşüyordu (canlı testte bulundu, gerçek
+    bir veri bozulması: çok günlük bir etkinlik yanlışlıkla birkaç dakikalık
+    olarak kaydediliyordu). "gün"/"hafta" kontrolleri "saat"ten ÖNCE —
+    "gün"/"hafta" içeren bir ifadede "saat" kelimesi geçmez zaten, ama
+    sıralama niyeti netleştiriyor."""
     raw = raw.strip().lower()
     if not raw:
         return None
@@ -62,7 +68,13 @@ def parse_duration_minutes(raw: str) -> int | None:
     if not m:
         return None
     value = float(m.group(1).replace(",", "."))
-    return round(value * 60) if "saat" in raw else round(value)
+    if "hafta" in raw:
+        return round(value * 7 * 24 * 60)
+    if "gün" in raw or "gun" in raw:
+        return round(value * 24 * 60)
+    if "saat" in raw:
+        return round(value * 60)
+    return round(value)
 
 
 def ensure_timezone(dt: datetime | str | None, tz_name: str = DEFAULT_TIMEZONE) -> datetime | None:

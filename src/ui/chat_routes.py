@@ -31,10 +31,11 @@ from src.ui.chat_session import (
     list_chat_sessions,
     switch_chat_session,
 )
-from src.ui.chat_state import build_chat_widget_context, process_message, widget_context_for_session
+from src.ui.chat_state import append_chat_message, build_chat_widget_context, process_message, widget_context_for_session
 from src.ui.routes import CHAT_ENABLED, _get_calendar
 from src.ui.session import resolve_active_account, resolve_language, safe_next
 from src.ui.templating import templates
+from src.storage.db import get_connection
 
 router = APIRouter()
 logger = get_logger("ui.chat_routes")
@@ -162,7 +163,20 @@ def send_chat_message(
                 file_mime_type=file_mime_type,
             )
         except Exception:
+            # Önceki sürüm burada YALNIZCA log yazıp geçiyordu — kullanıcının
+            # mesajı zaten kaydedilmişti (process_message'ın ilk transaction'ı)
+            # ama hiçbir yanıt eklenmediği için sohbette TAMAMEN SESSİZ bir
+            # çökme oluyordu (canlı testte, model bir JSON listesi döndürüp
+            # tek-nesne bekleyen eski koda çarptığında bulundu). State'e HİÇ
+            # dokunulmuyor (advance() hiç tamamlanmadığı için zaten değişmedi) —
+            # yalnızca kullanıcının bir yanıt görmesi için genel bir hata
+            # balonu ekleniyor.
             logger.exception("Sohbet turu işlenemedi (session=%s)", session_id)
+            try:
+                with get_connection() as conn:
+                    append_chat_message(conn, session_id, "assistant", translate("chat.generic_error", lang))
+            except Exception:
+                logger.exception("Hata balonu bile eklenemedi (session=%s)", session_id)
         finally:
             in_progress.discard(session_id)
 

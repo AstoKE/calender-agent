@@ -45,6 +45,28 @@ def test_missing_duration_marks_needs_information():
     assert candidate.status == CandidateStatus.NEEDS_INFORMATION
 
 
+def test_deadline_missing_duration_is_not_flagged_and_defaults_to_zero():
+    # Bir teslim tarihinin "süresi" kavramsal olarak yok — MEETING gibi
+    # duration_minutes eksikse sorulmamalı, candidate'ı kilitlememeli.
+    candidate = _build(_base_fields(event_type="deadline", duration_minutes=None))
+    assert "duration_minutes" not in candidate.missing_fields
+    assert candidate.duration_minutes == 0
+    assert candidate.status == CandidateStatus.READY_FOR_CONFIRMATION
+
+
+def test_deadline_explicit_duration_is_preserved():
+    candidate = _build(_base_fields(event_type="deadline", duration_minutes=30))
+    assert candidate.duration_minutes == 30
+
+
+def test_deadline_ambiguous_duration_is_filtered_out():
+    candidate = _build(
+        _base_fields(event_type="deadline", duration_minutes=None, ambiguous_fields=["duration_minutes"])
+    )
+    assert "duration_minutes" not in candidate.ambiguous_fields
+    assert "duration_minutes" not in candidate.missing_fields
+
+
 def test_ambiguous_fields_whitelist_filters_unknown_field_name():
     # Regresyon: model ambiguous_fields'e fill_missing_fields_interactively'nin
     # sormayı bilmediği bir alan adı (örn. "location") koyarsa, bu candidate'ı

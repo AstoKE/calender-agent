@@ -81,6 +81,18 @@ def format_time_range(start: datetime, end: datetime, lang: str) -> str:
     return f"{format_time(start, lang)}–{format_time(end, lang)}"
 
 
+def format_end_time_or_datetime(start: datetime, end: datetime, lang: str) -> str:
+    """`end`, `start` ile AYNI takvim gününe düşüyorsa yalnızca saat
+    ('16:00') döner, aksi halde tam tarih+saat ('5 Eylül 2026, 08:00') —
+    çok günlü bir etkinliğin (örn. 5 gün süren bir tatil) bitişi yalnızca
+    saatle gösterilirse tarih tamamen kaybolup '08:00 – 08:00' gibi
+    anlamsız/sıfır-süreli görünüyordu (canlı testte bulundu, gerçek süre
+    doğruydu — yalnızca gösterim tarihi düşürüyordu)."""
+    if start.date() == end.date():
+        return format_time(end, lang)
+    return format_datetime(end, lang)
+
+
 def format_day_header(dt: datetime | date, lang: str) -> str:
     """'Çarşamba, 19 Ağustos' / 'Wednesday, August 19'."""
     lang = normalize_language(lang)

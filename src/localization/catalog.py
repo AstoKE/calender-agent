@@ -90,11 +90,21 @@ MESSAGES: dict[str, dict[str, str]] = {
     "duzenle.field.importance": {"tr": "Önem", "en": "Importance"},
     "duzenle.field.location": {"tr": "Konum", "en": "Location"},
     "duzenle.duration_shortcuts": {"tr": "Süre kısayolları", "en": "Duration shortcuts"},
+    "duzenle.duration_1_day": {"tr": "1 gün", "en": "1 day"},
+    "duzenle.duration_1_week": {"tr": "1 hafta", "en": "1 week"},
     "duzenle.use_current_location": {"tr": "Mevcut konumumu kullan", "en": "Use my current location"},
     "duzenle.location_loading": {"tr": "Konum alınıyor…", "en": "Getting location…"},
     "duzenle.location_denied": {
         "tr": "Konuma erişilemedi — tarayıcı izni reddetmiş olabilir.",
         "en": "Couldn't access location — the browser may have denied permission.",
+    },
+    "duzenle.location_unavailable": {
+        "tr": "Bu cihazda/tarayıcıda konum bilgisi alınamadı.",
+        "en": "Location information is unavailable on this device/browser.",
+    },
+    "duzenle.location_timeout": {
+        "tr": "Konum alma zaman aşımına uğradı, tekrar deneyin.",
+        "en": "Getting your location timed out — try again.",
     },
     "duzenle.location_unsupported": {
         "tr": "Tarayıcınız konum özelliğini desteklemiyor.",
@@ -476,8 +486,8 @@ MESSAGES: dict[str, dict[str, str]] = {
     "chat.create.batch_progress": {"tr": "Etkinlik {index}/{total}:", "en": "Event {index}/{total}:"},
     "chat.create.ask_title": {"tr": "Etkinliğin başlığı ne olsun?", "en": "What should the event be called?"},
     "chat.create.ask_duration": {
-        "tr": "Süre ne kadar? (örn: 30, 1 saat)",
-        "en": "How long will it take? (e.g. 30, 1 hour)",
+        "tr": "Süre ne kadar? (örn: 30, 1 saat, 2 gün)",
+        "en": "How long will it take? (e.g. 30, 1 hour, 2 days)",
     },
     "chat.create.duration_default": {
         "tr": "(Sistem varsayılanı: toplantılar için {minutes} dakika — henüz kendi kuralınızı tanımlamadınız.)",

@@ -248,6 +248,55 @@ def test_ajax_message_returns_fragment_not_redirect(client):
     assert client.cookies.get("chat_session")
 
 
+class _CreateEventLLMProvider(LLMProvider):
+    """`classify_intent`'i CREATE_EVENT'e, çıkarımı geçerli bir tek-etkinlik
+    JSON'una yönlendiren minimal sahte — `_dispatch_intent`'in CREATE_EVENT
+    dalına gerçekten girmek için (aksi halde `_DummyLLMProvider`'ın hep "{}"
+    dönmesi `classify_intent`'i OTHER'a düşürüp bu testin amaçladığı kod
+    yolunu hiç tetiklemezdi)."""
+
+    def generate(self, system_prompt, user_prompt, context_chunks=None, json_output=False, allow_thinking=False):
+        if "niyetini sınıflandır" in system_prompt:
+            return json.dumps({"intent": "create_event", "query_range_start": None, "query_range_end": None})
+        return json.dumps({
+            "event_type": "meeting", "title": "Test", "start_datetime": "2026-09-01T14:00:00",
+            "duration_minutes": 30, "location": None, "ambiguous_fields": [],
+        })
+
+    def is_available(self):
+        return True
+
+
+def test_ajax_message_crash_shows_error_bubble_instead_of_silence(client, monkeypatch):
+    # Regresyon: advance() içinde HERHANGİ beklenmeyen bir istisna (canlı
+    # testte gerçek sebep bir model liste döndürüp eski kodun tek-nesne
+    # bekleyen mantığının çökmesiydi — o kök neden artık ayrıca düzeltildi,
+    # bkz. extract_candidate_events_from_text) önceden yalnızca log'a yazılıp
+    # yutuluyordu — kullanıcının mesajı kaydediliyordu ama HİÇBİR yanıt
+    # eklenmiyordu, sohbet sessizce takılı kalıyordu (bkz. chat_routes.py'nin
+    # genel except bloğu). Burada extract sonrası çağrılan bir adımı
+    # (apply_retrieved_policies) doğrudan bozarak, HANGİ istisna olursa olsun
+    # bu güvenlik ağının çalıştığı doğrulanıyor.
+    monkeypatch.setattr(
+        "src.services.chat_flow.apply_retrieved_policies",
+        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("simulated failure")),
+    )
+    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    from src.ui.app import app
+
+    app.state.llm = _CreateEventLLMProvider()
+
+    response = client.post(
+        "/asistan/mesaj",
+        data={"metin": "toplantı A yarın, toplantı B öbür gün"},
+        headers={"X-Requested-With": "fetch"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 200
+    assert "toplantı A yarın, toplantı B öbür gün" in response.text  # kullanıcı mesajı hâlâ görünüyor
+    assert "Bir sorun oldu" in response.text  # chat.generic_error, sessiz değil
+
+
 def test_ajax_new_chat_returns_fragment_not_redirect(client):
     ensure_account_registered("acc1", provider="google", email="a@example.com")
     client.post("/asistan/mesaj", data={"metin": "merhaba"})
