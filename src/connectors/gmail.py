@@ -17,7 +17,7 @@ from googleapiclient.errors import HttpError
 from src.connectors.base import EmailConnector
 from src.connectors.google_auth import GOOGLE_ACCOUNT_SCOPES, get_google_credentials
 from src.core.logging_config import get_logger
-from src.core.models import EmailProvider, UnifiedEmail
+from src.core.models import Attachment, EmailProvider, UnifiedEmail
 
 logger = get_logger("gmail_connector")
 
@@ -56,6 +56,23 @@ def _extract_body_text(payload: dict) -> str:
         return _strip_html(_decode_part_data(body["data"]))
 
     return ""
+
+
+def _extract_attachment_parts(payload: dict) -> list[dict]:
+    """payload.parts'ı (iç içe multipart dahil, `_extract_body_text` ile AYNI
+    gezme deseni) tarayıp GERÇEK ek dosyaları toplar — Gmail'de bir parçanın
+    "ek dosya" sayılması için hem `filename` dolu hem `body.attachmentId`
+    mevcut olması gerekir (inline imza görselleri gibi filename'siz parçalar
+    bu şekilde elenir)."""
+    found = []
+    for part in payload.get("parts", []):
+        filename = part.get("filename") or ""
+        attachment_id = part.get("body", {}).get("attachmentId")
+        if filename and attachment_id:
+            found.append(part)
+        if part.get("parts"):
+            found.extend(_extract_attachment_parts(part))
+    return found
 
 
 def _header(headers: list[dict], name: str) -> str:
@@ -139,6 +156,16 @@ class GmailConnector(EmailConnector):
         recipients_raw = _header(headers, "To")
         recipients = [r.strip() for r in recipients_raw.split(",") if r.strip()]
 
+        attachments = [
+            Attachment(
+                filename=part["filename"],
+                content_type=part.get("mimeType"),
+                size_bytes=part.get("body", {}).get("size"),
+                attachment_id=part["body"]["attachmentId"],
+            )
+            for part in _extract_attachment_parts(payload)
+        ]
+
         return UnifiedEmail(
             provider=EmailProvider.GMAIL,
             account_id=self.account_id,
@@ -149,6 +176,18 @@ class GmailConnector(EmailConnector):
             recipients=recipients,
             received_at=received_at,
             body_text=_extract_body_text(payload),
+            attachments=attachments,
             source_url_or_reference=f"https://mail.google.com/mail/u/0/#inbox/{msg['id']}",
             labels=msg.get("labelIds", []),
         )
+
+    def download_attachment(self, message_id: str, attachment_id: str) -> bytes:
+        """Bir ekin GERÇEK bayt içeriğini çeker — yalnızca `mail_analysis.py::
+        extract_candidate_from_email_with_attachments` tarafından, ve o da
+        yalnızca sonucu LLM'e gönderip atıyor, hiçbir yere yazmıyor (bkz.
+        Attachment.attachment_id docstring'i — sıfır kalıcılık ilkesi)."""
+        resp = self._service.users().messages().attachments().get(
+            userId="me", messageId=message_id, id=attachment_id
+        ).execute()
+        data = resp["data"]
+        return base64.urlsafe_b64decode(data + "=" * (-len(data) % 4))

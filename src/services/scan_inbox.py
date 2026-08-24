@@ -22,10 +22,16 @@ from typing import Callable
 
 from src.candidates.store import apply_update_suggestion, find_related_candidate_by_thread, save_new_candidate
 from src.connectors.account_registry import select_account
+from src.connectors.gmail import GmailConnector
 from src.core.logging_config import configure_logging, get_logger
-from src.providers.base import EmbeddingProvider, LLMProvider
+from src.providers.base import EmbeddingProvider, FileInputCapable, LLMProvider
 from src.providers.foundry_local import FoundryLocalEmbeddingProvider, FoundryLocalProvider
-from src.services.mail_analysis import analyze_possible_update, extract_candidate_from_email, is_calendar_worthy
+from src.services.mail_analysis import (
+    analyze_possible_update,
+    extract_candidate_from_email,
+    extract_candidate_from_email_with_attachments,
+    is_calendar_worthy,
+)
 from src.services.mail_sync import mark_email_processed, sync_new_emails
 from src.services.vertical_prototype import apply_retrieved_policies
 from src.storage.db import init_db
@@ -65,7 +71,42 @@ def scan_account_inbox(
             continue
 
         if not worthy:
+            # Metin gövdesi takvimlik görünmüyor ama bir eki (foto/PDF) varsa
+            # asıl bilgi orada olabilir (örn. görsel bir davetiye, gövdede
+            # yalnızca "ekteki davetiyeye bakınız" yazıyor) — yalnızca
+            # LLM_PROVIDER=gemini iken (FileInputCapable) devreye giren bir
+            # FALLBACK, bkz. mail_analysis.py::extract_candidate_from_email_with_attachments
+            # docstring'i. Önce ucuz metin kontrolü yapıldığı için (yukarıda)
+            # gereksiz pahalı/görsel çağrı önlenmiş oluyor.
+            attachment_candidate = None
+            # isinstance kontrolü BURADA (GmailConnector kurulmadan önce) —
+            # yalnızca Gemini gibi FileInputCapable bir provider'da anlamlı,
+            # aksi halde her mail için gereksiz bir OAuth/connector kurulumu
+            # (Foundry Local varsayılanında hiçbir zaman kullanılmayacak)
+            # taramayı yavaşlatırdı (canlı testte fark edildi).
+            if email.attachments and isinstance(llm, FileInputCapable):
+                try:
+                    gmail = GmailConnector(account_id=account_id)
+                    attachment_candidate = extract_candidate_from_email_with_attachments(llm, email, gmail)
+                except Exception as e:
+                    logger.warning(
+                        "extract_candidate_from_email_with_attachments failed for %r: %s", email.subject, e
+                    )
+
+            if attachment_candidate is None:
+                mark_email_processed(email_row_id)
+                continue
+
+            apply_retrieved_policies(attachment_candidate, embedding_provider, sender=email.sender)
+            save_new_candidate(attachment_candidate, source_email_row_id=email_row_id)
             mark_email_processed(email_row_id)
+
+            candidates_found += 1
+            emit(f"--- Kuyruğa eklendi ({candidates_found}) ---")
+            emit(f"Konu:            {email.subject}")
+            emit(f"Gönderen:        {email.sender}")
+            emit("Neden önerildi:  Ek dosyadan (foto/PDF) çıkarıldı.")
+            emit(f"Durum:           {attachment_candidate.status}\n")
             continue
 
         related = find_related_candidate_by_thread(email.thread_id, exclude_email_row_id=email_row_id)

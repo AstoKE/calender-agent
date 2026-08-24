@@ -98,6 +98,12 @@ class Attachment(BaseModel):
     filename: str
     content_type: Optional[str] = None
     size_bytes: Optional[int] = None
+    # Sağlayıcının (Gmail) kendi iç kimliği — GERÇEK bayt içeriği değil, yalnızca
+    # `GmailConnector.download_attachment`'ı çağırmak için gereken bir referans.
+    # Bu model (ve dolayısıyla bu alan) hiçbir yerde kalıcı SAKLANMIYOR —
+    # `UnifiedEmail` gibi yalnızca bir tarama turunun ömrü boyunca bellekte
+    # yaşıyor (bkz. src/services/mail_analysis.py::extract_candidate_from_email_with_attachments).
+    attachment_id: Optional[str] = None
 
 
 class Participant(BaseModel):

@@ -15,13 +15,15 @@ from __future__ import annotations
 import re
 from datetime import datetime
 
+from src.connectors.gmail import GmailConnector
 from src.core.logging_config import get_logger
 from src.core.models import CandidateEvent, SourceType, UnifiedEmail
-from src.providers.base import EmbeddingProvider, LLMProvider
-from src.providers.json_generation import generate_json
+from src.providers.base import EmbeddingProvider, FileInputCapable, LLMProvider
+from src.providers.json_generation import generate_json, generate_json_from_file
 from src.rag.correction_retrieval import retrieve_similar_classification_corrections
 from src.services.extraction import build_candidate_from_fields
 from src.services.timeutil import DEFAULT_TIMEZONE, ensure_timezone
+from src.services.vertical_prototype import ACCEPTED_FILE_MIME_TYPES
 
 BODY_PREVIEW_MAX_CHARS = 1500
 
@@ -292,5 +294,60 @@ def extract_candidate_from_email(llm: LLMProvider, email: UnifiedEmail) -> Candi
     logger.debug(
         "extract_candidate_from_email: %r -> event_type=%s missing=%s ambiguous=%s",
         email.subject, candidate.event_type, candidate.missing_fields, candidate.ambiguous_fields,
+    )
+    return candidate
+
+
+def extract_candidate_from_email_with_attachments(
+    llm: LLMProvider, email: UnifiedEmail, gmail: GmailConnector
+) -> CandidateEvent | None:
+    """Mailin gövde metni takvimlik bir şey içermiyor gibi görünse bile,
+    asıl bilgi bir davetiye/bilet/afiş FOTOĞRAFINDA ya da PDF'inde olabilir
+    (bkz. scan_inbox.py — bu, `is_calendar_worthy` metin bazında False
+    dönünce denenen bir FALLBACK, ana yol değil). Yalnızca iki koşul
+    BİRDEN sağlanırsa bir şey yapar, aksi halde sessizce None döner
+    (çağıran normal akışa devam eder):
+    1. `llm` görsel/PDF okuyabiliyor (`FileInputCapable` — bugün yalnızca
+       Gemini; Foundry Local metin-only, bu yol hiç tetiklenmez).
+    2. Mailin `ACCEPTED_FILE_MIME_TYPES`'tan bir eki var.
+
+    Ek dosyanın baytları YALNIZCA bellekte işlenir, hiçbir yere (diske/DB'ye)
+    YAZILMAZ — `download_attachment` ile çekilir, `generate_json_from_file`'a
+    (dosya-yükleme sohbet akışının kullandığı AYNI yardımcı) verilir, sonuç
+    dönünce bu fonksiyonun yerel değişkeni olarak GC'ye gider (bkz.
+    Attachment.attachment_id docstring'i — sıfır kalıcılık ilkesi)."""
+    if not isinstance(llm, FileInputCapable):
+        return None
+
+    attachment = next(
+        (a for a in email.attachments if a.content_type in ACCEPTED_FILE_MIME_TYPES and a.attachment_id),
+        None,
+    )
+    if attachment is None:
+        return None
+
+    file_bytes = gmail.download_attachment(email.message_id, attachment.attachment_id)
+    today = datetime.now().astimezone()
+    fields = generate_json_from_file(
+        llm, _event_extraction_system_prompt(today), build_email_text(email), file_bytes, attachment.content_type
+    )
+    # generate_json_from_file dict|list döner (bkz. docstring'i — çağıranı
+    # bir liste isteyip istemediğine göre değişir); burada tek etkinlik
+    # bekleniyor, model yine de disiplinsizce bir liste dönerse ilkini alır.
+    if isinstance(fields, list):
+        fields = fields[0] if fields else {}
+    if not fields:
+        return None
+
+    candidate = build_candidate_from_fields(
+        fields,
+        source_type=SourceType.EMAIL,
+        source_references=[email.message_id],
+        source_languages=[email.detected_language] if email.detected_language else [],
+        extraction_reason=f'Mail ekinden çıkarıldı: "{attachment.filename}" ({email.subject})',
+    )
+    logger.info(
+        "extract_candidate_from_email_with_attachments: %r (%s) -> event_type=%s",
+        email.subject, attachment.filename, candidate.event_type,
     )
     return candidate
