@@ -12,6 +12,9 @@ import re
 from datetime import datetime, timezone
 
 from src.storage.db import get_connection
+from src.storage.preferences import get_preference
+
+MASTER_CALENDAR_PREFERENCE_KEY = "calendar.master_account_id"
 
 
 def _derive_account_id(email: str) -> str:
@@ -60,6 +63,20 @@ def select_account() -> tuple[str, str]:
     account_id = _derive_account_id(email)
     ensure_account_registered(account_id, provider="google", email=email)
     return account_id, email
+
+
+def resolve_write_account_id(fallback_account_id: str) -> str:
+    """"Ana takvim hesabı" ayarlanmışsa VE hâlâ kayıtlıysa onu döner — mail
+    taraması hangi hesaptan gelirse gelsin (`fallback_account_id`), onay/
+    sohbet YAZMASI hep bu TEK hesaba gider (bkz. Ayarlar ekranındaki "Ana
+    takvim hesabı" seçimi, `MASTER_CALENDAR_PREFERENCE_KEY`). Ayarlanmamışsa
+    (varsayılan) `fallback_account_id`'nin kendisi döner — mevcut davranış
+    DEĞİŞMEZ. Silinmiş/artık kayıtlı olmayan bir hesap ayarlıysa da aynı
+    şekilde fallback'e düşer (sessizce, istisna fırlatmadan)."""
+    master_id = get_preference(MASTER_CALENDAR_PREFERENCE_KEY)
+    if master_id and any(acc["id"] == master_id for acc in list_accounts()):
+        return master_id
+    return fallback_account_id
 
 
 def ensure_account_registered(

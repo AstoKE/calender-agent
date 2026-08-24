@@ -356,6 +356,20 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "This only affects how times are displayed on Calendar and Home; new events are still saved using the default time zone for now.",
     },
     "ayarlar.save": {"tr": "Kaydet", "en": "Save"},
+    "ayarlar.section.master_calendar": {"tr": "Ana takvim hesabı", "en": "Master calendar account"},
+    "ayarlar.field.master_calendar": {"tr": "Ana takvim hesabı", "en": "Master calendar account"},
+    "ayarlar.master_calendar.none": {
+        "tr": "Yok (varsayılan — her hesap kendi takvimine yazar)",
+        "en": "None (default — each account writes to its own calendar)",
+    },
+    "ayarlar.master_calendar.no_account_hint": {
+        "tr": "Ana takvim hesabı seçebilmek için önce bir e-posta hesabı bağlayın.",
+        "en": "Connect an email account first to choose a master calendar account.",
+    },
+    "ayarlar.master_calendar.hint": {
+        "tr": "Ayarlanırsa, hangi hesaptan taranmış olursa olsun onaylanan mail önerileri VE sohbetin etkinlik oluşturma/güncelleme/sorgulama işlemleri hep bu TEK hesabın takvimine gider.",
+        "en": "When set, approved mail suggestions and the chat assistant's create/update/query actions always go to this ONE account's calendar, regardless of which account they came from.",
+    },
     "ayarlar.section.diagnostics": {"tr": "Tanılama", "en": "Diagnostics"},
     "ayarlar.diagnostics.db_path": {"tr": "Veritabanı dosyası", "en": "Database file"},
     "ayarlar.diagnostics.log_path": {"tr": "Günlük dosyası", "en": "Log file"},

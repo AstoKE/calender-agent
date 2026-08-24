@@ -232,6 +232,34 @@ def test_message_history_survives_simulated_restart(client, monkeypatch):
 # --- AJAX fragment yanıtı (bkz. templates/anasayfa.html'deki gönderim script'i) ---
 
 
+def test_chat_uses_master_calendar_account_when_configured(client, monkeypatch):
+    # bkz. src/connectors/account_registry.py::resolve_write_account_id —
+    # aktif hesap acc1 ama "Ana takvim hesabı" acc2 olarak ayarlı, sohbetin
+    # takvim çağrıları hep acc2'ye gitmeli.
+    from src.storage.preferences import set_preference
+
+    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered("acc2", provider="google", email="b@example.com")
+    set_preference("calendar.master_account_id", "acc2")
+
+    used_account_ids: list[str] = []
+    monkeypatch.setattr(
+        "src.ui.chat_routes._get_calendar",
+        lambda request, account_id: used_account_ids.append(account_id) or _NullCalendar(),
+    )
+
+    # acc1 önce kaydedildiği için resolve_active_account'ın cookie'siz
+    # fallback'i (bkz. src/ui/session.py) onu aktif hesap yapar.
+    response = client.post(
+        "/asistan/mesaj",
+        data={"metin": "merhaba"},
+        headers={"X-Requested-With": "fetch"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 200
+    assert used_account_ids == ["acc2"]
+
+
 def test_ajax_message_returns_fragment_not_redirect(client):
     ensure_account_registered("acc1", provider="google", email="a@example.com")
 

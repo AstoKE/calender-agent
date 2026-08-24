@@ -33,6 +33,27 @@
 </section>
 
 <section class="settings-section">
+    <h2>{{ t("ayarlar.section.master_calendar") }}</h2>
+    {% if not accounts %}
+    <p class="hint">{{ t("ayarlar.master_calendar.no_account_hint") }}</p>
+    {% else %}
+    <form method="post" action="/ayarlar/ana-takvim" class="edit-form">
+        <label>
+            {{ t("ayarlar.field.master_calendar") }}
+            <select name="hesap">
+                <option value="" {% if not master_account_id %}selected{% endif %}>{{ t("ayarlar.master_calendar.none") }}</option>
+                {% for acc in accounts %}
+                <option value="{{ acc.id }}" {% if acc.id == master_account_id %}selected{% endif %}>{{ acc.email }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <p class="hint">{{ t("ayarlar.master_calendar.hint") }}</p>
+        <button type="submit" class="btn btn-approve">{{ t("ayarlar.save") }}</button>
+    </form>
+    {% endif %}
+</section>
+
+<section class="settings-section">
     <h2>{{ t("ayarlar.section.diagnostics") }}</h2>
     <dl class="card-fields">
         <dt>{{ t("ayarlar.diagnostics.db_path") }}</dt>

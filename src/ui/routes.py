@@ -37,7 +37,11 @@ from src.candidates.store import (
     update_candidate_fields,
     update_candidate_status,
 )
-from src.connectors.account_registry import list_accounts
+from src.connectors.account_registry import (
+    MASTER_CALENDAR_PREFERENCE_KEY,
+    list_accounts,
+    resolve_write_account_id,
+)
 from src.connectors.google_calendar import GoogleCalendarConnector
 from src.core.logging_config import LOG_PATH, get_logger
 from src.core.models import CandidateStatus, PolicySource
@@ -68,7 +72,7 @@ from src.services.calendar_view import (
 from src.services.scan_inbox import scan_account_inbox
 from src.services.timeutil import DEFAULT_TIMEZONE
 from src.storage.db import DEFAULT_DB_PATH
-from src.storage.preferences import set_preference
+from src.storage.preferences import get_preference, set_preference
 from src.ui.calendar_access import get_calendar_or_none
 from src.ui.chat_state import build_chat_widget_context
 from src.ui.session import VALID_THEMES, resolve_active_account, safe_next, set_session_cookies
@@ -454,8 +458,19 @@ def settings_page(request: Request):
             "log_path": str(LOG_PATH),
             "chat_model": "qwen3-4b",
             "embedding_model": "qwen3-embedding-0.6b",
+            "master_account_id": get_preference(MASTER_CALENDAR_PREFERENCE_KEY),
         },
     )
+
+
+@router.post("/ayarlar/ana-takvim")
+def set_master_calendar(hesap: str = Form("")):
+    # Boş seçim = "Yok" (varsayılan) — her hesap kendi takvimine yazar.
+    # Silinen bir hesap burada seçili kalmaz (list_accounts() dropdown'ı zaten
+    # yalnızca kayıtlı hesapları sunuyor); resolve_write_account_id de ayrıca
+    # geçerliliği kontrol ediyor (bkz. account_registry.py).
+    set_preference(MASTER_CALENDAR_PREFERENCE_KEY, hesap or None)
+    return RedirectResponse("/ayarlar", status_code=303)
 
 
 @router.post("/ayarlar/bolge")
@@ -487,7 +502,7 @@ def approve(request: Request, candidate_id: str, force: bool = Form(False), next
             f"/oneriler/{candidate_id}/duzenle?next={quote(next_url, safe='')}", status_code=303
         )
 
-    calendar = _get_calendar(request, pending["account_id"])
+    calendar = _get_calendar(request, resolve_write_account_id(pending["account_id"]))
     start_dt = candidate.start_datetime
     end_dt = start_dt + timedelta(minutes=candidate.duration_minutes)
 

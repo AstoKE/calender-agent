@@ -772,6 +772,40 @@ def test_ayarlar_shows_diagnostics(client):
     assert "qwen3-4b" in response.text
 
 
+def test_ayarlar_shows_master_calendar_form_with_accounts(client):
+    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered("acc2", provider="google", email="b@example.com")
+    response = client.get("/ayarlar")
+    assert response.status_code == 200
+    assert 'action="/ayarlar/ana-takvim"' in response.text
+    assert "b@example.com" in response.text
+
+
+def test_set_master_calendar_persists_and_shows_selected(client):
+    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered("acc2", provider="google", email="b@example.com")
+
+    response = client.post("/ayarlar/ana-takvim", data={"hesap": "acc2"}, follow_redirects=False)
+    assert response.status_code == 303
+
+    followed = client.get("/ayarlar")
+    assert 'value="acc2" selected' in followed.text
+
+
+def test_set_master_calendar_empty_resets_to_none(client):
+    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    client.post("/ayarlar/ana-takvim", data={"hesap": "acc1"})
+
+    response = client.post("/ayarlar/ana-takvim", data={"hesap": ""}, follow_redirects=False)
+    assert response.status_code == 303
+
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT value FROM user_preferences WHERE preference_key = 'calendar.master_account_id'"
+        ).fetchone()
+    assert row is None or row["value"] == "null"
+
+
 def test_set_timezone_persists(client):
     ensure_account_registered("acc1", provider="google", email="a@example.com")
     response = client.post("/ayarlar/bolge", data={"saat_dilimi": "Europe/London"}, follow_redirects=False)
@@ -870,6 +904,40 @@ def _update_suggested_candidate(account_id: str) -> str:
     set_candidate_google_event_id(candidate.candidate_id, "evt-original-1")
     apply_update_suggestion(candidate.candidate_id, {"location": "Oda 202"}, reply_email_id)
     return candidate.candidate_id
+
+
+def test_approve_uses_master_calendar_account_when_configured(client, monkeypatch):
+    # bkz. src/connectors/account_registry.py::resolve_write_account_id —
+    # candidate acc1'in mailinden geldi ama "Ana takvim hesabı" acc2 olarak
+    # ayarlı, bu yüzden onaylanınca acc2'nin takvimine yazılmalı.
+    from src.storage.preferences import set_preference
+
+    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered("acc2", provider="google", email="b@example.com")
+    _pending_candidate_for_account("acc1")
+    set_preference("calendar.master_account_id", "acc2")
+
+    with get_connection() as conn:
+        candidate_id = conn.execute("SELECT candidate_id FROM candidate_events").fetchone()["candidate_id"]
+
+    used_account_ids: list[str] = []
+
+    class _RecordingCalendar:
+        def get_freebusy(self, *args, **kwargs):
+            return []
+
+        def create_event(self, event, calendar_id="primary"):
+            return "evt-1"
+
+    def fake_get_calendar(request, account_id):
+        used_account_ids.append(account_id)
+        return _RecordingCalendar()
+
+    monkeypatch.setattr("src.ui.routes._get_calendar", fake_get_calendar)
+
+    response = client.post(f"/oneriler/{candidate_id}/onayla", data={}, follow_redirects=False)
+    assert response.status_code == 303
+    assert used_account_ids == ["acc2"]
 
 
 def test_approve_update_suggested_calls_update_event_not_create(client, monkeypatch):

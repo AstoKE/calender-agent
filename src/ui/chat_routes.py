@@ -22,6 +22,7 @@ from __future__ import annotations
 from fastapi import APIRouter, File, Form, Request, Response, UploadFile
 from fastapi.responses import RedirectResponse
 
+from src.connectors.account_registry import resolve_write_account_id
 from src.core.logging_config import get_logger
 from src.localization import translate
 from src.providers.base import FileInputCapable
@@ -150,7 +151,12 @@ def send_chat_message(
         # için aşağıda normal şekilde bir yanıt üretiliyor.
         in_progress.add(session_id)
         try:
-            calendar = _get_calendar(request, account_id)
+            # Ana takvim hesabı ayarlıysa (bkz. Ayarlar), sohbetin create/
+            # update/query_calendar'ı hangi hesaptan konuşuluyor olursa olsun
+            # HEP o TEK hesaba gider — böylece "asistanın takvimi" tutarlı
+            # tek bir yer olur, aktif hesap yalnızca mail/hesap gezinme
+            # bağlamını değiştirir.
+            calendar = _get_calendar(request, resolve_write_account_id(account_id))
             process_message(
                 session_id,
                 user_text,

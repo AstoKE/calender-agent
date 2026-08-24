@@ -20,7 +20,7 @@ import json
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from src.connectors.account_registry import select_account
+from src.connectors.account_registry import resolve_write_account_id, select_account
 from src.connectors.google_calendar import GoogleCalendarConnector
 from src.core.logging_config import configure_logging, get_logger
 from src.core.models import CandidateEvent, CandidateStatus, EventType, IntentType, SourceType
@@ -566,7 +566,7 @@ def handle_query_calendar(account_id: str, range_start: datetime | None, range_e
         print("Hangi tarih aralığını merak ediyorsunuz, tam olarak söyler misiniz?")
         return
 
-    calendar = GoogleCalendarConnector(account_id=account_id)
+    calendar = GoogleCalendarConnector(account_id=resolve_write_account_id(account_id))
     events = calendar.list_events(range_start, range_end)
 
     if not events:
@@ -636,7 +636,7 @@ def handle_update_event(llm: LLMProvider, account_id: str, user_text: str) -> No
     today = datetime.now().astimezone()
     fields = generate_json(llm, _update_event_extraction_system_prompt(today), user_text)
 
-    calendar = GoogleCalendarConnector(account_id=account_id)
+    calendar = GoogleCalendarConnector(account_id=resolve_write_account_id(account_id))
     candidates = _find_matching_events(calendar, fields.get("title_hint"), fields.get("date_hint"))
 
     if not candidates:
@@ -875,7 +875,7 @@ def main() -> None:
         except JsonGenerationError:
             print("Bu mesajı işleyemedim, tekrar ifade eder misiniz?")
             continue
-        calendar = GoogleCalendarConnector(account_id=account_id)
+        calendar = GoogleCalendarConnector(account_id=resolve_write_account_id(account_id))
         review_and_confirm_candidate(candidate, calendar, embedding_provider, llm)
 
 
