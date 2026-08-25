@@ -39,10 +39,12 @@ from src.candidates.store import (
 )
 from src.connectors.account_registry import (
     MASTER_CALENDAR_PREFERENCE_KEY,
+    get_account,
     list_accounts,
     resolve_write_account_id,
 )
 from src.connectors.google_calendar import GoogleCalendarConnector
+from src.connectors.ms_calendar import MSCalendarConnector
 from src.core.logging_config import LOG_PATH, get_logger
 from src.core.models import CandidateStatus, PolicySource
 from src.localization import normalize_language
@@ -98,10 +100,20 @@ CURATED_TIMEZONES = [
 ]
 
 
-def _get_calendar(request: Request, account_id: str) -> GoogleCalendarConnector:
+def _get_calendar(request: Request, account_id: str) -> GoogleCalendarConnector | MSCalendarConnector:
     cache = request.app.state.calendar_connectors
     if account_id not in cache:
-        cache[account_id] = GoogleCalendarConnector(account_id=account_id)
+        account = get_account(account_id)
+        provider = account["provider"] if account else "google"
+        if provider == "outlook":
+            # credentials/access_token verilmeden — MSCalendarConnector'ın
+            # kendi constructor'ı get_ms_token'a düşer, bu da GEREKİRSE
+            # interaktif OAuth'a düşebilir (bkz. GoogleCalendarConnector'ın
+            # aynı satırdaki AYNI davranışı) — kullanıcı zaten "onayla"
+            # tıkladığı için bu kabul edilebilir bir bekleyiş.
+            cache[account_id] = MSCalendarConnector(account_id=account_id)
+        else:
+            cache[account_id] = GoogleCalendarConnector(account_id=account_id)
     return cache[account_id]
 
 
@@ -515,24 +527,19 @@ def approve(request: Request, candidate_id: str, force: bool = Form(False), next
                 {"pending": pending, "conflicts": conflicts, "active_page": "oneriler", "next_url": next_url},
             )
 
-    changes = {
-        "summary": candidate.title,
-        "location": candidate.location,
-        "start": {"dateTime": start_dt.isoformat(), "timeZone": DEFAULT_TIMEZONE},
-        "end": {"dateTime": end_dt.isoformat(), "timeZone": DEFAULT_TIMEZONE},
-    }
-
     if candidate.status == CandidateStatus.UPDATE_SUGGESTED and pending.get("google_event_id"):
         # Mail-kaynaklı güncelleme önerisi (bkz. docs/architecture-plan.md §8.3):
         # yeni bir etkinlik YARATMAZ, aynı Google etkinliğini yamalar.
-        calendar.update_event(pending["google_event_id"], changes)
+        calendar.update_event(
+            pending["google_event_id"], title=candidate.title, start=start_dt, end=end_dt, location=candidate.location
+        )
         update_candidate_status(candidate_id, CandidateStatus.UPDATED_IN_CALENDAR)
         record_candidate_audit(
             "approve_update", candidate_id, f"Web'den güncelleme onaylandı, event_id={pending['google_event_id']}"
         )
         return RedirectResponse(next_url, status_code=303)
 
-    event_id = calendar.create_event(changes)
+    event_id = calendar.create_event(title=candidate.title, start=start_dt, end=end_dt, location=candidate.location)
     update_candidate_status(candidate_id, CandidateStatus.ADDED_TO_CALENDAR)
     set_candidate_google_event_id(candidate_id, event_id)
     record_candidate_audit("approve_and_write", candidate_id, f"Web'den onaylandı, event_id={event_id}")

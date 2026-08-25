@@ -709,13 +709,7 @@ def handle_update_event(llm: LLMProvider, account_id: str, user_text: str) -> No
         print("İptal edildi, hiçbir değişiklik yapılmadı.")
         return
 
-    calendar.update_event(
-        event_id,
-        {
-            "start": {"dateTime": new_start.isoformat(), "timeZone": DEFAULT_TIMEZONE},
-            "end": {"dateTime": new_end.isoformat(), "timeZone": DEFAULT_TIMEZONE},
-        },
-    )
+    calendar.update_event(event_id, start=new_start, end=new_end)
     with get_connection() as conn:
         record_audit(
             conn, "update_event", event_id, f"Kullanıcı isteğiyle güncellendi: {user_text}",
@@ -805,12 +799,7 @@ def review_and_confirm_candidate(
             end_dt = start_dt + timedelta(minutes=candidate.duration_minutes or DEFAULT_MEETING_DURATION_MINUTES)
 
             event_id = calendar.create_event(
-                {
-                    "summary": candidate.title,
-                    "location": candidate.location,
-                    "start": {"dateTime": start_dt.isoformat(), "timeZone": DEFAULT_TIMEZONE},
-                    "end": {"dateTime": end_dt.isoformat(), "timeZone": DEFAULT_TIMEZONE},
-                }
+                title=candidate.title, start=start_dt, end=end_dt, location=candidate.location
             )
 
             update_candidate_status(conn, candidate.candidate_id, CandidateStatus.ADDED_TO_CALENDAR)

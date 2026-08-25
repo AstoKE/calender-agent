@@ -19,6 +19,10 @@ google-auth-oauthlib
 google-auth-httplib2
 google-api-python-client
 
+# Microsoft (Outlook mail + MS Calendar) — Microsoft Graph API
+msal
+requests
+
 # Local LLM runtime (verified working: foundry-local-sdk 1.2.4, see CLAUDE.md)
 foundry-local-sdk
 

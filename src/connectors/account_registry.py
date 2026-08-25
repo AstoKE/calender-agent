@@ -34,6 +34,18 @@ def list_accounts() -> list[dict]:
     return [dict(row) for row in rows]
 
 
+def get_account(account_id: str) -> dict | None:
+    """Tek bir hesabı döner — Outlook desteğiyle birlikte eklendi: bir
+    account_id verildiğinde HANGİ connector'ın (Google mı MS mi) kurulacağını
+    bilmek için `provider` alanına ihtiyaç var (bkz. src/ui/calendar_access.py,
+    src/ui/routes.py::_get_calendar — ikisi de artık provider'a göre dallanıyor)."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT id, provider, email, status, connected_at FROM accounts WHERE id = ?", (account_id,)
+        ).fetchone()
+    return dict(row) if row else None
+
+
 def select_account() -> tuple[str, str]:
     """CLI'da kayıtlı hesaplardan birini seçtirir ya da yeni bir hesap ekletir.
 

@@ -55,10 +55,10 @@ class _NullCalendar:
     def get_freebusy(self, time_min, time_max, calendar_id="primary"):
         return []
 
-    def create_event(self, event, calendar_id="primary"):
+    def create_event(self, *, title, start, end, location=None, calendar_id="primary"):
         return "evt-1"
 
-    def update_event(self, event_id, changes, calendar_id="primary"):
+    def update_event(self, event_id, *, title=None, start=None, end=None, location=None, calendar_id="primary"):
         pass
 
     def delete_event(self, event_id, calendar_id="primary"):

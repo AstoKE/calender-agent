@@ -92,11 +92,26 @@ class FakeCalendar:
     def get_freebusy(self, time_min, time_max, calendar_id="primary"):
         return self._busy
 
-    def create_event(self, event, calendar_id="primary"):
+    def create_event(self, *, title, start, end, location=None, calendar_id="primary"):
+        # Google'ın eski JSON şeklini burada YENİDEN kuruyoruz — connector
+        # arayüzü artık düz alan (title/start/end) alıyor (bkz. CalendarConnector,
+        # normalizasyon sızıntısı düzeltmesi), ama bu testlerin assertion'ları
+        # zaten bu şekle göre yazılmış; sahte, kaydettiği veriyi bu şekilde
+        # tutmaya devam ediyor ki testler değişmesin.
+        event = {"summary": title, "location": location, "start": {"dateTime": start.isoformat()}, "end": {"dateTime": end.isoformat()}}
         self.created_events.append(event)
         return f"evt-{len(self.created_events)}"
 
-    def update_event(self, event_id, changes, calendar_id="primary"):
+    def update_event(self, event_id, *, title=None, start=None, end=None, location=None, calendar_id="primary"):
+        changes: dict = {}
+        if title is not None:
+            changes["summary"] = title
+        if location is not None:
+            changes["location"] = location
+        if start is not None:
+            changes["start"] = {"dateTime": start.isoformat()}
+        if end is not None:
+            changes["end"] = {"dateTime": end.isoformat()}
         self.updated_events.append((event_id, changes))
 
     def delete_event(self, event_id, calendar_id="primary"):

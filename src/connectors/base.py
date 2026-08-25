@@ -36,13 +36,39 @@ class CalendarConnector(ABC):
         """Meşgul aralıkların listesini döner (çakışma kontrolü için, bkz. Availability Engine)."""
 
     @abstractmethod
-    def create_event(self, event: dict, calendar_id: str = "primary") -> str:
+    def create_event(
+        self,
+        *,
+        title: str | None,
+        start: datetime,
+        end: datetime,
+        location: str | None = None,
+        calendar_id: str = "primary",
+    ) -> str:
         """Etkinliği oluşturur, sağlayıcının event_id'sini döner. Yalnızca
-        Calendar Action Executor tarafından, onay sonrası çağrılmalıdır."""
+        Calendar Action Executor tarafından, onay sonrası çağrılmalıdır.
+
+        Sağlayıcıdan BAĞIMSIZ, düz alanlar (bkz. §13) — Google'ın
+        ({"summary":..., "start": {"dateTime":...}}) ya da Microsoft
+        Graph'ın kendi JSON şekli yalnızca somut implementasyonun İÇİNDE
+        kurulur, çağıran katman hiçbirini bilmez (bkz. Outlook entegrasyonu
+        öncesi düzeltilen normalizasyon sızıntısı, CLAUDE.md)."""
 
     @abstractmethod
-    def update_event(self, event_id: str, changes: dict, calendar_id: str = "primary") -> None:
-        """Var olan bir etkinliği günceller. Yalnızca onay sonrası çağrılmalıdır."""
+    def update_event(
+        self,
+        event_id: str,
+        *,
+        title: str | None = None,
+        start: datetime | None = None,
+        end: datetime | None = None,
+        location: str | None = None,
+        calendar_id: str = "primary",
+    ) -> None:
+        """Var olan bir etkinliği günceller. Yalnızca onay sonrası çağrılmalıdır.
+        `None` bırakılan alanlar DEĞİŞTİRİLMEZ (kısmi güncelleme/PATCH
+        semantiği) — örn. yalnızca `start`/`end` verilip bir etkinliği
+        taşımak, başlığı/konumu hiç etkilemez."""
 
     @abstractmethod
     def delete_event(self, event_id: str, calendar_id: str = "primary") -> None:

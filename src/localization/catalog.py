@@ -133,6 +133,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "No connected accounts yet. Add one below.",
     },
     "hesaplar.add_account": {"tr": "Yeni hesap ekle", "en": "Add new account"},
+    "hesaplar.add_outlook_account": {"tr": "Outlook hesabı ekle", "en": "Add Outlook account"},
     "hesaplar.account_added": {"tr": "Hesap başarıyla eklendi.", "en": "Account added successfully."},
     "hesaplar.oauth_error.reddedildi": {
         "tr": "Google onayı iptal edildi, hesap eklenmedi.",
@@ -149,6 +150,10 @@ MESSAGES: dict[str, dict[str, str]] = {
     "hesaplar.oauth_error.client_yok": {
         "tr": "OAuth yapılandırması eksik (google_oauth_client.json bulunamadı).",
         "en": "OAuth configuration is missing (google_oauth_client.json not found).",
+    },
+    "hesaplar.oauth_error.ms_client_yok": {
+        "tr": "OAuth yapılandırması eksik (MS_CLIENT_ID .env'de tanımlı değil).",
+        "en": "OAuth configuration is missing (MS_CLIENT_ID isn't set in .env).",
     },
     "hesaplar.field.provider": {"tr": "Sağlayıcı", "en": "Provider"},
     "hesaplar.field.status": {"tr": "Durum", "en": "Status"},

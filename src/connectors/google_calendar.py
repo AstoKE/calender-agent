@@ -14,6 +14,7 @@ from google.oauth2.credentials import Credentials
 
 from src.connectors.base import CalendarConnector
 from src.connectors.google_auth import GOOGLE_ACCOUNT_SCOPES, get_google_credentials
+from src.services.timeutil import DEFAULT_TIMEZONE
 
 
 class GoogleCalendarConnector(CalendarConnector):
@@ -61,12 +62,45 @@ class GoogleCalendarConnector(CalendarConnector):
         busy = resp["calendars"][calendar_id]["busy"]
         return [(datetime.fromisoformat(b["start"]), datetime.fromisoformat(b["end"])) for b in busy]
 
-    def create_event(self, event: dict, calendar_id: str = "primary") -> str:
-        created = self._service.events().insert(calendarId=calendar_id, body=event).execute()
+    def create_event(
+        self,
+        *,
+        title: str | None,
+        start: datetime,
+        end: datetime,
+        location: str | None = None,
+        calendar_id: str = "primary",
+    ) -> str:
+        body: dict = {
+            "summary": title,
+            "start": {"dateTime": start.isoformat(), "timeZone": DEFAULT_TIMEZONE},
+            "end": {"dateTime": end.isoformat(), "timeZone": DEFAULT_TIMEZONE},
+        }
+        if location is not None:
+            body["location"] = location
+        created = self._service.events().insert(calendarId=calendar_id, body=body).execute()
         return created["id"]
 
-    def update_event(self, event_id: str, changes: dict, calendar_id: str = "primary") -> None:
-        self._service.events().patch(calendarId=calendar_id, eventId=event_id, body=changes).execute()
+    def update_event(
+        self,
+        event_id: str,
+        *,
+        title: str | None = None,
+        start: datetime | None = None,
+        end: datetime | None = None,
+        location: str | None = None,
+        calendar_id: str = "primary",
+    ) -> None:
+        body: dict = {}
+        if title is not None:
+            body["summary"] = title
+        if location is not None:
+            body["location"] = location
+        if start is not None:
+            body["start"] = {"dateTime": start.isoformat(), "timeZone": DEFAULT_TIMEZONE}
+        if end is not None:
+            body["end"] = {"dateTime": end.isoformat(), "timeZone": DEFAULT_TIMEZONE}
+        self._service.events().patch(calendarId=calendar_id, eventId=event_id, body=body).execute()
 
     def delete_event(self, event_id: str, calendar_id: str = "primary") -> None:
         self._service.events().delete(calendarId=calendar_id, eventId=event_id).execute()

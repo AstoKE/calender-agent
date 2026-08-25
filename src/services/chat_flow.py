@@ -547,12 +547,7 @@ def _finalize_create_event(
     # docstring'i) — yazma, ağ çağrısı BİTTİKTEN sonra kendi kısa bağlantısında.
     try:
         event_id = calendar.create_event(
-            {
-                "summary": candidate.title,
-                "location": candidate.location,
-                "start": {"dateTime": start_dt.isoformat(), "timeZone": DEFAULT_TIMEZONE},
-                "end": {"dateTime": end_dt.isoformat(), "timeZone": DEFAULT_TIMEZONE},
-            }
+            title=candidate.title, start=start_dt, end=end_dt, location=candidate.location
         )
     except Exception:
         logger.exception("Takvime yazma başarısız (sohbet akışı)")
@@ -1085,13 +1080,7 @@ def _advance_update_event(state: ChatState, user_text: str, *, calendar, lang: s
             duration = _resolve_update_duration(fields, event)
             new_end = new_start + timedelta(minutes=duration)
             try:
-                calendar.update_event(
-                    event["id"],
-                    {
-                        "start": {"dateTime": new_start.isoformat(), "timeZone": DEFAULT_TIMEZONE},
-                        "end": {"dateTime": new_end.isoformat(), "timeZone": DEFAULT_TIMEZONE},
-                    },
-                )
+                calendar.update_event(event["id"], start=new_start, end=new_end)
             except Exception:
                 logger.exception("Etkinlik güncelleme başarısız (sohbet akışı)")
                 return ChatState(), [translate("chat.calendar_error", lang)]

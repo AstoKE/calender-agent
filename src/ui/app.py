@@ -151,6 +151,10 @@ from src.ui.oauth_routes import router as oauth_router  # noqa: E402
 
 app.include_router(oauth_router)
 
+from src.ui.outlook_oauth_routes import router as outlook_oauth_router  # noqa: E402
+
+app.include_router(outlook_oauth_router)
+
 
 if __name__ == "__main__":
     uvicorn.run(app, host="127.0.0.1", port=8000)

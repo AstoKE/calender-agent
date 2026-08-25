@@ -854,12 +854,12 @@ class _UpdateTrackingCalendar:
     def get_freebusy(self, time_min, time_max, calendar_id="primary"):
         return []
 
-    def create_event(self, event, calendar_id="primary"):
-        self.created_events.append(event)
+    def create_event(self, *, title, start, end, location=None, calendar_id="primary"):
+        self.created_events.append({"summary": title, "start": start, "end": end, "location": location})
         return "evt-new-1"
 
-    def update_event(self, event_id, changes, calendar_id="primary"):
-        self.updated_events.append((event_id, changes))
+    def update_event(self, event_id, *, title=None, start=None, end=None, location=None, calendar_id="primary"):
+        self.updated_events.append((event_id, {"summary": title, "start": start, "end": end, "location": location}))
 
 
 def _update_suggested_candidate(account_id: str) -> str:
@@ -926,7 +926,7 @@ def test_approve_uses_master_calendar_account_when_configured(client, monkeypatc
         def get_freebusy(self, *args, **kwargs):
             return []
 
-        def create_event(self, event, calendar_id="primary"):
+        def create_event(self, *, title, start, end, location=None, calendar_id="primary"):
             return "evt-1"
 
     def fake_get_calendar(request, account_id):
