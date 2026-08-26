@@ -13,13 +13,18 @@ code_verifier + ...) TAMAMEN JSON-serileştirilebilir — `oauth_routes.py`nin
 yalnızca `state` string'ini cookie'de tutmasının aksine, burada `code_verifier`
 de gerektiğinden flow'un TAMAMI kısa ömürlü bir cookie'de saklanıyor.
 
-Redirect URI Azure App Registration'da "Web" platformu altında AÇIKÇA
-kayıtlı olmalı (bkz. CLAUDE.md Outlook bölümü — masaüstü/yerel akışın
-kullandığı "Mobil ve masaüstü uygulamaları" platformundan FARKLI bir
-kayıt, loopback-herhangi-port istisnası burada geçerli değil, Azure tam
-eşleşme istiyor) — `http://127.0.0.1:8000/hesap-ekle-outlook/callback` VE
-`http://localhost:8000/hesap-ekle-outlook/callback` ikisi de eklenmeli
-(tarayıcıda uygulamaya hangi adla erişildiğine göre değişir)."""
+Redirect URI Azure App Registration'da "Mobil ve masaüstü uygulamaları"
+(public client) platformu altında kayıtlı olmalı — TAM olarak
+`http://localhost:8000/hesap-ekle-outlook/callback` (canlı testte 2 gerçek
+bulgu: (1) "Web" platformu altına kaydedilirse Azure isteği gizli-istemci
+sayıp `AADSTS70002: client_secret gerekli` hatası veriyor, "Allow public
+client flows" ayarı bunu DÜZELTMİYOR — çözüm doğrudan "Mobil ve masaüstü
+uygulamaları" platformuna kaydetmek; (2) Azure aynı redirect URI'nin İKİ
+platformda birden kayıtlı olmasına izin vermiyor, "Web" altındaki kayıt
+buraya taşınmadan önce SİLİNMELİYDİ). SADECE "localhost", `127.0.0.1`
+DEĞİL — Azure HTTPS olmayan URI'lerde yalnızca tam "http://localhost" host
+adını kabul ediyor, bu yüzden `_redirect_uri()` BİLEREK sabit "localhost"
+döner, isteğin geldiği host'a göre dinamik ÜRETMEZ (bkz. altta)."""
 
 from __future__ import annotations
 
@@ -43,8 +48,19 @@ OAUTH_FLOW_COOKIE = "outlook_oauth_flow"
 OAUTH_FLOW_MAX_AGE = 600  # 10 dk — Google akışıyla aynı süre (bkz. oauth_routes.py)
 
 
-def _redirect_uri(request: Request) -> str:
-    return str(request.url_for("outlook_oauth_callback"))
+def _redirect_uri() -> str:
+    # BİLEREK `request.url_for(...)`  (isteğin geldiği host'a göre dinamik)
+    # DEĞİL, sabit "localhost" — Azure, HTTPS olmayan redirect URI'lerde
+    # YALNIZCA tam olarak "http://localhost" host adını kabul ediyor,
+    # "http://127.0.0.1" gibi sayısal loopback IP'sini REDDEDİYOR (canlı
+    # testte "HTTPS veya http://localhost ile başlamalıdır" hatasıyla
+    # doğrulandı — Google'ın "Desktop app" tipi client'larındaki
+    # herhangi-loopback-adresi istisnası burada geçerli değil, Azure
+    # yalnızca "localhost" ismini istisna tutuyor, IP'yi değil). Kullanıcı
+    # uygulamaya 127.0.0.1 üzerinden erişse bile bu sabit değer kullanılıyor
+    # — Microsoft'un geri yönlendirmesi yine de aynı
+    # sunucuya ulaşır, çünkü ikisi de aynı loopback arayüzüne çözülür.
+    return "http://localhost:8000/hesap-ekle-outlook/callback"
 
 
 def _derive_outlook_account_id(email: str) -> str:
@@ -73,7 +89,7 @@ def start_outlook_oauth(request: Request):
     # `msal.token_cache.TokenCache`, `.serialize()` metodu YOK), callback'te
     # cache'i dosyaya yazmaya çalışınca AttributeError'a yol açardı.
     app = msal.PublicClientApplication(ms_client_id(), authority=AUTHORITY, token_cache=msal.SerializableTokenCache())
-    flow = app.initiate_auth_code_flow(MS_ACCOUNT_SCOPES, redirect_uri=_redirect_uri(request))
+    flow = app.initiate_auth_code_flow(MS_ACCOUNT_SCOPES, redirect_uri=_redirect_uri())
 
     response = RedirectResponse(flow["auth_uri"], status_code=302)
     response.set_cookie(
