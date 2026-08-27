@@ -90,6 +90,32 @@ def _insert_account_and_email(account_id="acc1", email_id=None):
     return email_id
 
 
+def test_outlook_account_scan_never_touches_gmail_connector(temp_db, monkeypatch):
+    # Canlı testte bulunan bug: sync_new_emails HER ZAMAN GmailConnector
+    # kuruyordu, provider'a bakmaksızın — bir Outlook hesabıyla çağrılınca
+    # o account_id için hiç Google token'ı olmadığından interaktif Google
+    # OAuth akışına düşüp kullanıcının tarayıcısında YANLIŞ hesap için bir
+    # seçim ekranı açıyordu. scan_account_inbox artık provider'ı önceden
+    # kontrol edip sync_new_emails'e HİÇ girmiyor olmalı — burada
+    # sync_new_emails çağrılırsa test kasıtlı olarak patlıyor.
+    now = datetime.now(timezone.utc).isoformat()
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO accounts (id, provider, account_type, email, connected_at, status) "
+            "VALUES ('outlook_acc', 'outlook', 'personal', 'user@hotmail.com', ?, 'active')",
+            (now,),
+        )
+
+    def _boom(account_id):
+        raise AssertionError("sync_new_emails NEVER olmalıydı outlook hesabı için çağrılmamalıydı")
+
+    monkeypatch.setattr(scan_inbox, "sync_new_emails", _boom)
+
+    result = scan_inbox.scan_account_inbox("outlook_acc", _NotWorthyTextOnlyLLM(), _DummyEmbeddingProvider())
+
+    assert result == {"total": 0, "candidates_found": 0, "skipped_errors": 0}
+
+
 def test_not_worthy_with_no_attachments_is_just_skipped(temp_db, monkeypatch):
     email_id = _insert_account_and_email()
     email = UnifiedEmail(

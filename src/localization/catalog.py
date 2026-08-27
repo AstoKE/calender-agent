@@ -171,6 +171,10 @@ MESSAGES: dict[str, dict[str, str]] = {
         "tr": "Bu hesap için bir tarama zaten sürüyor, bitmesini bekleyin.",
         "en": "A scan for this account is already running — please wait for it to finish.",
     },
+    "hesaplar.mail_scan_unsupported": {
+        "tr": "Outlook hesapları için mail taraması henüz desteklenmiyor — yalnızca takvim erişimi çalışıyor.",
+        "en": "Mail scanning isn't supported yet for Outlook accounts — only calendar access works so far.",
+    },
     "hesaplar.scan_errors": {
         "tr": "({errors} mail işlenemedi, sonraki taramada tekrar denenecek.)",
         "en": "({errors} emails could not be processed and will be retried on the next scan.)",

@@ -89,7 +89,14 @@ def start_outlook_oauth(request: Request):
     # `msal.token_cache.TokenCache`, `.serialize()` metodu YOK), callback'te
     # cache'i dosyaya yazmaya çalışınca AttributeError'a yol açardı.
     app = msal.PublicClientApplication(ms_client_id(), authority=AUTHORITY, token_cache=msal.SerializableTokenCache())
-    flow = app.initiate_auth_code_flow(MS_ACCOUNT_SCOPES, redirect_uri=_redirect_uri())
+    # prompt="select_account": prompt'suz bırakılırsa Azure AD tarayıcıdaki
+    # mevcut Microsoft SSO oturumunu sessizce kullanıp hesap seçtirmeden
+    # doğrudan o hesabı onaylıyor (canlı testte bulundu — kullanıcı "Outlook
+    # hesabı ekle"ye bastığında hiç seçim ekranı görmeden zaten o an
+    # tarayıcıda oturum açık olan hesap eklenmişti). Google akışındaki
+    # (oauth_routes.py) prompt="consent" ile AYNI amaç, farklı sağlayıcı
+    # parametre adı.
+    flow = app.initiate_auth_code_flow(MS_ACCOUNT_SCOPES, redirect_uri=_redirect_uri(), prompt="select_account")
 
     response = RedirectResponse(flow["auth_uri"], status_code=302)
     response.set_cookie(
