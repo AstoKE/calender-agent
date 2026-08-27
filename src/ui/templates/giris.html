@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+{# base.html'i BİLEREK extend ETMİYOR — giriş yapmamış bir ziyaretçiye
+   sidebar/topbar göstermenin hiç anlamı yok (bkz. plan). Head/font-yükleme
+   deseni base.html'le AYNI (cache-busting dahil), yalnızca gövde/shell
+   farklı. #}
+<html lang="{{ lang }}"{% if theme != 'system' %} data-theme="{{ theme }}"{% endif %}>
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{ t("giris.title") }} — {{ t("app.brand") }}</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
+    <link rel="stylesheet" href="/static/tokens.css?v={{ static_version('tokens.css') }}" />
+    <link rel="stylesheet" href="/static/base.css?v={{ static_version('base.css') }}" />
+    <link rel="stylesheet" href="/static/components.css?v={{ static_version('components.css') }}" />
+</head>
+<body>
+    {% include "partials/_icons.html" %}
+    <main class="auth-page">
+        <div class="auth-card">
+            <div class="auth-card__brand">
+                <svg class="icon" width="28" height="28" aria-hidden="true"><use href="#icon-calendar"></use></svg>
+                <span>{{ t("app.brand") }}</span>
+            </div>
+            <h1>{{ t("giris.title") }}</h1>
+            <p class="auth-card__subtitle">{{ t("giris.subtitle") }}</p>
+            <div class="provider-dialog__grid">
+                <a class="provider-option" href="/hesaplar/baglan?niyet=giris">
+                    <img class="provider-option__icon" src="/static/logos/gmail.svg?v={{ static_version('logos/gmail.svg') }}" width="48" height="36" alt="" />
+                    <span>Gmail</span>
+                </a>
+                <a class="provider-option" href="/hesap-ekle-outlook?niyet=giris">
+                    <img class="provider-option__icon" src="/static/logos/outlook.svg?v={{ static_version('logos/outlook.svg') }}" width="48" height="45" alt="" />
+                    <span>Outlook</span>
+                </a>
+            </div>
+        </div>
+    </main>
+</body>
+</html>

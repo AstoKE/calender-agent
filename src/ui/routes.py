@@ -470,18 +470,18 @@ def settings_page(request: Request):
             "log_path": str(LOG_PATH),
             "chat_model": "qwen3-4b",
             "embedding_model": "qwen3-embedding-0.6b",
-            "master_account_id": get_preference(MASTER_CALENDAR_PREFERENCE_KEY),
+            "master_account_id": get_preference(MASTER_CALENDAR_PREFERENCE_KEY, user_id=request.state.user["id"]),
         },
     )
 
 
 @router.post("/ayarlar/ana-takvim")
-def set_master_calendar(hesap: str = Form("")):
+def set_master_calendar(request: Request, hesap: str = Form("")):
     # Boş seçim = "Yok" (varsayılan) — her hesap kendi takvimine yazar.
     # Silinen bir hesap burada seçili kalmaz (list_accounts() dropdown'ı zaten
     # yalnızca kayıtlı hesapları sunuyor); resolve_write_account_id de ayrıca
     # geçerliliği kontrol ediyor (bkz. account_registry.py).
-    set_preference(MASTER_CALENDAR_PREFERENCE_KEY, hesap or None)
+    set_preference(MASTER_CALENDAR_PREFERENCE_KEY, hesap or None, user_id=request.state.user["id"])
     return RedirectResponse("/ayarlar", status_code=303)
 
 
@@ -514,7 +514,7 @@ def approve(request: Request, candidate_id: str, force: bool = Form(False), next
             f"/oneriler/{candidate_id}/duzenle?next={quote(next_url, safe='')}", status_code=303
         )
 
-    calendar = _get_calendar(request, resolve_write_account_id(pending["account_id"]))
+    calendar = _get_calendar(request, resolve_write_account_id(pending["account_id"], user_id=request.state.user["id"]))
     start_dt = candidate.start_datetime
     end_dt = start_dt + timedelta(minutes=candidate.duration_minutes)
 

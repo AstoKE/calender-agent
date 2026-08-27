@@ -28,6 +28,8 @@ from src.policies.store import add_policy, get_policy
 from src.providers.base import EmbeddingProvider, LLMProvider
 from src.storage.db import get_connection
 
+from conftest import login_test_client
+
 
 class _DummyLLMProvider(LLMProvider):
     def __init__(self, *args, **kwargs):
@@ -70,6 +72,7 @@ def client(temp_db, monkeypatch):
     from src.ui.app import app
 
     with TestClient(app) as test_client:
+        login_test_client(test_client)
         yield test_client
 
 
@@ -915,7 +918,7 @@ def test_approve_uses_master_calendar_account_when_configured(client, monkeypatc
     ensure_account_registered("acc1", provider="google", email="a@example.com")
     ensure_account_registered("acc2", provider="google", email="b@example.com")
     _pending_candidate_for_account("acc1")
-    set_preference("calendar.master_account_id", "acc2")
+    set_preference("calendar.master_account_id", "acc2", user_id=client.test_user["id"])
 
     with get_connection() as conn:
         candidate_id = conn.execute("SELECT candidate_id FROM candidate_events").fetchone()["candidate_id"]

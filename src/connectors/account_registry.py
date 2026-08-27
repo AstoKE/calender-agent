@@ -23,14 +23,33 @@ def _derive_account_id(email: str) -> str:
     return re.sub(r"[^a-z0-9_-]", "_", local_part)
 
 
-def list_accounts() -> list[dict]:
-    """Kayıtlı tüm hesapları (id, provider, email, status, connected_at) bağlanma
-    sırasına göre döner — hem CLI'nın select_account()'ı hem Web UI'nin
-    "E-posta Hesapları" ekranı (bkz. src/ui/routes.py) kullanıyor."""
+def list_accounts(user_id: str | None = None) -> list[dict]:
+    """Kayıtlı hesapları (id, provider, email, status, connected_at) bağlanma
+    sırasına göre döner. `user_id` verilirse o kullanıcıya ait hesaplar VE
+    henüz kimseye ait olmayan (`user_id IS NULL`) hesaplar (bkz. src/ui/auth.py
+    — Web UI'nin login katmanı, her istekte bunu geçirir); `None` ise (CLI'nın
+    select_account()'ı — CLI BİLEREK login sisteminin dışında, bkz. plan)
+    tüm hesaplar, sahiplik fark etmez.
+
+    Sahipsiz hesapların da görünür kalması BİLİNÇLİ: CLI'nın kendi
+    ensure_account_registered çağrıları hiçbir zaman user_id vermiyor (login
+    sisteminin dışında olduğu için), yani CLI'dan eklenen hesaplar KALICI
+    olarak sahipsiz kalır — bu proje tek bir yerel operatör için (bkz.
+    CLAUDE.md), o operatör hem CLI hem web'i kullanabiliyor, bu yüzden
+    "kimseye ait değil" burada "gerçek çok-kiracılı bir sızıntı" değil,
+    "bu makinenin sahibinin henüz web'den devralmadığı kendi verisi"
+    anlamına geliyor (bkz. auth.py::adopt_orphaned_data ile AYNI gerekçe)."""
     with get_connection() as conn:
-        rows = conn.execute(
-            "SELECT id, provider, email, status, connected_at FROM accounts ORDER BY connected_at"
-        ).fetchall()
+        if user_id is not None:
+            rows = conn.execute(
+                "SELECT id, provider, email, status, connected_at FROM accounts "
+                "WHERE user_id = ? OR user_id IS NULL ORDER BY connected_at",
+                (user_id,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT id, provider, email, status, connected_at FROM accounts ORDER BY connected_at"
+            ).fetchall()
     return [dict(row) for row in rows]
 
 
@@ -77,16 +96,19 @@ def select_account() -> tuple[str, str]:
     return account_id, email
 
 
-def resolve_write_account_id(fallback_account_id: str) -> str:
+def resolve_write_account_id(fallback_account_id: str, user_id: str | None = None) -> str:
     """"Ana takvim hesabı" ayarlanmışsa VE hâlâ kayıtlıysa onu döner — mail
     taraması hangi hesaptan gelirse gelsin (`fallback_account_id`), onay/
     sohbet YAZMASI hep bu TEK hesaba gider (bkz. Ayarlar ekranındaki "Ana
     takvim hesabı" seçimi, `MASTER_CALENDAR_PREFERENCE_KEY`). Ayarlanmamışsa
     (varsayılan) `fallback_account_id`'nin kendisi döner — mevcut davranış
     DEĞİŞMEZ. Silinmiş/artık kayıtlı olmayan bir hesap ayarlıysa da aynı
-    şekilde fallback'e düşer (sessizce, istisna fırlatmadan)."""
-    master_id = get_preference(MASTER_CALENDAR_PREFERENCE_KEY)
-    if master_id and any(acc["id"] == master_id for acc in list_accounts()):
+    şekilde fallback'e düşer (sessizce, istisna fırlatmadan). `user_id`
+    verilirse (Web UI — bkz. src/ui/auth.py) hem tercih hem hesap listesi o
+    kullanıcıya scoped; `None` ise (CLI, login sisteminin BİLEREK dışında)
+    eski, sahiplikten bağımsız davranış."""
+    master_id = get_preference(MASTER_CALENDAR_PREFERENCE_KEY, user_id=user_id)
+    if master_id and any(acc["id"] == master_id for acc in list_accounts(user_id=user_id)):
         return master_id
     return fallback_account_id
 
@@ -96,16 +118,21 @@ def ensure_account_registered(
     provider: str,
     email: str,
     account_type: str = "personal",
+    user_id: str | None = None,
 ) -> None:
-    """`accounts` tablosunda bu account_id için kayıt yoksa oluşturur (idempotent)."""
+    """`accounts` tablosunda bu account_id için kayıt yoksa oluşturur
+    (idempotent). `user_id` verilirse hesap o kullanıcıya bağlanır (bkz.
+    src/ui/auth.py) — zaten kayıtlı bir hesap için VERİLMEZ/DEĞİŞTİRİLMEZ
+    (bu fonksiyon yalnızca YENİ kayıt oluşturur, mevcut sahipliği asla
+    ezmez)."""
     with get_connection() as conn:
         existing = conn.execute("SELECT 1 FROM accounts WHERE id = ?", (account_id,)).fetchone()
         if existing:
             return
         conn.execute(
             """
-            INSERT INTO accounts (id, provider, account_type, email, connected_at, status)
-            VALUES (?, ?, ?, ?, ?, 'active')
+            INSERT INTO accounts (id, provider, account_type, email, connected_at, status, user_id)
+            VALUES (?, ?, ?, ?, ?, 'active', ?)
             """,
-            (account_id, provider, account_type, email, datetime.now(timezone.utc).isoformat()),
+            (account_id, provider, account_type, email, datetime.now(timezone.utc).isoformat(), user_id),
         )

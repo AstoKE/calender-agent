@@ -50,6 +50,14 @@ MESSAGES: dict[str, dict[str, str]] = {
     "nav.duzeltmelerim": {"tr": "Düzeltmelerim", "en": "My Corrections"},
     "nav.ayarlar": {"tr": "Ayarlar", "en": "Settings"},
 
+    # --- Giriş / Çıkış (bkz. plan "Real login (Gmail/Outlook)") ---
+    "giris.title": {"tr": "Giriş yap", "en": "Sign in"},
+    "giris.subtitle": {
+        "tr": "Devam etmek için bir hesapla giriş yapın.",
+        "en": "Sign in with an account to continue.",
+    },
+    "common.logout": {"tr": "Çıkış yap", "en": "Sign out"},
+
     # --- 404 ---
     "notfound.title": {"tr": "Sayfa bulunamadı", "en": "Page not found"},
     "notfound.body": {

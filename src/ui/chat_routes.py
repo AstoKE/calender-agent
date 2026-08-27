@@ -207,7 +207,7 @@ def send_chat_message(
             # HEP o TEK hesaba gider — böylece "asistanın takvimi" tutarlı
             # tek bir yer olur, aktif hesap yalnızca mail/hesap gezinme
             # bağlamını değiştirir.
-            calendar = _get_calendar(request, resolve_write_account_id(account_id))
+            calendar = _get_calendar(request, resolve_write_account_id(account_id, user_id=request.state.user["id"]))
             process_message(
                 session_id,
                 user_text,

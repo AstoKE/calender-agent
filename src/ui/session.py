@@ -25,9 +25,16 @@ def resolve_active_account(request: Request, accounts: list[dict] | None = None)
     """Cookie'deki id hâlâ kayıtlıysa onu; değilse ilk hesabı (list_accounts
     zaten connected_at'e göre sıralı, deterministik); hiç hesap yoksa None
     döner. HİÇBİR durumda istisna fırlatmaz — yedi ekranın hepsi
-    active_account is None ile ilk-çalıştırma durumu göstermeli, 500 değil."""
+    active_account is None ile ilk-çalıştırma durumu göstermeli, 500 değil.
+
+    `accounts` verilmezse `request.state.user`'a (bkz. auth_guard_middleware)
+    scoped bir liste kendi çeker — route'ların çoğu (bkz. routes.py/
+    chat_routes.py'deki birçok çağrı noktası) `account_session_middleware`'in
+    zaten hesapladığı `request.state.accounts`'ı YENİDEN geçirmiyor, bu
+    yüzden scoping'in BURADA da doğru olması login izolasyonu için kritik."""
     if accounts is None:
-        accounts = list_accounts()
+        user = getattr(request.state, "user", None)
+        accounts = list_accounts(user_id=user["id"]) if user else []
     if not accounts:
         return None
     cookie_id = request.cookies.get(ACCOUNT_COOKIE)

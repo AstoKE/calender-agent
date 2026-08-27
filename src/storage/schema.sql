@@ -6,6 +6,27 @@
 
 PRAGMA foreign_keys = ON;
 
+-- Uygulama girişi (bkz. src/ui/auth.py) — Gmail/Outlook OAuth ile giriş,
+-- yalnızca kimlik: gerçek mail/takvim erişimi hâlâ accounts tablosundaki
+-- BAĞLI hesaplar üzerinden. Bugün gerçekçi olarak tek satır (tek kullanıcı,
+-- yerel kurulum) ama tabloyu ayrı tutmak accounts'un "bağlı mail kaynağı"
+-- anlamını bozmadan bir kimlik kavramı ekliyor.
+CREATE TABLE IF NOT EXISTS users (
+    id                  TEXT PRIMARY KEY,
+    email               TEXT NOT NULL UNIQUE,
+    created_at          TEXT NOT NULL
+);
+
+-- Opak, rastgele token (bkz. auth.py::create_session, secrets.token_urlsafe) —
+-- sunucu tarafında saklanan, imzalı bir JWT DEĞİL (chat_sessions'la AYNI
+-- "DB'de tut, imzalama anahtarı yönetme" deseni).
+CREATE TABLE IF NOT EXISTS sessions (
+    token               TEXT PRIMARY KEY,
+    user_id             TEXT NOT NULL REFERENCES users(id),
+    created_at          TEXT NOT NULL,
+    expires_at          TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS accounts (
     id                  TEXT PRIMARY KEY,
     provider            TEXT NOT NULL,          -- gmail | outlook | google_calendar | ms_calendar
@@ -14,7 +35,8 @@ CREATE TABLE IF NOT EXISTS accounts (
     oauth_token_ref     TEXT,                   -- şifrelenmiş token'a referans (token'ın kendisi değil)
     scopes              TEXT,                   -- JSON dizi
     connected_at        TEXT NOT NULL,
-    status               TEXT NOT NULL DEFAULT 'active'  -- active | disconnected | error
+    status               TEXT NOT NULL DEFAULT 'active',  -- active | disconnected | error
+    user_id             TEXT REFERENCES users(id)  -- NULL: eski/sahipsiz kayıt (bkz. auth.py ilk-giriş devralma)
 );
 
 CREATE TABLE IF NOT EXISTS email_threads (
@@ -202,7 +224,8 @@ CREATE TABLE IF NOT EXISTS user_preferences (
     value               TEXT NOT NULL,           -- JSON
     derived_from        TEXT,                    -- correction_id | 'manual'
     approved_by_user    INTEGER NOT NULL DEFAULT 1,
-    created_at          TEXT NOT NULL
+    created_at          TEXT NOT NULL,
+    user_id             TEXT REFERENCES users(id)  -- NULL: eski/sahipsiz kayıt (bkz. auth.py ilk-giriş devralma)
 );
 
 CREATE TABLE IF NOT EXISTS approvals (

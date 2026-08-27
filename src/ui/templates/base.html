@@ -112,6 +112,9 @@
                             {% endfor %}
                         </form>
                         <a class="menu__footer-link" href="/hesaplar">{{ t("nav.hesaplar") }}</a>
+                        <form method="post" action="/cikis">
+                            <button type="submit" class="menu__footer-link menu__footer-link--button">{{ t("common.logout") }}</button>
+                        </form>
                     </div>
                 </details>
                 {% endif %}

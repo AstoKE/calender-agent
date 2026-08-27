@@ -21,6 +21,8 @@ _ADHOC_COLUMN_MIGRATIONS = [
     ("candidate_events", "google_event_id", "TEXT"),
     ("candidate_events", "previous_snapshot", "TEXT"),
     ("calendar_events_cache", "raw_json", "TEXT"),
+    ("accounts", "user_id", "TEXT"),
+    ("user_preferences", "user_id", "TEXT"),
 ]
 
 

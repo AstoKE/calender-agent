@@ -1,9 +1,10 @@
 """CSRF koruması (bkz. plan "Güvenlik").
 
-Bu sunucunun auth'u yok (bkz. app.py docstring) — her POST kimliksiz
-localhost isteği olarak durum değiştiriyor, ve bu redesign POST yüzeyini
-büyütüyor (hesap değiştirme, kural pasifleştirme, düzeltme silme...).
-Bağımsız bir CSRF token mekanizması kurmak yerine tarayıcının kendi
+Oturum çerezi (bkz. src/ui/auth.py) tarayıcı tarafından HER isteğe
+otomatik eklendiği için (tam olarak CSRF'in istismar ettiği şey) bir POST
+hâlâ kimliksiz sayılıyor — session cookie'nin varlığı tek başına "bu istek
+gerçekten bu sekmeden geldi" garantisi vermiyor. Bağımsız bir CSRF token
+mekanizması kurmak yerine tarayıcının kendi
 gönderdiği Fetch Metadata başlığına (Sec-Fetch-Site) bakan ücretsiz bir
 kontrol yeterli: başka bir origin'deki (örn. kötü niyetli bir sekmedeki)
 bir sayfadan gelen POST bu başlığı 'cross-site' taşır, tarayıcı bunu

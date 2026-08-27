@@ -482,6 +482,21 @@ h1 .icon {
     text-decoration: none;
 }
 
+/* Çıkış yap — .menu__footer-link'in AYNI görünümü ama bir <button> üzerinde
+   (bkz. base.html hesap menüsü — logout state DEĞİŞTİRDİĞİ için <a> değil
+   POST formu olmalı). */
+.menu__footer-link--button {
+    width: 100%;
+    text-align: left;
+    background: none;
+    border: none;
+    border-top: 1px solid var(--color-border);
+    font: inherit;
+    font-size: 0.85rem;
+    color: var(--color-text);
+    cursor: pointer;
+}
+
 /* --- Bildirim çanı (bkz. base.html topbar — dil/tema menüleriyle aynı
    sıfır-JS <details> deseni). Rozet .menu'nün position:relative'ine göre
    köşeye konumlanıyor. --- */
@@ -1551,6 +1566,50 @@ code {
 
 .assistant-chat__file-name {
     margin: 0 0 var(--space-2);
+}
+
+/* --- Giriş sayfası (bkz. giris.html — base.html'i extend ETMİYOR, kendi
+   kabuğu) --- */
+
+.auth-page {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-5);
+    background: var(--color-surface-sunken);
+}
+
+.auth-card {
+    width: 100%;
+    max-width: 24rem;
+    background: var(--color-surface-raised);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-2);
+    padding: var(--space-6) var(--space-5);
+    text-align: center;
+}
+
+.auth-card__brand {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    color: var(--color-accent);
+    font-weight: 500;
+    margin-bottom: var(--space-5);
+}
+
+.auth-card h1 {
+    font-size: 1.3rem;
+    margin: 0 0 var(--space-2);
+}
+
+.auth-card__subtitle {
+    color: var(--color-text-muted);
+    font-size: 0.9rem;
+    margin: 0 0 var(--space-5);
 }
 
 /* --- Hesap sağlayıcı seçim ekranı (bkz. hesaplar.html, native <dialog>) --- */

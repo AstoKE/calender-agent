@@ -24,3 +24,21 @@ def temp_db(tmp_path, monkeypatch):
     monkeypatch.setattr(db_module, "DEFAULT_DB_PATH", path)
     db_module.init_db()
     return path
+
+
+def login_test_client(test_client, email: str = "test@example.com") -> dict:
+    """Bu login sisteminden ÖNCEki testlerin çoğu (bkz. plan "Real login")
+    doğrudan `TestClient(app)` kuruyordu — auth_guard_middleware eklendikten
+    sonra bu, her istekte /giris'e yönlenmeye yol açar. Testin kendi
+    `client` fixture'ı bunu bir kez çağırıp döndürülen cookie'yi
+    `test_client`'ın kalıcı cookie jar'ına yazmalı, testler login akışının
+    KENDİSİNİ test etmedikçe (bkz. test_oauth_routes.py'nin niyet=giris
+    testleri, AYRI bir login-yapmamış client kullanır) auth'u hiç bilmesin
+    diye."""
+    from src.ui.auth import create_session, create_user
+
+    user = create_user(email)
+    token = create_session(user["id"])
+    test_client.cookies.set("session_token", token)
+    test_client.test_user = user  # testler user_id gerektiğinde (bkz. master takvim hesabı testleri) buradan okur
+    return user

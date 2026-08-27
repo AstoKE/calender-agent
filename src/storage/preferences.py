@@ -22,26 +22,47 @@ from typing import Any
 from src.storage.db import get_connection
 
 
-def get_preference(key: str, default: Any = None) -> Any:
+def get_preference(key: str, default: Any = None, user_id: str | None = None) -> Any:
+    """`user_id` verilirse yalnızca o kullanıcıya ait satır (bkz. src/ui/auth.py
+    — Web UI'nin login katmanı); `None` ise (CLI — BİLEREK login sisteminin
+    dışında, bkz. plan "Real login") ESKİ, sahiplikten bağımsız davranış:
+    hangi kullanıcıya ait olursa olsun bu anahtardaki satır. Web login
+    katmanı eklendikten SONRA bile CLI'nın çalışmaya devam etmesi için
+    (ilk girişte mevcut satırlar o kullanıcıya devrediliyor, bkz.
+    auth.py::adopt_orphaned_data — CLI bunu hiç bilmiyor, DB'nin tamamını
+    hâlâ "tek kullanıcı" gibi okuyor)."""
     with get_connection() as conn:
-        row = conn.execute(
-            "SELECT value FROM user_preferences WHERE preference_key = ?", (key,)
-        ).fetchone()
+        if user_id is not None:
+            row = conn.execute(
+                "SELECT value FROM user_preferences WHERE preference_key = ? AND user_id = ?", (key, user_id)
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT value FROM user_preferences WHERE preference_key = ?", (key,)
+            ).fetchone()
     return json.loads(row["value"]) if row else default
 
 
-def set_preference(key: str, value: Any, derived_from: str = "manual") -> None:
+def set_preference(key: str, value: Any, derived_from: str = "manual", user_id: str | None = None) -> None:
     now = datetime.now(timezone.utc).isoformat()
     with get_connection() as conn:
-        conn.execute("DELETE FROM user_preferences WHERE preference_key = ?", (key,))
+        if user_id is not None:
+            conn.execute("DELETE FROM user_preferences WHERE preference_key = ? AND user_id = ?", (key, user_id))
+        else:
+            conn.execute("DELETE FROM user_preferences WHERE preference_key = ?", (key,))
         conn.execute(
-            "INSERT INTO user_preferences (id, preference_key, value, derived_from, approved_by_user, created_at) "
-            "VALUES (?,?,?,?,1,?)",
-            (str(uuid.uuid4()), key, json.dumps(value), derived_from, now),
+            "INSERT INTO user_preferences (id, preference_key, value, derived_from, approved_by_user, created_at, user_id) "
+            "VALUES (?,?,?,?,1,?,?)",
+            (str(uuid.uuid4()), key, json.dumps(value), derived_from, now, user_id),
         )
 
 
-def list_preferences() -> dict:
+def list_preferences(user_id: str | None = None) -> dict:
     with get_connection() as conn:
-        rows = conn.execute("SELECT preference_key, value FROM user_preferences").fetchall()
+        if user_id is not None:
+            rows = conn.execute(
+                "SELECT preference_key, value FROM user_preferences WHERE user_id = ?", (user_id,)
+            ).fetchall()
+        else:
+            rows = conn.execute("SELECT preference_key, value FROM user_preferences").fetchall()
     return {row["preference_key"]: json.loads(row["value"]) for row in rows}

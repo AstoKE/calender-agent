@@ -7,11 +7,13 @@ bir sohbet kutusu — create_event/query_calendar/update_event/define_policy
 + ACM'nin "gelecekte de uygulayayım mı?" akışı (bkz. src/ui/chat_routes.py,
 src/services/chat_flow.py).
 
-Bu proje kişisel/yerel-öncelikli tek kullanıcı için (bkz. CLAUDE.md) — web
-tarafında ayrı bir login/auth katmanı YOK, sunucu yalnızca localhost'a
-bağlanır. Yeni bir Google hesabı tarayıcıdan da eklenebilir (bkz.
-src/ui/oauth_routes.py) — CLI'nın select_account()'ı hâlâ geçerli bir
-alternatif.
+Bu proje kişisel/yerel-öncelikli için (bkz. CLAUDE.md) — sunucu yalnızca
+localhost'a bağlanır. Web tarafı artık gerçek bir giriş katmanına sahip
+(Gmail/Outlook OAuth ile, bkz. src/ui/auth.py + auth_guard_middleware
+aşağıda) — bağlı mail/takvim hesapları (`accounts`) giriş yapılan kimliğe
+(`users`) bağlı. CLI'nın select_account()'ı BİLEREK bu login sisteminin
+dışında kaldı (bkz. plan "Real login (Gmail/Outlook)") — CLI'yı çalıştıran
+kişi zaten makinenin sahibi, hesap listesini scoped GÖRMEZ.
 
 `python -m src.ui.app` ile çalıştırılır.
 """
@@ -25,6 +27,7 @@ from pathlib import Path
 import uvicorn
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from src.connectors.account_registry import list_accounts
@@ -32,6 +35,7 @@ from src.core.logging_config import configure_logging
 from src.providers.foundry_local import FoundryLocalEmbeddingProvider, FoundryLocalProvider
 from src.providers.gemini import GeminiEmbeddingProvider, GeminiProvider
 from src.storage.db import init_db
+from src.ui.auth import get_current_user
 from src.ui.security import CSRFGuardMiddleware
 from src.ui.session import resolve_active_account, set_session_cookies
 from src.ui.templating import templates
@@ -115,10 +119,18 @@ async def account_session_middleware(request: Request, call_next):
     Route handler'ın bu TAM istekte kendi isteğiyle farklı bir hesaba
     geçmiş olabileceğini (POST /hesap-sec) hesaba katar — response zaten
     kendi Set-Cookie'sini taşıyorsa üzerine yazmaz/ikinci bir tane eklemez,
-    aksi halde tarayıcı aynı isim için iki çelişen Set-Cookie alır."""
+    aksi halde tarayıcı aynı isim için iki çelişen Set-Cookie alır.
+
+    `request.state.user` (auth_guard_middleware'in, bu middleware'den ÖNCE
+    çalışıp doldurduğu — bkz. altta) varsa hesap listesi ona scoped; login
+    sisteminden ÖNCEki bir istek (statik dosya gibi, buraya hiç girmeyen)
+    dışında artık her zaman dolu olmalı, ama yine de `getattr` ile
+    savunmacı okunuyor (bkz. plan: bu middleware'in kendisi başarısız
+    olursa 404 dahil HER sayfa çökebilir)."""
     if request.url.path.startswith("/static"):
         return await call_next(request)
-    accounts = list_accounts()
+    user = getattr(request.state, "user", None)
+    accounts = list_accounts(user_id=user["id"]) if user else []
     active_account = resolve_active_account(request, accounts)
     request.state.accounts = accounts
     request.state.active_account = active_account
@@ -132,9 +144,38 @@ async def account_session_middleware(request: Request, call_next):
     return response
 
 
-# CSRFGuardMiddleware account_session_middleware'den SONRA eklenmeli ki
-# (Starlette'te sonra eklenen middleware en dışta olur, isteği ilk o görür)
-# reddedilen bir cross-site POST için hesap sorgusu hiç çalışmasın.
+# /giris, /cikis ve OAuth başlangıç/geri-dönüş rotaları girişsiz erişilebilir
+# olmalı (giriş yapmanın KENDİSİ bu rotalardan geçiyor — aksi halde kimse
+# hiç giriş yapamazdı). Diğer HER şey (favicon/404 dahil) giriş ister.
+_AUTH_EXEMPT_PATHS = {
+    "/giris", "/cikis",
+    "/hesaplar/baglan", "/hesaplar/oauth/geri-don",
+    "/hesap-ekle-outlook", "/hesap-ekle-outlook/callback",
+    "/favicon.ico",
+}
+
+
+@app.middleware("http")
+async def auth_guard_middleware(request: Request, call_next):
+    """`account_session_middleware`'DEN ÖNCE eklenmeli (Starlette'te sonra
+    eklenen middleware en dışta olur — bkz. aşağıdaki CSRFGuardMiddleware
+    yorumuyla AYNI mekanik) ki o, `request.state.user`'ı zaten dolu bulsun.
+
+    Oturum HER istekte çözülür (yalnızca korumalı rotalarda değil) — muaf
+    bir rota (örn. `/hesaplar/baglan`, hem "giriş yap" hem "hesap ekle"
+    akışının PAYLAŞTIĞI callback) kendi içinde "zaten giriş yapılmış mı"
+    ayrımı yapabilsin diye (bkz. oauth_routes.py `oauth_intent` dallanması)."""
+    if request.url.path.startswith("/static"):
+        return await call_next(request)
+    request.state.user = get_current_user(request)
+    if request.state.user is None and request.url.path not in _AUTH_EXEMPT_PATHS:
+        return RedirectResponse("/giris", status_code=303)
+    return await call_next(request)
+
+
+# CSRFGuardMiddleware EN SONA eklenmeli ki (Starlette'te sonra eklenen
+# middleware en dışta olur, isteği ilk o görür) reddedilen bir cross-site
+# POST için ne oturum ne hesap sorgusu hiç çalışmasın.
 app.add_middleware(CSRFGuardMiddleware)
 
 from src.ui.routes import router  # noqa: E402 — döngüsel import'u önlemek için app tanımlandıktan sonra
@@ -154,6 +195,10 @@ app.include_router(oauth_router)
 from src.ui.outlook_oauth_routes import router as outlook_oauth_router  # noqa: E402
 
 app.include_router(outlook_oauth_router)
+
+from src.ui.auth_routes import router as auth_router  # noqa: E402
+
+app.include_router(auth_router)
 
 
 if __name__ == "__main__":

@@ -39,6 +39,7 @@ from fastapi.responses import RedirectResponse
 from src.connectors.account_registry import ensure_account_registered
 from src.connectors.microsoft_auth import AUTHORITY, MS_ACCOUNT_SCOPES, ms_client_id, save_ms_token_cache
 from src.core.logging_config import get_logger
+from src.ui.auth import SESSION_COOKIE, adopt_orphaned_data, create_session, create_user, get_user_by_email
 from src.ui.session import set_session_cookies
 
 router = APIRouter()
@@ -46,6 +47,10 @@ logger = get_logger("ui.outlook_oauth_routes")
 
 OAUTH_FLOW_COOKIE = "outlook_oauth_flow"
 OAUTH_FLOW_MAX_AGE = 600  # 10 dk — Google akışıyla aynı süre (bkz. oauth_routes.py)
+
+# "Giriş yap" (bkz. /giris) ve "hesap ekle" AYNI rotaları paylaşıyor — bkz.
+# oauth_routes.py'deki AYNI mekanizmanın birebir karşılığı.
+OAUTH_INTENT_COOKIE = "oauth_intent"
 
 
 def _redirect_uri() -> str:
@@ -77,11 +82,12 @@ def _derive_outlook_account_id(email: str) -> str:
 
 
 @router.get("/hesap-ekle-outlook")
-def start_outlook_oauth(request: Request):
+def start_outlook_oauth(request: Request, niyet: str | None = None):
     try:
         ms_client_id()
     except RuntimeError:
-        return RedirectResponse("/hesaplar?oauth_hata=ms_client_yok", status_code=303)
+        target = "/giris" if niyet == "giris" else "/hesaplar"
+        return RedirectResponse(f"{target}?oauth_hata=ms_client_yok", status_code=303)
 
     # token_cache AÇIKÇA SerializableTokenCache olarak veriliyor — verilmezse
     # MSAL sessizce düz (serileştirilemeyen) bir TokenCache kurar (doğrulandı:
@@ -103,37 +109,51 @@ def start_outlook_oauth(request: Request):
         OAUTH_FLOW_COOKIE, json.dumps(flow), max_age=OAUTH_FLOW_MAX_AGE, path="/hesap-ekle-outlook",
         httponly=True, samesite="lax",
     )
+    if niyet == "giris":
+        response.set_cookie(
+            OAUTH_INTENT_COOKIE, "giris", max_age=OAUTH_FLOW_MAX_AGE, path="/hesap-ekle-outlook",
+            httponly=True, samesite="lax",
+        )
     return response
 
 
-def _oauth_error_redirect(reason: str) -> RedirectResponse:
-    response = RedirectResponse(f"/hesaplar?oauth_hata={reason}", status_code=303)
+def _oauth_error_redirect(reason: str, *, is_login: bool) -> RedirectResponse:
+    target = "/giris" if is_login else "/hesaplar"
+    response = RedirectResponse(f"{target}?oauth_hata={reason}", status_code=303)
     response.delete_cookie(OAUTH_FLOW_COOKIE, path="/hesap-ekle-outlook")
+    response.delete_cookie(OAUTH_INTENT_COOKIE, path="/hesap-ekle-outlook")
     return response
 
 
 @router.get("/hesap-ekle-outlook/callback", name="outlook_oauth_callback")
 def outlook_oauth_callback(request: Request):
+    is_login = request.cookies.get(OAUTH_INTENT_COOKIE) == "giris"
+
     if request.query_params.get("error"):
         # Kullanıcı Microsoft'un onay ekranında "İptal"e bastı.
-        return _oauth_error_redirect("reddedildi")
+        return _oauth_error_redirect("reddedildi", is_login=is_login)
 
     flow_cookie = request.cookies.get(OAUTH_FLOW_COOKIE)
     if not flow_cookie:
         logger.warning("Outlook OAuth geri dönüşü: flow cookie'si eksik")
-        return _oauth_error_redirect("gecersiz")
+        return _oauth_error_redirect("gecersiz", is_login=is_login)
 
     try:
         flow = json.loads(flow_cookie)
     except json.JSONDecodeError:
-        return _oauth_error_redirect("gecersiz")
+        return _oauth_error_redirect("gecersiz", is_login=is_login)
+
+    # bkz. oauth_routes.py::oauth_callback'teki AYNI koruma — "hesap ekle"
+    # niyeti giriş yapılmış bir oturum gerektirir.
+    if not is_login and request.state.user is None:
+        return _oauth_error_redirect("gecersiz", is_login=True)
 
     app = msal.PublicClientApplication(ms_client_id(), authority=AUTHORITY, token_cache=msal.SerializableTokenCache())
     try:
         result = app.acquire_token_by_auth_code_flow(flow, dict(request.query_params))
         if "access_token" not in result:
             logger.warning("Outlook OAuth token değişimi başarısız: %s", result.get("error_description"))
-            return _oauth_error_redirect("basarisiz")
+            return _oauth_error_redirect("basarisiz", is_login=is_login)
 
         # E-posta adresini kullanıcının yazmasına değil, gerçekten onayladığı
         # hesaba göre belirliyoruz (Google akışıyla AYNI gerekçe, bkz.
@@ -148,7 +168,7 @@ def outlook_oauth_callback(request: Request):
         email = profile.get("mail") or profile["userPrincipalName"]
     except Exception:
         logger.exception("Outlook OAuth token değişimi ya da profil sorgusu başarısız")
-        return _oauth_error_redirect("basarisiz")
+        return _oauth_error_redirect("basarisiz", is_login=is_login)
 
     account_id = _derive_outlook_account_id(email)
 
@@ -158,9 +178,24 @@ def outlook_oauth_callback(request: Request):
     # dosya-başına-hesap deseni, get_ms_token/load_ms_token_noninteractive
     # bundan sonra bu dosyayı okuyacak).
     save_ms_token_cache(account_id, app.token_cache)
-    ensure_account_registered(account_id, provider="outlook", email=email)
 
-    response = RedirectResponse("/hesaplar?hesap_eklendi=1", status_code=303)
+    if is_login:
+        # bkz. oauth_routes.py::oauth_callback'teki AYNI giriş/kayıt mantığı.
+        user = get_user_by_email(email)
+        if user is None:
+            user = create_user(email)
+            adopt_orphaned_data(user["id"])
+        ensure_account_registered(account_id, provider="outlook", email=email, user_id=user["id"])
+        session_token = create_session(user["id"])
+        response = RedirectResponse("/anasayfa", status_code=303)
+        response.set_cookie(
+            SESSION_COOKIE, session_token, max_age=400 * 24 * 3600, path="/", httponly=True, samesite="lax",
+        )
+    else:
+        ensure_account_registered(account_id, provider="outlook", email=email, user_id=request.state.user["id"])
+        response = RedirectResponse("/hesaplar?hesap_eklendi=1", status_code=303)
+        set_session_cookies(response, account_id=account_id)
+
     response.delete_cookie(OAUTH_FLOW_COOKIE, path="/hesap-ekle-outlook")
-    set_session_cookies(response, account_id=account_id)
+    response.delete_cookie(OAUTH_INTENT_COOKIE, path="/hesap-ekle-outlook")
     return response

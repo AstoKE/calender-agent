@@ -19,6 +19,8 @@ from src.connectors.account_registry import ensure_account_registered
 from src.providers.base import EmbeddingProvider, FileInputCapable, LLMProvider
 from src.storage.db import get_connection
 
+from conftest import login_test_client
+
 
 class _DummyLLMProvider(LLMProvider):
     def __init__(self, *args, **kwargs):
@@ -107,6 +109,7 @@ def client(temp_db, monkeypatch):
     from src.ui.app import app
 
     with TestClient(app) as test_client:
+        login_test_client(test_client)
         yield test_client
 
 
@@ -124,6 +127,7 @@ def vision_client(temp_db, monkeypatch):
     from src.ui.app import app
 
     with TestClient(app) as test_client:
+        login_test_client(test_client)
         yield test_client
 
 
@@ -222,8 +226,16 @@ def test_message_history_survives_simulated_restart(client, monkeypatch):
     from src.ui.app import app as restarted_app
 
     with TestClient(restarted_app) as restarted_client:
+        # Oturum (auth) DB'de tutuluyor (bkz. src/ui/auth.py) — "sunucu
+        # yeniden başlar" senaryosunda diğer her şey gibi HAYATTA kalmalı,
+        # bu yüzden orijinal client'ın gerçek session_token'ı yeniden
+        # kullanılıyor (yeni bir tane üretmiyoruz).
         page = restarted_client.get(
-            "/anasayfa", cookies={"chat_session": session_id, "active_account": "acc1"}
+            "/anasayfa",
+            cookies={
+                "chat_session": session_id, "active_account": "acc1",
+                "session_token": client.cookies.get("session_token"),
+            },
         )
         assert page.status_code == 200
         assert "merhaba, ilk mesaj" in page.text
@@ -240,7 +252,7 @@ def test_chat_uses_master_calendar_account_when_configured(client, monkeypatch):
 
     ensure_account_registered("acc1", provider="google", email="a@example.com")
     ensure_account_registered("acc2", provider="google", email="b@example.com")
-    set_preference("calendar.master_account_id", "acc2")
+    set_preference("calendar.master_account_id", "acc2", user_id=client.test_user["id"])
 
     used_account_ids: list[str] = []
     monkeypatch.setattr(
