@@ -12,18 +12,20 @@ import json
 import uuid
 from datetime import datetime, timezone
 
+from src.connectors.account_registry import get_account
 from src.connectors.gmail import GmailConnector
+from src.connectors.outlook import OutlookConnector
 from src.core.models import UnifiedEmail
 from src.storage.db import get_connection
 
 BODY_EXCERPT_MAX_CHARS = 2000
 
 
-def _get_sync_cursor(account_id: str) -> str | None:
+def _get_sync_cursor(account_id: str, sync_provider: str) -> str | None:
     with get_connection() as conn:
         row = conn.execute(
-            "SELECT provider_cursor_or_history_id FROM sync_states WHERE provider = 'gmail' AND account_id = ?",
-            (account_id,),
+            "SELECT provider_cursor_or_history_id FROM sync_states WHERE provider = ? AND account_id = ?",
+            (sync_provider, account_id),
         ).fetchone()
     return row["provider_cursor_or_history_id"] if row else None
 
@@ -41,18 +43,18 @@ def get_sync_state(account_id: str, provider: str = "gmail") -> dict | None:
     return dict(row) if row else None
 
 
-def _save_sync_cursor(account_id: str, cursor: str) -> None:
+def _save_sync_cursor(account_id: str, sync_provider: str, cursor: str) -> None:
     now = datetime.now(timezone.utc).isoformat()
     with get_connection() as conn:
         conn.execute(
             """
             INSERT INTO sync_states (provider, account_id, last_sync_at, provider_cursor_or_history_id)
-            VALUES ('gmail', ?, ?, ?)
+            VALUES (?, ?, ?, ?)
             ON CONFLICT(provider, account_id) DO UPDATE SET
                 last_sync_at = excluded.last_sync_at,
                 provider_cursor_or_history_id = excluded.provider_cursor_or_history_id
             """,
-            (account_id, now, cursor),
+            (sync_provider, account_id, now, cursor),
         )
 
 
@@ -170,13 +172,27 @@ def sync_new_emails(account_id: str) -> list[tuple[str, UnifiedEmail]]:
     edilmemiş TÜM mailleri döner (bu çalıştırmada yeni gelenler + önceki bir
     çalıştırmadan kalan işlenmemişler — bkz. get_unprocessed_emails).
 
-    İlk senkronizasyonda Gmail'den son ~25 mesaj çekilir, sonrakilerde
-    yalnızca historyId cursor'ından beri gelenler (bkz.
-    GmailConnector.list_new_messages)."""
-    gmail = GmailConnector(account_id=account_id)
-    cursor = _get_sync_cursor(account_id)
-    messages, new_cursor = gmail.list_new_messages(cursor)
-    _save_sync_cursor(account_id, new_cursor)
+    Hesabın sağlayıcısına göre GmailConnector/OutlookConnector arasında
+    dallanır — canlı testte bulunan bir hatanın düzeltmesi: önceden burası
+    KOŞULSUZ GmailConnector kuruyordu, bir Outlook
+    hesabıyla çağrılınca o hesap için hiç Google token'ı olmadığından
+    interaktif Google OAuth akışına düşüp yanlış sağlayıcı için bir tarayıcı
+    penceresi açıyordu (bkz. CLAUDE.md Outlook bölümü).
+
+    İlk senkronizasyonda sağlayıcıdan son ~25 mesaj çekilir, sonrakilerde
+    yalnızca cursor'dan (Gmail: historyId, Outlook: delta link) beri
+    gelenler (bkz. ilgili connector'ın list_new_messages'ı)."""
+    account = get_account(account_id)
+    if account is not None and account["provider"] == "outlook":
+        sync_provider = "outlook"
+        connector = OutlookConnector(account_id=account_id)
+    else:
+        sync_provider = "gmail"
+        connector = GmailConnector(account_id=account_id)
+
+    cursor = _get_sync_cursor(account_id, sync_provider)
+    messages, new_cursor = connector.list_new_messages(cursor)
+    _save_sync_cursor(account_id, sync_provider, new_cursor)
 
     for email in messages:
         _upsert_email_message(account_id, email)

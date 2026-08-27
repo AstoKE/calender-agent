@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from datetime import datetime
+from typing import Protocol
 
 from src.core.models import UnifiedEmail
 
@@ -23,6 +24,17 @@ class EmailConnector(ABC):
     @abstractmethod
     def get_message(self, message_id: str) -> UnifiedEmail:
         """Tek bir mesajı tam içeriğiyle (body dahil) getirir."""
+
+
+class AttachmentDownloadable(Protocol):
+    """`GmailConnector`/`OutlookConnector`'ın İKİSİNİN de uyguladığı ama
+    `EmailConnector`'ın abstract arayüzünde OLMAYAN ek metot (yalnızca ek
+    dosya indirme özelliği olan mail_analysis.py::
+    extract_candidate_from_email_with_attachments'ın ihtiyacı var, her
+    connector'ın değil) — bkz. Attachment.attachment_id docstring'i
+    (sıfır kalıcılık ilkesi, bayt içeriği hiçbir yere yazılmaz)."""
+
+    def download_attachment(self, message_id: str, attachment_id: str) -> bytes: ...
 
 
 class CalendarConnector(ABC):

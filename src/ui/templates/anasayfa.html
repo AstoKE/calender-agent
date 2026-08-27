@@ -21,11 +21,9 @@
 
 <div class="section-heading">
     <h2>{{ t("anasayfa.today_events") }}</h2>
-    {% if not active_account or active_account.provider != "outlook" %}
     <form method="post" action="/tara">
         <button type="submit" class="btn btn-edit">{{ t("anasayfa.scan_cta") }}</button>
     </form>
-    {% endif %}
 </div>
 {% if scan_busy %}
 <p class="warning">

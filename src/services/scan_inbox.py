@@ -21,8 +21,9 @@ from __future__ import annotations
 from typing import Callable
 
 from src.candidates.store import apply_update_suggestion, find_related_candidate_by_thread, save_new_candidate
-from src.connectors.account_registry import get_account, select_account
+from src.connectors.account_registry import select_account
 from src.connectors.gmail import GmailConnector
+from src.connectors.outlook import OutlookConnector
 from src.core.logging_config import configure_logging, get_logger
 from src.providers.base import EmbeddingProvider, FileInputCapable, LLMProvider
 from src.providers.foundry_local import FoundryLocalEmbeddingProvider, FoundryLocalProvider
@@ -52,24 +53,6 @@ def scan_account_inbox(
         if on_progress is not None:
             on_progress(message)
 
-    # sync_new_emails HER ZAMAN GmailConnector kuruyor (mail_sync.py hâlâ
-    # Gmail'e özel, Outlook mail okuma — Microsoft Graph /me/messages —
-    # henüz UYGULANMADI, yalnızca takvim tarafı var, bkz. ms_calendar.py).
-    # Bu kontrol olmadan bir Outlook hesabının account_id'siyle
-    # GmailConnector kuruluyordu; o account_id için hiç Google token'ı
-    # olmadığından get_google_credentials interaktif Google OAuth akışına
-    # düşüp YANLIŞ hesap için kullanıcının tarayıcısında bir hesap seçim
-    # ekranı açıyordu (canlı testte bulundu — outlook_enestugac hesabını
-    # taratmaya çalışırken enestugac@hotmail.com yerine bir Google hesabı
-    # seçtiren ekranla karşılaşıldı). Burada erken ve sessizce (istisna
-    # fırlatmadan) çıkılıyor — mevcut "asla çökme, zarifçe düş" deseniyle
-    # tutarlı (bkz. shell_context/translate()).
-    account = get_account(account_id)
-    if account is not None and account["provider"] != "google":
-        emit("Bu hesap için mail taraması henüz desteklenmiyor (yalnızca Google hesapları).")
-        logger.warning("scan_account_inbox: desteklenmeyen provider %r (account_id=%r)", account["provider"], account_id)
-        return {"total": 0, "candidates_found": 0, "skipped_errors": 0}
-
     emit("Yeni mailler kontrol ediliyor...")
     new_emails = sync_new_emails(account_id)
     emit(f"{len(new_emails)} yeni mail bulundu.\n")
@@ -97,15 +80,20 @@ def scan_account_inbox(
             # docstring'i. Önce ucuz metin kontrolü yapıldığı için (yukarıda)
             # gereksiz pahalı/görsel çağrı önlenmiş oluyor.
             attachment_candidate = None
-            # isinstance kontrolü BURADA (GmailConnector kurulmadan önce) —
+            # isinstance kontrolü BURADA (connector kurulmadan önce) —
             # yalnızca Gemini gibi FileInputCapable bir provider'da anlamlı,
             # aksi halde her mail için gereksiz bir OAuth/connector kurulumu
             # (Foundry Local varsayılanında hiçbir zaman kullanılmayacak)
-            # taramayı yavaşlatırdı (canlı testte fark edildi).
+            # taramayı yavaşlatırdı (canlı testte fark edildi). email.provider
+            # (UnifiedEmail'in kendi alanı) hangi connector'ın kurulacağını
+            # belirliyor — account_id'ye göre TAHMİN etmiyoruz, aksi halde
+            # sync_new_emails'te düzeltilen AYNI yanlış-sağlayıcı hatası
+            # burada da tekrarlanırdı.
             if email.attachments and isinstance(llm, FileInputCapable):
                 try:
-                    gmail = GmailConnector(account_id=account_id)
-                    attachment_candidate = extract_candidate_from_email_with_attachments(llm, email, gmail)
+                    connector_cls = OutlookConnector if email.provider == "outlook" else GmailConnector
+                    mail_connector = connector_cls(account_id=account_id)
+                    attachment_candidate = extract_candidate_from_email_with_attachments(llm, email, mail_connector)
                 except Exception as e:
                     logger.warning(
                         "extract_candidate_from_email_with_attachments failed for %r: %s", email.subject, e

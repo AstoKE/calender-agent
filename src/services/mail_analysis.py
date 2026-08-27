@@ -15,7 +15,7 @@ from __future__ import annotations
 import re
 from datetime import datetime
 
-from src.connectors.gmail import GmailConnector
+from src.connectors.base import AttachmentDownloadable
 from src.core.logging_config import get_logger
 from src.core.models import CandidateEvent, SourceType, UnifiedEmail
 from src.providers.base import EmbeddingProvider, FileInputCapable, LLMProvider
@@ -299,7 +299,7 @@ def extract_candidate_from_email(llm: LLMProvider, email: UnifiedEmail) -> Candi
 
 
 def extract_candidate_from_email_with_attachments(
-    llm: LLMProvider, email: UnifiedEmail, gmail: GmailConnector
+    llm: LLMProvider, email: UnifiedEmail, mail_connector: AttachmentDownloadable
 ) -> CandidateEvent | None:
     """Mailin gövde metni takvimlik bir şey içermiyor gibi görünse bile,
     asıl bilgi bir davetiye/bilet/afiş FOTOĞRAFINDA ya da PDF'inde olabilir
@@ -326,7 +326,7 @@ def extract_candidate_from_email_with_attachments(
     if attachment is None:
         return None
 
-    file_bytes = gmail.download_attachment(email.message_id, attachment.attachment_id)
+    file_bytes = mail_connector.download_attachment(email.message_id, attachment.attachment_id)
     today = datetime.now().astimezone()
     fields = generate_json_from_file(
         llm, _event_extraction_system_prompt(today), build_email_text(email), file_bytes, attachment.content_type

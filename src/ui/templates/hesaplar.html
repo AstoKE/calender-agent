@@ -49,14 +49,10 @@
         <dt>{{ t("hesaplar.field.connected_at") }}</dt>
         <dd>{{ acc.connected_at }}</dd>
     </dl>
-    {% if acc.provider == "outlook" %}
-    <p class="hint">{{ t("hesaplar.mail_scan_unsupported") }}</p>
-    {% else %}
     <form method="post" action="/hesaplar/{{ acc.id }}/tara">
         <button type="submit" class="btn btn-approve">{{ t("hesaplar.scan_now") }}</button>
     </form>
     <p class="hint">{{ t("hesaplar.scan_hint") }}</p>
-    {% endif %}
 </article>
 {% endfor %}
 </div>
