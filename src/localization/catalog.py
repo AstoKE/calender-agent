@@ -197,6 +197,11 @@ MESSAGES: dict[str, dict[str, str]] = {
     },
     "anasayfa.stat_pending": {"tr": "Bekleyen öneri", "en": "Pending suggestions"},
     "anasayfa.stat_rules": {"tr": "Aktif kural", "en": "Active rules"},
+    "anasayfa.stat_today": {"tr": "Bugünkü etkinlik", "en": "Today's events"},
+    "anasayfa.summary": {
+        "tr": "Bugün {events} etkinlik, {pending} bekleyen öneri.",
+        "en": "{events} events today, {pending} pending suggestions.",
+    },
     "anasayfa.new_suggestions_banner": {
         "tr": "{n} yeni öneriniz var — incelemek için tıklayın",
         "en": "You have {n} new suggestion(s) — click to review",

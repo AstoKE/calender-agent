@@ -326,12 +326,13 @@ h1 .icon {
     align-items: center;
     gap: var(--space-2);
     padding: var(--space-2) var(--space-3);
-    border-radius: var(--radius-pill);
+    border-radius: var(--radius-btn);
     cursor: pointer;
     list-style: none;
     color: var(--color-text);
     font-size: 0.875rem;
     user-select: none;
+    transition: background-color 0.15s ease;
 }
 
 .menu__trigger::-webkit-details-marker {
@@ -342,8 +343,12 @@ h1 .icon {
     background: var(--color-surface-sunken);
 }
 
+/* Hesap avatarı yuvarlak olduğu için sarmalayıcısı da hap/daire kalıyor —
+   diğer menü tetikleyicileri (bildirim/dil/tema) --radius-btn'e geçti ama
+   bu biri istisna, kare bir buton içinde yuvarlak bir avatar tuhaf dururdu. */
 .avatar-trigger {
     padding: var(--space-1);
+    border-radius: var(--radius-pill);
 }
 
 .menu__panel {
@@ -799,6 +804,12 @@ h1 .icon {
 
 /* --- Ana Sayfa (bkz. plan Faz 6) --- */
 
+.page-subtitle {
+    color: var(--color-text-muted);
+    font-size: 0.95rem;
+    margin: calc(-1 * var(--space-4)) 0 var(--space-5);
+}
+
 .section-heading {
     display: flex;
     align-items: baseline;
@@ -841,31 +852,94 @@ h1 .icon {
     transform: translateX(2px);
 }
 
-.today-strip {
+/* Ana Sayfa'nın "Bugün" bölümü — önceden yan yana saran çip bulutuydu
+   (.today-strip/.calendar-entry, bkz. git geçmişi), Faz 2'de tek bir kart
+   içinde dikey bir gündem listesine dönüştürüldü (Linear/Notion Calendar'ın
+   günlük görünümüne daha yakın). .calendar-entry'nin kendisi DEĞİŞMEDİ —
+   takvim.html'in tüm-gün şeridi hâlâ onu kullanıyor, bu yüzden ayrı bir
+   .agenda-* ad alanı seçildi (bkz. Faz 1 planı: kart-ağırlıklı ekranların
+   sırası gelince --color-surface-raised bağlanacaktı, ilk bağlantı burada). */
+.agenda-list {
     display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-2);
+    flex-direction: column;
+    background: var(--color-surface-raised);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
     margin-bottom: var(--space-6);
+    overflow: hidden;
 }
 
-.today-strip .calendar-entry {
-    font-size: 0.85rem;
-    padding: var(--space-2) var(--space-3);
+.agenda-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    padding: var(--space-3) var(--space-4);
+    border-bottom: 1px solid var(--color-border);
+}
+
+.agenda-item:last-child {
+    border-bottom: none;
+}
+
+.agenda-item__time {
+    flex-shrink: 0;
+    width: 4.5rem;
+    color: var(--color-text-muted);
+    font-size: 0.8rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.agenda-item__marker {
+    flex-shrink: 0;
+    width: 6px;
+    height: 6px;
+    border-radius: var(--radius-pill);
+    background: var(--color-accent);
+}
+
+.agenda-item--all-day .agenda-item__marker {
+    background: var(--color-success);
+}
+
+.agenda-item__title {
+    font-size: 0.9rem;
+    overflow-wrap: break-word;
 }
 
 .stat-row {
     display: flex;
     flex-wrap: wrap;
     gap: var(--space-4);
-    margin: var(--space-5) 0;
+    margin: var(--space-5) 0 var(--space-6);
 }
 
 .stat {
-    background: var(--color-surface);
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    background: var(--color-surface-raised);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-md);
     padding: var(--space-4) var(--space-5);
-    min-width: 8rem;
+    min-width: 9rem;
+    flex: 1;
+}
+
+.stat__icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.25rem;
+    height: 2.25rem;
+    border-radius: var(--radius-btn);
+    background: var(--color-accent-subtle);
+    color: var(--color-accent-text);
+    flex-shrink: 0;
+}
+
+.stat__text {
+    display: flex;
+    flex-direction: column;
 }
 
 .stat__value {

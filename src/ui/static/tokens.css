@@ -23,6 +23,13 @@
 
     --color-surface: #ffffff;
     --color-surface-sunken: #f8f9fa;
+    /* Kartlar için AYRI bir "raised" katman — chrome'dan (topbar/rail,
+       --color-surface) görsel olarak ayrışsın diye (bkz. Faz 1 planı).
+       Açık modda henüz --color-surface'ten farklı DEĞİL (kartlar zaten
+       kenarlık+gölgeyle ayrışıyor) — koyu modda asıl fark burada, aşağıya
+       bkz. Bu tur yalnızca token tanımlanıyor, .card'a henüz BAĞLANMADI
+       (kart-ağırlıklı ekranların sırası gelince, bkz. plan). */
+    --color-surface-raised: #ffffff;
     --color-border: #dadce0;
     --color-text: #202124;
     --color-text-muted: #5f6368;
@@ -42,10 +49,18 @@
     --color-success: #188038;
     --color-success-subtle: #e6f4ea;
 
-    --radius-sm: 4px;
-    --radius-md: 8px;
+    --radius-sm: 6px;
+    --radius-md: 10px;
     --radius-lg: 16px;
     --radius-pill: 999px;
+    /* Buton/nav-öğesi köşe yarıçapı — önceden hepsi --radius-pill (tam
+       yuvarlak "hap" şekli) kullanıyordu; kullanıcının isteğiyle daha
+       "Linear tarzı" ölçülü bir dikdörtgene geçiliyor (bkz. Faz 1 planı —
+       bu, projenin önceki bilinçli "Google Workspace / yuvarlak hatlar"
+       kararının ÜZERİNE yazan, kullanıcının açıkça istediği bir değişiklik).
+       --radius-pill'in kendisi SİLİNMEDİ — rozet/çip/avatar gibi gerçekten
+       hap şekli gerektiren yerlerde hâlâ kullanılıyor. */
+    --radius-btn: 8px;
 
     --space-1: 4px;
     --space-2: 8px;
@@ -82,6 +97,7 @@
 
         --color-surface: #202124;
         --color-surface-sunken: #2a2b2e;
+        --color-surface-raised: #343538;
         --color-border: #3c4043;
         --color-text: #e8eaed;
         --color-text-muted: #9aa0a6;

@@ -15,17 +15,19 @@ body {
     font-family: var(--font-sans);
     background: var(--color-surface-sunken);
     color: var(--color-text);
-    font-size: 15px;
+    font-size: 14px;
     line-height: 1.5;
 }
 
 h1 {
-    font-size: 1.5rem;
+    font-size: 1.75rem;
+    font-weight: 600;
     margin: 0 0 var(--space-5);
 }
 
 h2 {
     font-size: 1.05rem;
+    font-weight: 600;
     margin: 0 0 var(--space-3);
 }
 
@@ -142,19 +144,22 @@ a {
 }
 
 .rail a {
+    position: relative;
     display: flex;
     align-items: center;
     gap: var(--space-3);
     padding: var(--space-3) var(--space-4);
-    border-radius: var(--radius-pill);
+    border-radius: var(--radius-btn);
     color: var(--color-text);
     text-decoration: none;
     font-size: 0.9rem;
+    transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 .rail a .icon {
     color: var(--color-text-muted);
     flex-shrink: 0;
+    transition: color 0.15s ease;
 }
 
 .rail a:hover {
@@ -165,6 +170,20 @@ a {
     background: var(--color-accent-subtle);
     color: var(--color-accent-text);
     font-weight: 500;
+}
+
+/* Aktif öğeye sol kenarda ince bir vurgu çubuğu — yalnızca arka plan
+   tonuyla yetinmek yerine daha net bir "seçili" sinyali (bkz. Faz 1 planı,
+   Linear tarzı ölçülü bir gösterge — "koca mavi blok" değil). */
+.rail a.active::before {
+    content: "";
+    position: absolute;
+    left: -2px;
+    top: 22%;
+    bottom: 22%;
+    width: 3px;
+    border-radius: var(--radius-pill);
+    background: var(--color-accent);
 }
 
 .rail a.active .icon {
@@ -273,7 +292,7 @@ legend {
     align-items: center;
     gap: var(--space-2);
     padding: var(--space-2) var(--space-4);
-    border-radius: var(--radius-pill);
+    border-radius: var(--radius-btn);
     border: 1px solid transparent;
     font: inherit;
     font-size: 0.875rem;
@@ -281,6 +300,7 @@ legend {
     cursor: pointer;
     text-decoration: none;
     line-height: 1.2;
+    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
 .btn:disabled {
