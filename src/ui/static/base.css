@@ -358,6 +358,18 @@ legend {
         display: none;
     }
 
+    /* 4 menü tetikleyicisi (bildirim/dil/tema/hesap) dar ekranda masaüstü
+       dolgusuyla sıkışıyordu — burada biraz daralt, tam çözüm aşağıdaki
+       24rem eşiğinde (bkz. metin/ok ikonlarını gizleme). */
+    .topbar {
+        padding: 0 var(--space-3);
+        gap: var(--space-2);
+    }
+
+    .topbar__actions {
+        gap: 2px;
+    }
+
     .content {
         padding: var(--space-4);
         padding-bottom: calc(var(--tabbar-height) + var(--space-5));
@@ -445,11 +457,15 @@ legend {
     }
 }
 
-/* Dar telefon genişlikleri (~360px altı): marka metni topbar'da dil +
-   hesap menüleriyle yer için yarışıp taşabilir — ikon kalır, metin gizlenir.
+/* Dar telefon genişlikleri (~384px altı): marka metni + menü
+   tetikleyicilerinin metin/ok ikonları topbar'da yer için yarışıp
+   taşabiliyordu (canlı ölçümde 4 menü + marka ~320px'de sığmıyor) — hepsi
+   ikona düşürülüyor, `aria-label` erişilebilir adı korumaya devam ediyor.
    Ana kırılma noktasından (48rem, tablet) AYRI ve daha dar bir eşik. */
 @media (max-width: 24rem) {
-    .topbar__brand-label {
+    .topbar__brand-label,
+    .menu__trigger-label,
+    .icon--chevron {
         display: none;
     }
 }

@@ -58,9 +58,10 @@ h1 .icon {
    (kullanıcının "AI Review Queue" vurgusu). */
 .candidate-card__header {
     display: flex;
+    flex-wrap: wrap;
     align-items: flex-start;
     justify-content: space-between;
-    gap: var(--space-3);
+    gap: var(--space-2) var(--space-3);
     margin-bottom: var(--space-2);
 }
 
@@ -662,6 +663,23 @@ h1 .icon {
     font-size: 1.1rem;
 }
 
+/* Dar telefon genişliklerinde (bkz. takvim-layout zaten 48rem'de tek
+   sütuna düşüyor) ay/yıl başlığı + hafta gezinme düğmeleri tek satıra
+   sığmayabiliyor — başlık kendi satırına alınıp gezinme düğmeleri altına
+   düşüyor (Google Calendar mobilin de kullandığı kalıp), sayfanın kendisi
+   yatay kaymasın diye. */
+@media (max-width: 30rem) {
+    .calendar-toolbar {
+        flex-wrap: wrap;
+    }
+
+    .calendar-toolbar__title {
+        flex-basis: 100%;
+        order: -1;
+        margin-left: 0;
+    }
+}
+
 @media (max-width: 48rem) {
     .takvim-layout {
         flex-direction: column;
@@ -1234,9 +1252,10 @@ code {
 
 .assistant-chat__header {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
-    gap: var(--space-3);
+    gap: var(--space-2) var(--space-3);
     margin-bottom: var(--space-3);
 }
 
