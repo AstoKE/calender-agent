@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
+from src.connectors.ms_calendar import MSCalendarConnector
 from src.services.calendar_view import (
     CalendarEntry,
     SLOTS_PER_DAY,
@@ -15,7 +16,9 @@ from src.services.calendar_view import (
     group_by_day,
     layout_timed_entries,
     month_grid,
+    parse_calendar_event,
     parse_google_event,
+    parse_outlook_event,
     week_bounds,
 )
 
@@ -112,6 +115,105 @@ def test_parse_missing_end_falls_back_to_start():
     }
     entry = parse_google_event(raw, TZ)
     assert entry.end == entry.start
+
+
+# --- parse_outlook_event (Microsoft Graph şekli — bkz. modül docstring'i,
+# başlık "subject", konum bir NESNE, tüm-gün "isAllDay" bool'uyla ayrılıyor) ---
+
+
+def test_parse_outlook_timed_event():
+    raw = {
+        "id": "evt1",
+        "subject": "Ekip Toplantısı",
+        "isAllDay": False,
+        "start": {"dateTime": "2026-08-19T14:00:00.0000000", "timeZone": TZ},
+        "end": {"dateTime": "2026-08-19T15:00:00.0000000", "timeZone": TZ},
+        "location": {"displayName": "Oda 3"},
+        "webLink": "https://outlook.office.com/mail/deeplink",
+    }
+    entry = parse_outlook_event(raw, TZ)
+    assert entry.event_id == "evt1"
+    assert entry.title == "Ekip Toplantısı"
+    assert entry.all_day is False
+    assert entry.start.hour == 14
+    assert entry.end.hour == 15
+    assert entry.location == "Oda 3"
+    assert entry.html_link == "https://outlook.office.com/mail/deeplink"
+
+
+def test_parse_outlook_event_unresolvable_timezone_falls_back_to_utc():
+    # Native Outlook istemcisinde oluşturulmuş bir etkinlik Windows bölge
+    # adı taşıyabilir ("GMT Standard Time" gibi) — zoneinfo bunu çözemez,
+    # çökmek yerine UTC'ye düşülmeli.
+    raw = {
+        "id": "evt2", "subject": "Windows bölgeli", "isAllDay": False,
+        "start": {"dateTime": "2026-08-19T11:00:00.0000000", "timeZone": "GMT Standard Time"},
+        "end": {"dateTime": "2026-08-19T12:00:00.0000000", "timeZone": "GMT Standard Time"},
+    }
+    entry = parse_outlook_event(raw, TZ)
+    assert entry is not None
+    assert entry.start.tzinfo is not None
+
+
+def test_parse_outlook_all_day_single_day_end_is_exclusive_and_corrected():
+    raw = {
+        "id": "evt3", "subject": "Tam gün", "isAllDay": True,
+        "start": {"dateTime": "2026-08-19T00:00:00.0000000", "timeZone": "UTC"},
+        "end": {"dateTime": "2026-08-20T00:00:00.0000000", "timeZone": "UTC"},
+    }
+    entry = parse_outlook_event(raw, TZ)
+    assert entry.all_day is True
+    assert entry.start.date() == date(2026, 8, 19)
+    assert entry.end.date() == date(2026, 8, 19)
+
+
+def test_parse_outlook_cancelled_event_returns_none():
+    raw = {
+        "id": "evt4", "subject": "İptal", "isCancelled": True, "isAllDay": False,
+        "start": {"dateTime": "2026-08-19T14:00:00.0000000", "timeZone": "UTC"},
+        "end": {"dateTime": "2026-08-19T15:00:00.0000000", "timeZone": "UTC"},
+    }
+    assert parse_outlook_event(raw, TZ) is None
+
+
+def test_parse_outlook_missing_start_returns_none():
+    assert parse_outlook_event({"id": "evt5", "subject": "bozuk"}, TZ) is None
+
+
+def test_parse_outlook_string_location_used_as_is():
+    # location her zaman bir nesne olmasa bile (savunmacı) düz metin de
+    # kabul edilmeli, çökmemeli.
+    raw = {
+        "id": "evt6", "subject": "Düz metin konum", "isAllDay": False,
+        "start": {"dateTime": "2026-08-19T14:00:00.0000000", "timeZone": "UTC"},
+        "end": {"dateTime": "2026-08-19T15:00:00.0000000", "timeZone": "UTC"},
+        "location": "Ofis",
+    }
+    entry = parse_outlook_event(raw, TZ)
+    assert entry.location == "Ofis"
+
+
+# --- parse_calendar_event (connector tipine göre dallanan sarmalayıcı) ---
+
+
+def test_parse_calendar_event_dispatches_by_connector_type():
+    google_raw = {
+        "id": "g1", "summary": "Google etkinliği", "status": "confirmed",
+        "start": {"dateTime": "2026-08-19T14:00:00+03:00"},
+        "end": {"dateTime": "2026-08-19T15:00:00+03:00"},
+    }
+    outlook_raw = {
+        "id": "o1", "subject": "Outlook etkinliği", "isAllDay": False,
+        "start": {"dateTime": "2026-08-19T14:00:00.0000000", "timeZone": "UTC"},
+        "end": {"dateTime": "2026-08-19T15:00:00.0000000", "timeZone": "UTC"},
+    }
+    outlook_connector = MSCalendarConnector(account_id="acc1", access_token="FAKE_TOKEN")
+
+    google_entry = parse_calendar_event(google_raw, object(), TZ)
+    outlook_entry = parse_calendar_event(outlook_raw, outlook_connector, TZ)
+
+    assert google_entry.title == "Google etkinliği"
+    assert outlook_entry.title == "Outlook etkinliği"
 
 
 # --- group_by_day ---

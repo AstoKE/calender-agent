@@ -48,7 +48,7 @@ def test_store_then_get_within_range_returns_cached_raw_events(temp_db):
     time_min = datetime(2026, 8, 17, tzinfo=timezone.utc)
     time_max = datetime(2026, 8, 24, tzinfo=timezone.utc)
     events = [_event()]
-    store_events(ACCOUNT_ID, "primary", time_min, time_max, events)
+    store_events(ACCOUNT_ID, "primary", "google", time_min, time_max, events)
 
     # Daha DAR bir alt-aralık isteniyor — senkronize edilen aralığın içinde
     # kaldığı için yine cache'ten dönmeli.
@@ -62,7 +62,7 @@ def test_get_cached_events_returns_none_when_range_not_contained(temp_db):
     _insert_account()
     time_min = datetime(2026, 8, 17, tzinfo=timezone.utc)
     time_max = datetime(2026, 8, 24, tzinfo=timezone.utc)
-    store_events(ACCOUNT_ID, "primary", time_min, time_max, [_event()])
+    store_events(ACCOUNT_ID, "primary", "google", time_min, time_max, [_event()])
 
     # İstenen aralık senkronize edilenin DIŞINA taşıyor (bir sonraki hafta).
     outside_min = datetime(2026, 8, 24, tzinfo=timezone.utc)
@@ -74,7 +74,7 @@ def test_get_cached_events_returns_none_when_ttl_expired(temp_db, monkeypatch):
     _insert_account()
     time_min = datetime(2026, 8, 17, tzinfo=timezone.utc)
     time_max = datetime(2026, 8, 24, tzinfo=timezone.utc)
-    store_events(ACCOUNT_ID, "primary", time_min, time_max, [_event()])
+    store_events(ACCOUNT_ID, "primary", "google", time_min, time_max, [_event()])
 
     # synced_at'i TTL'in ötesine manuel olarak geri al.
     stale_time = (datetime.now(timezone.utc) - timedelta(seconds=CACHE_TTL_SECONDS + 10)).isoformat()
@@ -91,8 +91,8 @@ def test_store_events_replaces_previous_cache_for_same_account_and_calendar(temp
     _insert_account()
     time_min = datetime(2026, 8, 17, tzinfo=timezone.utc)
     time_max = datetime(2026, 8, 24, tzinfo=timezone.utc)
-    store_events(ACCOUNT_ID, "primary", time_min, time_max, [_event(event_id="old-evt")])
-    store_events(ACCOUNT_ID, "primary", time_min, time_max, [_event(event_id="new-evt")])
+    store_events(ACCOUNT_ID, "primary", "google", time_min, time_max, [_event(event_id="old-evt")])
+    store_events(ACCOUNT_ID, "primary", "google", time_min, time_max, [_event(event_id="new-evt")])
 
     cached = get_cached_events(ACCOUNT_ID, "primary", time_min, time_max)
     assert [e["id"] for e in cached] == ["new-evt"]
@@ -104,8 +104,8 @@ def test_list_events_cached_calls_live_only_once_for_repeated_same_range(temp_db
     time_max = datetime(2026, 8, 24, tzinfo=timezone.utc)
     calendar = _CountingCalendar([_event()])
 
-    first = list_events_cached(calendar, ACCOUNT_ID, time_min, time_max)
-    second = list_events_cached(calendar, ACCOUNT_ID, time_min, time_max)
+    first = list_events_cached(calendar, ACCOUNT_ID, "google", time_min, time_max)
+    second = list_events_cached(calendar, ACCOUNT_ID, "google", time_min, time_max)
 
     assert first == second == [_event()]
     assert calendar.call_count == 1
@@ -116,10 +116,10 @@ def test_list_events_cached_calls_live_again_for_different_range(temp_db):
     calendar = _CountingCalendar([_event()])
 
     list_events_cached(
-        calendar, ACCOUNT_ID, datetime(2026, 8, 17, tzinfo=timezone.utc), datetime(2026, 8, 24, tzinfo=timezone.utc)
+        calendar, ACCOUNT_ID, "google", datetime(2026, 8, 17, tzinfo=timezone.utc), datetime(2026, 8, 24, tzinfo=timezone.utc)
     )
     list_events_cached(
-        calendar, ACCOUNT_ID, datetime(2026, 8, 24, tzinfo=timezone.utc), datetime(2026, 8, 31, tzinfo=timezone.utc)
+        calendar, ACCOUNT_ID, "google", datetime(2026, 8, 24, tzinfo=timezone.utc), datetime(2026, 8, 31, tzinfo=timezone.utc)
     )
 
     assert calendar.call_count == 2
@@ -130,6 +130,36 @@ def test_different_accounts_do_not_share_cache(temp_db):
     _insert_account("acc2")
     time_min = datetime(2026, 8, 17, tzinfo=timezone.utc)
     time_max = datetime(2026, 8, 24, tzinfo=timezone.utc)
-    store_events("acc1", "primary", time_min, time_max, [_event()])
+    store_events("acc1", "primary", "google", time_min, time_max, [_event()])
 
     assert get_cached_events("acc2", "primary", time_min, time_max) is None
+
+
+def test_store_events_handles_outlook_shaped_events(temp_db):
+    # Canlı testte bulunan gerçek çökme: Outlook/Graph etkinliklerinde
+    # "location" düz metin değil bir NESNE (`{"displayName": ...}`) —
+    # sqlite3 bunu bir sütuna bağlamaya çalışınca
+    # "Error binding parameter: type 'dict' is not supported" ile
+    # patlıyordu. Başlık da "summary" değil "subject" alanında.
+    _insert_account("outlook_acc")
+    time_min = datetime(2026, 8, 17, tzinfo=timezone.utc)
+    time_max = datetime(2026, 8, 24, tzinfo=timezone.utc)
+    outlook_event = {
+        "id": "evt1",
+        "subject": "Ekip Toplantısı",
+        "isCancelled": False,
+        "start": {"dateTime": "2026-08-20T14:00:00.0000000", "timeZone": "UTC"},
+        "end": {"dateTime": "2026-08-20T15:00:00.0000000", "timeZone": "UTC"},
+        "location": {"displayName": "Toplantı Odası 3"},
+    }
+
+    store_events("outlook_acc", "primary", "outlook", time_min, time_max, [outlook_event])  # çökmemeli
+
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT provider, title, location FROM calendar_events_cache WHERE account_id = ?",
+            ("outlook_acc",),
+        ).fetchone()
+    assert row["provider"] == "outlook"
+    assert row["title"] == "Ekip Toplantısı"
+    assert row["location"] == "Toplantı Odası 3"

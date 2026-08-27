@@ -65,12 +65,21 @@ def get_cached_events(account_id: str, calendar_id: str, time_min: datetime, tim
 
 
 def store_events(
-    account_id: str, calendar_id: str, time_min: datetime, time_max: datetime, raw_events: list[dict]
+    account_id: str, calendar_id: str, provider: str, time_min: datetime, time_max: datetime, raw_events: list[dict]
 ) -> None:
     """Canlı bir `list_events` sonucunu write-through olarak cache'e yazar.
     Bu (account_id, calendar_id) için önceki cache içeriğinin TAMAMEN yerine
     geçer (kısmi aralık birleştirme YAPILMAZ — bkz. modül docstring'i);
-    `calendar_sync_state` tek satırı da bu yeni aralıkla güncellenir."""
+    `calendar_sync_state` tek satırı da bu yeni aralıkla güncellenir.
+
+    `title`/`location` sütunları yalnızca SQL aralık filtrelemesi için
+    (bkz. modül docstring'i, gerçek okuma `raw_json`'dan) ama yine de
+    doğru doldurulmalı: `provider == "outlook"` ise başlık `subject`
+    alanında, `location` Google'daki gibi düz metin değil bir NESNE
+    (`{"displayName": ...}`) — canlı testte bulunan gerçek bir çökme
+    (`sqlite3.ProgrammingError: Error binding parameter: type 'dict' is
+    not supported`) burada bir Outlook hesabıyla Takvim'i açmaya çalışırken
+    ortaya çıktı, `raw.get("location")`'ı olduğu gibi bağlamaya çalışıyordu."""
     now = datetime.now(timezone.utc).isoformat()
     with get_connection() as conn:
         conn.execute(
@@ -80,6 +89,9 @@ def store_events(
         for raw in raw_events:
             start_raw = raw.get("start") or {}
             end_raw = raw.get("end") or {}
+            title = raw.get("subject") if provider == "outlook" else raw.get("summary")
+            location_raw = raw.get("location")
+            location = location_raw.get("displayName") if isinstance(location_raw, dict) else location_raw
             conn.execute(
                 """
                 INSERT INTO calendar_events_cache (
@@ -90,13 +102,13 @@ def store_events(
                 (
                     str(uuid.uuid4()),
                     account_id,
-                    "google",
+                    provider,
                     calendar_id,
                     raw.get("id", ""),
-                    raw.get("summary"),
+                    title,
                     start_raw.get("dateTime") or start_raw.get("date"),
                     end_raw.get("dateTime") or end_raw.get("date"),
-                    raw.get("location"),
+                    location,
                     json.dumps(raw),
                     now,
                 ),
@@ -114,13 +126,18 @@ def store_events(
         )
 
 
-def list_events_cached(calendar, account_id: str, time_min: datetime, time_max: datetime, calendar_id: str = "primary") -> list[dict]:
+def list_events_cached(
+    calendar, account_id: str, provider: str, time_min: datetime, time_max: datetime, calendar_id: str = "primary"
+) -> list[dict]:
     """`calendar.list_events(time_min, time_max)`'in cache-first sarmalayıcısı
-    — çağıranlar için birebir yerine geçer (aynı ham Google event dict listesi
-    döner), yalnızca cache-hit durumunda canlı API çağrısı atlanır."""
+    — çağıranlar için birebir yerine geçer (aynı ham event dict listesi
+    döner, Google VEYA Outlook şeklinde), yalnızca cache-hit durumunda
+    canlı API çağrısı atlanır. `provider` ("google"/"outlook") yalnızca
+    cache'e YAZARKEN kullanılıyor (bkz. store_events) — okuma tarafı zaten
+    `raw_json`'ı olduğu gibi döndürüyor, provider'a bakmıyor."""
     cached = get_cached_events(account_id, calendar_id, time_min, time_max)
     if cached is not None:
         return cached
     raw_events = calendar.list_events(time_min, time_max, calendar_id)
-    store_events(account_id, calendar_id, time_min, time_max, raw_events)
+    store_events(account_id, calendar_id, provider, time_min, time_max, raw_events)
     return raw_events

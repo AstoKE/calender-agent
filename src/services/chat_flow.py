@@ -44,7 +44,7 @@ from src.policies.derivation import VALID_IMPORTANCE_VALUES, derive_and_save_pol
 from src.providers.base import EmbeddingProvider, FileInputCapable, LLMProvider
 from src.providers.json_generation import JsonGenerationError, generate_json
 from src.services.availability import find_conflicts, suggest_alternative_slots
-from src.services.calendar_view import parse_google_event
+from src.services.calendar_view import parse_calendar_event
 from src.services.intent import classify_intent
 from src.services.timeutil import DEFAULT_TIMEZONE, ensure_timezone, parse_clock_time, parse_duration_minutes
 from src.services.vertical_prototype import (
@@ -322,7 +322,7 @@ def _handle_query_calendar(range_start, range_end, *, calendar, lang: str) -> tu
         logger.exception("Takvim sorgusu başarısız (sohbet akışı)")
         return ChatState(), [translate("chat.calendar_error", lang)]
 
-    entries = [entry for raw in raw_events if (entry := parse_google_event(raw, DEFAULT_TIMEZONE)) is not None]
+    entries = [entry for raw in raw_events if (entry := parse_calendar_event(raw, calendar, DEFAULT_TIMEZONE)) is not None]
 
     if not entries:
         return ChatState(), [
@@ -940,15 +940,18 @@ def _advance_create_event(
 
 
 def _event_title(event: dict, lang: str) -> str:
-    return event.get("summary") or translate("common.untitled", lang)
+    # "subject" (Outlook/Graph) ve "summary" (Google) hiçbir zaman AYNI
+    # event dict'inde birlikte bulunmaz — connector tipini bilmeden bile
+    # doğru alanı seçen basit bir OR zinciri yeterli.
+    return event.get("summary") or event.get("subject") or translate("common.untitled", lang)
 
 
 def _event_start_raw(event: dict) -> str | None:
     return event.get("start", {}).get("dateTime") or event.get("start", {}).get("date")
 
 
-def _format_event_line(event: dict, lang: str) -> str:
-    entry = parse_google_event(event, DEFAULT_TIMEZONE)
+def _format_event_line(event: dict, calendar, lang: str) -> str:
+    entry = parse_calendar_event(event, calendar, DEFAULT_TIMEZONE)
     if entry is None:
         return _event_title(event, lang)
     time_text = translate("chat.query.all_day", lang) if entry.all_day else format_datetime(entry.start, lang)
@@ -991,7 +994,7 @@ def _start_update_event(user_text: str, *, llm, calendar, lang: str) -> tuple[Ch
         shortlist = candidates[:5]
         lines = [translate("chat.update.disambiguate_prompt", lang)]
         for i, e in enumerate(shortlist, 1):
-            lines.append(f"{i}. {_format_event_line(e, lang)}")
+            lines.append(f"{i}. {_format_event_line(e, calendar, lang)}")
         state = ChatState(flow=FLOW_UPDATE_EVENT, step=STEP_UPDATE_DISAMBIGUATE, update_fields=fields, shortlist=shortlist)
         return state, lines
 
@@ -1002,7 +1005,7 @@ def _proceed_with_matched_event(event: dict, fields: dict, *, calendar, lang: st
     if fields.get("cancel"):
         state = ChatState(flow=FLOW_UPDATE_EVENT, step=STEP_UPDATE_CONFIRM_DELETE, update_fields=fields, matched_event=event)
         msg = translate(
-            "chat.update.confirm_delete", lang, title=_event_title(event, lang), when=_format_event_line(event, lang)
+            "chat.update.confirm_delete", lang, title=_event_title(event, lang), when=_format_event_line(event, calendar, lang)
         )
         return state, [msg]
 
@@ -1036,7 +1039,7 @@ def _proceed_with_matched_event(event: dict, fields: dict, *, calendar, lang: st
     lines = [
         translate(
             "chat.update.confirm_move", lang,
-            title=_event_title(event, lang), old=_format_event_line(event, lang), new=format_datetime(new_start, lang),
+            title=_event_title(event, lang), old=_format_event_line(event, calendar, lang), new=format_datetime(new_start, lang),
         )
     ]
     if conflicts:

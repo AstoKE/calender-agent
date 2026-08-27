@@ -55,7 +55,7 @@ CREATE TABLE IF NOT EXISTS calendar_events_cache (
     end_datetime        TEXT,
     timezone            TEXT,
     location            TEXT,
-    raw_json            TEXT,               -- Google API'nin ham event dict'i (parse_google_event bunu bekliyor)
+    raw_json            TEXT,               -- Sağlayıcının ham event dict'i (Google VEYA Outlook şeklinde — bkz. parse_calendar_event)
     last_synced_at      TEXT,
     UNIQUE (account_id, calendar_id, event_id)
 );

@@ -68,7 +68,7 @@ from src.services.calendar_view import (
     default_scroll_row,
     group_by_day,
     month_grid,
-    parse_google_event,
+    parse_calendar_event,
     week_bounds,
 )
 from src.services.scan_inbox import scan_account_inbox
@@ -137,9 +137,9 @@ def home_page(request: Request, mesgul: bool = False):
             try:
                 tz_name = get_effective_timezone(active_account["id"])
                 time_min, time_max = day_bounds(date.today(), tz_name)
-                raw_events = list_events_cached(calendar, active_account["id"], time_min, time_max)
+                raw_events = list_events_cached(calendar, active_account["id"], active_account["provider"], time_min, time_max)
                 today_entries = [
-                    entry for raw in raw_events if (entry := parse_google_event(raw, tz_name)) is not None
+                    entry for raw in raw_events if (entry := parse_calendar_event(raw, calendar, tz_name)) is not None
                 ]
                 today_entries.sort(key=lambda e: e.start)
             except Exception as exc:
@@ -290,7 +290,7 @@ def calendar_page(request: Request, hafta: str | None = None):
 
     time_min, time_max = week_bounds(anchor, tz_name)
     try:
-        raw_events = list_events_cached(calendar, active_account["id"], time_min, time_max)
+        raw_events = list_events_cached(calendar, active_account["id"], active_account["provider"], time_min, time_max)
     except Exception as exc:
         logger.warning("Takvim yüklenemedi (account=%s): %s", active_account["id"], exc)
         return templates.TemplateResponse(
@@ -299,7 +299,7 @@ def calendar_page(request: Request, hafta: str | None = None):
             {"active_page": "takvim", "state": "error", "error_detail": str(exc)},
         )
 
-    entries = [entry for raw in raw_events if (entry := parse_google_event(raw, tz_name)) is not None]
+    entries = [entry for raw in raw_events if (entry := parse_calendar_event(raw, calendar, tz_name)) is not None]
     buckets = group_by_day(entries, time_min.date(), 7)
 
     # "Şu an" çizgisi (Google Calendar'daki kırmızı çizgi benzeri, bkz.

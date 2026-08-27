@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from src.connectors.ms_calendar import MSCalendarConnector
 from src.localization.formatting import to_display_timezone
 
 
@@ -159,6 +160,80 @@ def parse_google_event(raw: dict, display_tz: str) -> CalendarEntry | None:
         location=raw.get("location"),
         html_link=raw.get("htmlLink"),
     )
+
+
+def _parse_outlook_datetime(field: dict, display_tz: str) -> datetime:
+    """Graph'ın `dateTimeTimeZone` nesnesi Google'ın aksine OFFSET İÇERMEZ —
+    `dateTime` ayrı bir `timeZone` alanının gösterdiği bölgede naive bir
+    saattir. `timeZone` bu uygulamanın kendi yazdığı etkinlikler için IANA
+    (bkz. DEFAULT_TIMEZONE, MSCalendarConnector.create_event) ama Outlook
+    istemcisinde native oluşturulmuş etkinlikler için Windows bölge adı
+    olabilir ("GMT Standard Time" gibi) — `zoneinfo` bunu çözemez, bu
+    durumda çökmek yerine UTC'ye düşülür (kaba ama güvenli bir varsayım)."""
+    raw_dt = field.get("dateTime")
+    tz_name = field.get("timeZone") or "UTC"
+    try:
+        tz = ZoneInfo(tz_name)
+    except Exception:
+        tz = ZoneInfo("UTC")
+    naive = datetime.fromisoformat(raw_dt)
+    return to_display_timezone(naive.replace(tzinfo=tz), display_tz)
+
+
+def parse_outlook_event(raw: dict, display_tz: str) -> CalendarEntry | None:
+    """Microsoft Graph'ın calendarView/event şekli — `parse_google_event`'in
+    Outlook karşılığı. Farklar: başlık `subject` (`summary` değil), tüm-gün
+    ayrımı ayrı bir `isAllDay` bool ile yapılır (Google'daki `date`-vs-
+    `dateTime` alan varlığı yerine), konum `location.displayName` (düz
+    metin değil, bir nesne — bkz. canlı testte bulunan `calendar_cache.py`
+    SQLite hatası, "Error binding parameter: type 'dict' is not supported"),
+    bağlantı `webLink` (`htmlLink` değil). Tüm-gün etkinliklerde Graph da
+    Google gibi DIŞLAYICI bir `end` kullanıyor (son günün ertesi gece
+    yarısı) — aynı bir-gün-geri-alma düzeltmesi burada da uygulanıyor."""
+    if raw.get("isCancelled"):
+        return None
+
+    start_raw = raw.get("start") or {}
+    end_raw = raw.get("end") or {}
+    if not start_raw.get("dateTime"):
+        return None
+
+    all_day = bool(raw.get("isAllDay"))
+    if all_day:
+        start_date = datetime.fromisoformat(start_raw["dateTime"]).date()
+        end_date = datetime.fromisoformat(end_raw["dateTime"]).date() if end_raw.get("dateTime") else start_date
+        end_date = end_date - timedelta(days=1) if end_date > start_date else start_date
+        start = datetime.combine(start_date, datetime.min.time())
+        end = datetime.combine(end_date, datetime.min.time())
+    else:
+        start = _parse_outlook_datetime(start_raw, display_tz)
+        end = _parse_outlook_datetime(end_raw, display_tz) if end_raw.get("dateTime") else start
+
+    location_raw = raw.get("location") or {}
+    location = location_raw.get("displayName") if isinstance(location_raw, dict) else location_raw
+
+    return CalendarEntry(
+        event_id=raw.get("id", ""),
+        title=raw.get("subject") or "",
+        start=start,
+        end=end,
+        all_day=all_day,
+        location=location,
+        html_link=raw.get("webLink"),
+    )
+
+
+def parse_calendar_event(raw: dict, calendar, display_tz: str) -> CalendarEntry | None:
+    """`parse_google_event`/`parse_outlook_event` arasında `calendar`
+    bağlayıcı NESNESİNİN kendi tipine bakarak dallanan sarmalayıcı —
+    çağıranların (routes.py, chat_flow.py) HİÇBİRİ ayrıca bir provider
+    string'i taşımıyordu, yalnızca connector nesnesinin kendisini zaten
+    biliyorlardı; yeni bir parametre eklemek yerine bunu kullanmak daha az
+    invazif (bkz. canlı testte bulunan hata: Takvim sayfası bir Outlook
+    hesabıyla hiç açılamıyordu, çünkü bu ayrım hiç yapılmıyordu)."""
+    if isinstance(calendar, MSCalendarConnector):
+        return parse_outlook_event(raw, display_tz)
+    return parse_google_event(raw, display_tz)
 
 
 def group_by_day(entries: list[CalendarEntry], first_day: date, days: int) -> list[DayBucket]:
