@@ -27,6 +27,7 @@
     </form>
 </section>
 
+<section class="settings-section">
 <h2>{{ t("kural_yeni.mode.structured") }}</h2>
 <form method="post" action="/kurallarim/yeni" class="edit-form">
     <label>
@@ -91,4 +92,5 @@
     <button type="submit" class="btn btn-approve">{{ t("kural_yeni.submit") }}</button>
     <a class="btn btn-edit" href="/kurallarim">{{ t("common.cancel") }}</a>
 </form>
+</section>
 {% endblock %}

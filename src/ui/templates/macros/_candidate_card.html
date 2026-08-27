@@ -6,7 +6,15 @@
 {% macro candidate_card(item, next_url="/oneriler") %}
 {% set c = item.candidate %}
 <article class="card">
-    <h2>{{ c.title or t("common.untitled") }}</h2>
+    <div class="candidate-card__header">
+        <h2>{{ c.title or t("common.untitled") }}</h2>
+        <div class="candidate-card__badges">
+            <span class="chip">{{ t("enum.event_type." ~ c.event_type) }}</span>
+            {% if c.importance %}
+            <span class="chip {{ 'chip--danger' if c.importance == 'high' else 'chip--neutral' }}">{{ t("enum.importance." ~ c.importance) }}</span>
+            {% endif %}
+        </div>
+    </div>
 
     {% if c.status == "UPDATE_SUGGESTED" %}
     <p class="chip chip--neutral">{{ t("oneriler.update_suggested_badge") }}</p>
@@ -34,10 +42,6 @@
         </dd>
         <dt>{{ t("oneriler.field.location") }}</dt>
         <dd>{{ c.location or t("common.unspecified") }}</dd>
-        <dt>{{ t("oneriler.field.type") }}</dt>
-        <dd>{{ t("enum.event_type." ~ c.event_type) }}</dd>
-        <dt>{{ t("oneriler.field.importance") }}</dt>
-        <dd>{{ t("enum.importance." ~ c.importance) if c.importance else t("common.unspecified") }}</dd>
         <dt>{{ t("oneriler.field.source") }}</dt>
         <dd>{{ item.sender }} — {{ item.subject }}</dd>
     </dl>

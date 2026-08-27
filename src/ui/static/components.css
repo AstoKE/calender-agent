@@ -41,11 +41,38 @@ h1 .icon {
     gap: var(--space-4);
 }
 
+/* Faz 5: kart-ağırlıklı ekranların (Gelen Öneriler, Kurallarım,
+   Düzeltmelerim) hepsi bu TEK sınıfı paylaşıyor — Faz 1 planının "sırası
+   gelince --color-surface-raised bağlanacak" notu burada gerçekleşiyor,
+   diğer ekranlar ayrıca dokunulmadan aynı yükseltilmiş yüzeyi miras alıyor. */
 .card {
-    background: var(--color-surface);
+    background: var(--color-surface-raised);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-md);
     padding: var(--space-5);
+    box-shadow: var(--shadow-1);
+}
+
+/* "Gelen Öneriler" kartının başlık satırı (bkz. macros/_candidate_card.html)
+   — başlık solda, tür/önem rozetleri sağda, bir bakışta taranabilsin diye
+   (kullanıcının "AI Review Queue" vurgusu). */
+.candidate-card__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-3);
+    margin-bottom: var(--space-2);
+}
+
+.candidate-card__header h2 {
+    margin: 0;
+}
+
+.candidate-card__badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    flex-shrink: 0;
 }
 
 .card-fields {
@@ -122,6 +149,25 @@ h1 .icon {
 
 .reject-form input[type="text"] {
     flex: 1;
+}
+
+/* Çakışma onayı ekranındaki mevcut etkinlik listesi (bkz. cakisma_onay.html)
+   — eskiden çıplak tarayıcı bulleti olan bir <ul>'du. */
+.conflict-list {
+    list-style: none;
+    margin: var(--space-3) 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+}
+
+.conflict-list__item {
+    padding: var(--space-2) var(--space-3);
+    background: var(--color-surface-sunken);
+    border-radius: var(--radius-sm);
+    font-size: 0.9rem;
+    font-variant-numeric: tabular-nums;
 }
 
 .edit-form {
@@ -519,6 +565,17 @@ h1 .icon {
 
 /* --- Mini ay takvimi (bkz. src/services/calendar_view.py month_grid) --- */
 
+/* Faz 4: eskiden çevresinde hiçbir görsel sınır yoktu (sayfa zemininde
+   çıplak duruyordu) — artık diğer kartlarla (agenda-list, stat, sohbet
+   paneli) aynı "yükseltilmiş yüzey" diline katılıyor. */
+.mini-cal {
+    background: var(--color-surface-raised);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--space-4);
+    box-shadow: var(--shadow-1);
+}
+
 .mini-cal__header {
     display: flex;
     align-items: center;
@@ -633,8 +690,21 @@ h1 .icon {
        — "hafta sonu günleri kısmı yok" raporu). Salt "1fr" hiçbir zaman
        taşmaz, üç grid de her zaman aynı şekilde küçülür. Mobildeki media
        query kasıtlı olarak sabit rem genişlik + overflow-x:auto kullanıyor —
-       oradaki yatay kaydırma istenen davranış, burası değil. */
+       oradaki yatay kaydırma istenen davranış, burası değil.
+
+    Faz 4: dış kapsayıcı artık bir kart (--color-surface-raised + kenarlık +
+    gölge, diğer yükseltilmiş yüzeylerle aynı dil). `overflow: hidden`
+    köşeleri düzgün kırpmak için — .timegrid-scroll zaten KENDİ overflow-x
+    hidden'ını taşıyordu (yukarıdaki not), bu yüzden içerik davranışı
+    değişmiyor, yalnızca dıştan bir çerçeve ekleniyor. Mobil media query
+    kendi `overflow-x: auto`'sunu bunun ÜZERİNE yazıyor (aşağı bkz.), yatay
+    kaydırma orada hâlâ çalışıyor. */
     --timegrid-cols: 3.5rem repeat(7, 1fr);
+    background: var(--color-surface-raised);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-1);
+    overflow: hidden;
 }
 
 .timegrid-header,
@@ -971,12 +1041,13 @@ h1 .icon {
    yükseklik (bkz. partials/_asistan_slot.html) --- */
 
 .assistant-slot {
-    background: var(--color-surface);
+    background: var(--color-surface-raised);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-md);
     padding: var(--space-5);
     min-height: 8.5rem;
     margin: var(--space-6) 0;
+    box-shadow: var(--shadow-1);
 }
 
 .assistant-slot__header {
@@ -1052,6 +1123,14 @@ h1 .icon {
     color: var(--color-text-muted);
 }
 
+/* Yüksek önemli aday etkinlikler için (bkz. candidate_card) — hızlı görsel
+   triyaj, kullanıcı dl'deki metni okumadan önce bile hangi kartın acil
+   olduğunu fark etsin diye. */
+.chip--danger {
+    background: var(--color-danger-subtle);
+    color: var(--color-danger);
+}
+
 .policy-actions-list {
     margin: 0 0 var(--space-3);
     padding-left: 1.1rem;
@@ -1113,12 +1192,13 @@ h1 .icon {
 /* --- Ayarlar (bkz. plan Faz 9) --- */
 
 .settings-section {
-    background: var(--color-surface);
+    background: var(--color-surface-raised);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-md);
     padding: var(--space-5);
     margin-bottom: var(--space-5);
     max-width: 32rem;
+    box-shadow: var(--shadow-1);
 }
 
 .settings-section h2 {
@@ -1144,11 +1224,12 @@ code {
    partials/_asistan_slot.html) ayrı bir sınıf kümesi. */
 
 .assistant-chat {
-    background: var(--color-surface);
+    background: var(--color-surface-raised);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-md);
     padding: var(--space-5);
     margin: var(--space-6) 0;
+    box-shadow: var(--shadow-1);
 }
 
 .assistant-chat__header {
@@ -1177,11 +1258,16 @@ code {
     max-height: 24rem;
     overflow-y: auto;
     margin-bottom: var(--space-4);
-    /* Sağda scrollbar için pay (bkz. canlı testte bulunan sorun: balonlar
-       scrollbar'a neredeyse değiyordu) + üst/alt biraz boşluk (kaydırıldığında
-       bir mesajın tam kenara YAPIŞIK kesilmesi yerine, aşağıdaki fade ile
-       birlikte daha yumuşak bir kırpılma hissi versin diye). */
-    padding: var(--space-2) var(--space-2) var(--space-2) 0;
+    /* Balon pane'i artık çevresinden (Faz 3, .assistant-chat artık
+       --color-surface-raised) ayrışan çökük bir yüzey — balonlar (aşağıda
+       --color-surface + gölge) bu zeminin üzerinde "kalkık" duruyor,
+       gerçek bir sohbet penceresi hissi versin diye. Sağda scrollbar için
+       pay + üst/alt boşluk (kaydırıldığında bir mesajın tam kenara YAPIŞIK
+       kesilmesi yerine, aşağıdaki fade ile birlikte daha yumuşak bir
+       kırpılma hissi versin diye). */
+    background: var(--color-surface-sunken);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-3) var(--space-3) var(--space-2);
     /* "Daha fazla mesaj var" ipucu: üst/alt birkaç piksel şeffaflaşıyor —
        kaydırma konumundan bağımsız, sabit bir görsel ipucu (JS scroll
        event'i gerektirmeyen basit bir yaklaşım). mask-image renk değil
@@ -1212,12 +1298,13 @@ code {
 
 .chat-bubble {
     margin: 0;
-    padding: var(--space-2) var(--space-3);
-    border-radius: var(--radius-md);
+    padding: var(--space-2) var(--space-4);
+    border-radius: var(--radius-lg);
     white-space: pre-wrap;
     word-break: break-word;
     max-width: 85%;
     font-size: 0.9rem;
+    box-shadow: var(--shadow-1);
 }
 
 .chat-bubble--user {
@@ -1228,8 +1315,7 @@ code {
 
 .chat-bubble--assistant {
     align-self: flex-start;
-    background: var(--color-surface-sunken);
-    border: 1px solid var(--color-border);
+    background: var(--color-surface);
 }
 
 .assistant-chat__form {
@@ -1238,9 +1324,26 @@ code {
     gap: var(--space-3);
 }
 
+/* Faz 3: eskiden ayrı ayrı kenarlıklı yüzen düğmeler (ekle/mikrofon) +
+   ayrı kenarlıklı bir metin kutusu + ayrı bir dikdörtgen "Gönder" butonuydu
+   — artık tek bir hap-şeklinde kapsayıcı (modern sohbet giriş çubuğu
+   kalıbı: ChatGPT/Telegram/WhatsApp), içindeki düğmeler kenarlıksız. Metin
+   kutusu kendi kenarlığını/odak halkasını kaybediyor, kapsayıcı
+   :focus-within ile tepki veriyor — çift halka olmasın diye. */
 .assistant-chat__input-row {
     display: flex;
-    gap: var(--space-2);
+    align-items: center;
+    gap: var(--space-1);
+    padding: var(--space-1);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    background: var(--color-surface);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.assistant-chat__input-row:focus-within {
+    border-color: var(--color-accent);
+    box-shadow: 0 0 0 3px var(--color-accent-subtle);
 }
 
 /* [hidden]'in `display: flex` içeren bir sınıfla AYNI özgüllükte olması
@@ -1257,6 +1360,14 @@ code {
 
 .assistant-chat__input-row input[type="text"] {
     flex: 1;
+    border: none;
+    background: transparent;
+    padding: var(--space-2);
+}
+
+.assistant-chat__input-row input[type="text"]:focus-visible {
+    outline: none;
+    box-shadow: none;
 }
 
 /* Dosyadan etkinlik ekleme (bkz. FileInputCapable, yalnızca Gemini backend'i
@@ -1271,11 +1382,11 @@ code {
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
-    width: 2.5rem;
-    height: 2.5rem;
+    width: 2.25rem;
+    height: 2.25rem;
     border-radius: 50%;
-    border: 1px solid var(--color-border);
-    background: var(--color-surface);
+    border: none;
+    background: transparent;
     color: var(--color-text-muted);
     cursor: pointer;
 }
@@ -1287,6 +1398,28 @@ code {
 
 .assistant-chat__attach-btn:has(:focus-visible) {
     box-shadow: var(--focus-ring);
+}
+
+/* Gönder butonu — eskiden metinli bir dikdörtgen .btn-approve'du, artık
+   hap-şeklindeki giriş çubuğunun İÇİNDE dairesel bir ikon butonu (yukarı ok,
+   ChatGPT/ok-tuşu kalıbı) — bkz. _icons.html icon-send. */
+.assistant-chat__send-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 2.25rem;
+    height: 2.25rem;
+    border-radius: 50%;
+    border: none;
+    background: var(--color-accent);
+    color: #fff;
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+}
+
+.assistant-chat__send-btn:hover {
+    background: var(--color-accent-text);
 }
 
 /* Ses kaydı — mikrofon butonuna tıklayınca #chat-input-row gizlenip

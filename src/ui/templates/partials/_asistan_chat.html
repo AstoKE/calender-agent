@@ -109,7 +109,9 @@
             <input type="file" id="ses-input" name="ses" class="sr-only" accept="audio/*" />
             {% endif %}
             <input type="text" name="metin" placeholder="{{ t('chat.placeholder') }}" autocomplete="off" />
-            <button type="submit" class="btn btn-approve">{{ t("chat.send") }}</button>
+            <button type="submit" class="assistant-chat__send-btn" title="{{ t('chat.send') }}">
+                <svg class="icon" width="18" height="18" aria-hidden="true"><use href="#icon-send"></use></svg>
+            </button>
         </div>
 
         {% if vision_enabled and not chat_step %}
