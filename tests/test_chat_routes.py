@@ -491,6 +491,80 @@ def test_attach_row_shown_with_vision_capable_provider(vision_client):
     assert 'enctype="multipart/form-data"' in response.text
 
 
+# --- Ses→metin (mikrofon) — bkz. plan "sesli konuşarak iletişim" ---
+
+
+def test_mic_button_shown_with_vision_capable_provider(vision_client):
+    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    response = vision_client.get("/anasayfa")
+    assert response.status_code == 200
+    assert 'id="mic-btn"' in response.text
+    assert 'name="ses"' in response.text
+
+
+def test_mic_button_hidden_without_vision_capable_provider(client):
+    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    response = client.get("/anasayfa")
+    assert response.status_code == 200
+    assert 'id="mic-btn"' not in response.text
+
+
+def test_voice_message_transcribes_and_shows_transcript_as_user_bubble(vision_client, monkeypatch):
+    monkeypatch.setattr(_DummyVisionLLMProvider, "file_response", "yarın toplantı var mı diye soruyorum")
+    ensure_account_registered("acc1", provider="google", email="a@example.com")
+
+    response = vision_client.post(
+        "/asistan/mesaj",
+        data={"next": "/anasayfa"},
+        files={"ses": ("kayit.ogg", b"FAKE_AUDIO_BYTES", "audio/ogg")},
+        headers={"X-Requested-With": "fetch"},
+    )
+    assert response.status_code == 200
+    # Transkript kullanıcı balonunda GÖRÜNÜYOR (jenerik bir "ses gönderildi"
+    # yer tutucusu değil) — kullanıcı ne anlaşıldığını görebilsin diye.
+    assert "yarın toplantı var mı diye soruyorum" in response.text
+
+
+def test_voice_message_empty_transcription_shows_error(vision_client, monkeypatch):
+    monkeypatch.setattr(_DummyVisionLLMProvider, "file_response", "")
+    ensure_account_registered("acc1", provider="google", email="a@example.com")
+
+    response = vision_client.post(
+        "/asistan/mesaj",
+        files={"ses": ("kayit.ogg", b"FAKE_AUDIO_BYTES", "audio/ogg")},
+        headers={"X-Requested-With": "fetch"},
+    )
+    assert response.status_code == 200
+    assert "anlayamadım" in response.text
+
+
+def test_voice_message_without_vision_provider_shows_error_not_crash(client):
+    # `client` (vision_client DEĞİL) — FoundryLocal sahtesi FileInputCapable
+    # UYGULAMIYOR; mikrofon butonu normalde hiç gösterilmez ama doğrudan bir
+    # POST (örn. eski bir sekme) sunucuyu ÇÖKERTMEMELİ, zarifçe düşmeli.
+    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    response = client.post(
+        "/asistan/mesaj",
+        files={"ses": ("kayit.ogg", b"FAKE_AUDIO_BYTES", "audio/ogg")},
+        headers={"X-Requested-With": "fetch"},
+    )
+    assert response.status_code == 200
+    assert "anlayamadım" in response.text
+
+
+def test_voice_only_message_is_not_treated_as_empty(vision_client, monkeypatch):
+    monkeypatch.setattr(_DummyVisionLLMProvider, "file_response", "merhaba")
+    ensure_account_registered("acc1", provider="google", email="a@example.com")
+
+    response = vision_client.post(
+        "/asistan/mesaj",
+        files={"ses": ("kayit.ogg", b"FAKE_AUDIO_BYTES", "audio/ogg")},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert vision_client.cookies.get("chat_session")  # bir oturum açıldı, boş gönderimde açılmazdı
+
+
 def test_file_upload_extracts_event_and_reaches_preview(vision_client):
     ensure_account_registered("acc1", provider="google", email="a@example.com")
     response = vision_client.post(

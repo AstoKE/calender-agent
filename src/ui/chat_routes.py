@@ -96,6 +96,27 @@ def _display_text_for_action(action: str, metin: str, lang: str) -> str | None:
     return translate(key, lang) if key else None
 
 
+# Ses→metin (bkz. plan "sesli konuşarak iletişim") — mikrofonla kaydedilen
+# sesi metne çevirir, sonrası (niyet tespiti, netleştirme, onay...) yazılı
+# bir mesajla AYNEN aynı yoldan (process_message) geçer; chat_flow.py'nin
+# durum makinesine hiçbir yeni kavram eklenmiyor, yalnızca `user_text`'in
+# NEREDEN geldiği değişiyor. Yalnızca FileInputCapable (bugün yalnızca
+# Gemini) destekliyor — bilerek diskte hiç saklanmıyor, transkript
+# alınınca ham bayt hemen atılır.
+_TRANSCRIBE_SYSTEM_PROMPT = (
+    "Bu bir ses kaydı. İçindeki konuşmayı, konuşulduğu dilde (Türkçe ya da "
+    "İngilizce) ve noktalama işaretleriyle birlikte YAZIYA DÖK. SADECE "
+    "yazıya dökülmüş metni döndür, başka hiçbir açıklama/yorum ekleme."
+)
+
+
+def _transcribe_audio(llm, audio_bytes: bytes, mime_type: str) -> str | None:
+    if not isinstance(llm, FileInputCapable):
+        return None
+    text = llm.generate_from_file(_TRANSCRIBE_SYSTEM_PROMPT, "", audio_bytes, mime_type, json_output=False)
+    return text.strip() or None
+
+
 @router.post("/asistan/mesaj")
 def send_chat_message(
     request: Request,
@@ -103,6 +124,7 @@ def send_chat_message(
     action: str = Form(""),
     next: str = Form("/anasayfa"),
     dosya: UploadFile | None = File(None),
+    ses: UploadFile | None = File(None),
 ):
     target = safe_next(next)
     ajax = _is_ajax(request)
@@ -115,19 +137,51 @@ def send_chat_message(
         return RedirectResponse(target, status_code=303)
 
     account_id = active_account["id"]
+    lang = resolve_language(request, active_account)
     user_text = (action or metin).strip()
     # Boş bir <input type="file"> de gönderilince (kullanıcı hiç dosya
     # seçmemiş) tarayıcı yine de boş dosya adlı bir parça gönderebilir —
     # `dosya.filename` doluysa gerçekten bir dosya seçilmiş demektir.
     has_file = dosya is not None and bool(dosya.filename)
+    has_audio = ses is not None and bool(ses.filename)
 
-    if not user_text and not has_file:
-        # Boş gönderim (metin de action da dosya da yok) — CLI'nın boş
+    if not user_text and not has_file and not has_audio:
+        # Boş gönderim (metin de action da dosya da ses de yok) — CLI'nın boş
         # Enter'ıyla aynı: sessizce yok sayılır, henüz sohbet edilmemişse
         # boş bir chat_sessions satırı bile açılmaz (bkz. get_current_chat_session_id).
         if ajax:
             return _chat_fragment_response(request, account_id)
         return RedirectResponse(target, status_code=303)
+
+    cookie_carrier = Response()
+    session_id = get_or_create_chat_session(request, cookie_carrier, account_id)
+
+    if has_audio:
+        audio_bytes = ses.file.read()
+        audio_mime_type = ses.content_type or "audio/webm"
+        try:
+            transcribed = _transcribe_audio(request.app.state.llm, audio_bytes, audio_mime_type)
+        except Exception:
+            logger.exception("Ses tanıma başarısız (session=%s)", session_id)
+            transcribed = None
+
+        if not transcribed:
+            # Ya FileInputCapable değil (Foundry Local — mikrofon butonu
+            # normalde bu durumda hiç gösterilmiyor, ama doğrudan POST
+            # ihtimaline karşı burada da savunuluyor) ya da tanıma boş/
+            # başarısız sonuç döndü — işlenecek bir kullanıcı niyeti yok,
+            # process_message'a HİÇ girmeden doğrudan bir hata balonu eklenir
+            # (chat_routes.py'nin genel except-fallback'iyle AYNI desen).
+            with get_connection() as conn:
+                append_chat_message(conn, session_id, "assistant", translate("chat.audio.transcription_failed", lang))
+            response = (
+                _chat_fragment_response_for_session(request, session_id) if ajax
+                else RedirectResponse(target, status_code=303)
+            )
+            _copy_cookies(cookie_carrier, response)
+            return response
+
+        user_text = transcribed
 
     file_bytes: bytes | None = None
     file_mime_type: str | None = None
@@ -135,13 +189,10 @@ def send_chat_message(
         file_bytes = dosya.file.read()
         file_mime_type = dosya.content_type or "application/octet-stream"
 
-    lang = resolve_language(request, active_account)
     display_text = metin.strip() if metin.strip() else (
-        translate("chat.file.sent_placeholder", lang) if has_file else _display_text_for_action(action, metin, lang)
+        user_text if has_audio
+        else (translate("chat.file.sent_placeholder", lang) if has_file else _display_text_for_action(action, metin, lang))
     )
-
-    cookie_carrier = Response()
-    session_id = get_or_create_chat_session(request, cookie_carrier, account_id)
 
     in_progress = request.app.state.chat_in_progress
     if session_id not in in_progress:

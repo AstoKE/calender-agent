@@ -107,6 +107,28 @@
         if (input) input.focus();
     }
 
+    // Canlı testte bulunan gerçek bir hata: bir adımda hızlı-yanıt
+    // butonları (Onayla/Evet/Sakla/...) VARKEN kullanıcı metin kutusuna
+    // yazıp Enter'a basınca, tarayıcının "birden fazla submit butonu olan
+    // formda Enter ilk butonu tetikler" standart davranışı yüzünden yazılan
+    // metin DEĞİL, o adımın İLK hızlı-yanıt butonu (örn. "keep") gönderiliyordu
+    // — kullanıcı ekranda kendi yazdığı metni görüyordu (display_text metin
+    // alanından geliyor) ama sunucu tarafında GERÇEKTE o buton işleniyordu
+    // (örn. bir çakışma alternatifi seçmek yerine sessizce "yine de bu
+    // saatte devam et" uygulanıyordu — chat_step'e göre ilk buton değişiyor,
+    // bazen "approve", bazen "evet" da olabilir). Enter'ı burada elle
+    // yakalayıp `requestSubmit()`'i HİÇBİR submitter olmadan çağırmak,
+    // formun action alanını dokunulmamış (boş) bırakıyor — sunucu bu
+    // durumda `metin`i kullanıyor, tıpkı "Gönder"e tıklamış gibi.
+    document.addEventListener("keydown", function (event) {
+        if (event.key !== "Enter") return;
+        if (!event.target.matches('.assistant-chat__form input[name="metin"]')) return;
+        var form = event.target.form;
+        if (!form) return;
+        event.preventDefault();
+        form.requestSubmit();
+    });
+
     document.addEventListener("submit", function (event) {
         var form = event.target;
         if (!form.matches(".assistant-chat__form, .assistant-chat__reset-form")) return;
@@ -155,6 +177,142 @@
             nameEl.hidden = false;
         } else {
             nameEl.hidden = true;
+        }
+    });
+
+    // Ses kaydı (mikrofon butonu, bkz. _asistan_chat.html #mic-btn +
+    // #recording-bar) — MediaRecorder ile tarayıcı tarafında kaydeder.
+    // Kayıt sürerken #chat-input-row (metin kutusu/ekle/mikrofon) gizlenip
+    // yerine #recording-bar (nabız atan iz + eşitleyici + sayaç + iptal/gönder
+    // butonları, bkz. kullanıcının referans ekran görüntüsü) geçiyor —
+    // ikisi de AYNI form içinde, yalnızca CSS `hidden` ile değişiyor.
+    // Durunca (gönder ile) Blob gizli #ses-input dosya alanına atanıp form
+    // normal şekilde gönderiliyor; gerçek transkripsiyon sunucu tarafında
+    // (chat_routes.py, Gemini) olur, burada YENİ bir fetch YAZILMIYOR —
+    // yukarıdaki "submit" dinleyicisi mevcut AJAX yolunu otomatik yakalar.
+    // Tüm tıklamalar `document`'e delege (bkz. yukarıdaki aynı gerekçe —
+    // bu düğümler her AJAX yanıtında outerHTML ile değişiyor); kayıt durumu
+    // modül seviyesinde tutulur (bir DOM düğümüne değil, "o an süren tek
+    // kayıt"a bağlı, düğümler değişse bile doğru çalışır).
+    var activeRecorder = null;
+    var activeChunks = [];
+    var recordingCancelled = false;
+    var recordingTimerId = null;
+    var recordingStartedAt = 0;
+
+    function formatElapsed(totalSeconds) {
+        var minutes = Math.floor(totalSeconds / 60);
+        var seconds = totalSeconds % 60;
+        return minutes + ":" + (seconds < 10 ? "0" : "") + seconds;
+    }
+
+    function startRecordingTimer() {
+        recordingStartedAt = Date.now();
+        var timerEl = document.getElementById("chat-recording-timer");
+        if (timerEl) timerEl.textContent = "0:00";
+        recordingTimerId = window.setInterval(function () {
+            var el = document.getElementById("chat-recording-timer");
+            if (!el) return; // #asistan-chat AJAX ile değişmiş olabilir, sayaç durdurulmayı bekliyor
+            el.textContent = formatElapsed(Math.floor((Date.now() - recordingStartedAt) / 1000));
+        }, 1000);
+    }
+
+    function stopRecordingTimer() {
+        if (recordingTimerId !== null) {
+            window.clearInterval(recordingTimerId);
+            recordingTimerId = null;
+        }
+    }
+
+    function preferredAudioMimeType() {
+        // Gemini'nin resmi desteklediği liste: wav/mp3/aiff/aac/ogg/flac —
+        // webm YOK, ama MediaRecorder'ın Chrome'daki varsayılanı webm'dir.
+        // Önce Gemini-uyumlu bir seçenek denenir, yoksa tarayıcının verdiği
+        // her ne ise ona düşülür (canlı testte doğrulanacak bir nokta).
+        var candidates = [
+            "audio/ogg;codecs=opus", "audio/ogg", "audio/mp4",
+            "audio/webm;codecs=opus", "audio/webm",
+        ];
+        for (var i = 0; i < candidates.length; i++) {
+            if (window.MediaRecorder && MediaRecorder.isTypeSupported(candidates[i])) return candidates[i];
+        }
+        return "";
+    }
+
+    function setRecordingUi(isRecording) {
+        var inputRow = document.getElementById("chat-input-row");
+        var bar = document.getElementById("recording-bar");
+        if (inputRow) inputRow.hidden = isRecording;
+        if (bar) bar.hidden = !isRecording;
+        if (isRecording) {
+            startRecordingTimer();
+        } else {
+            stopRecordingTimer();
+        }
+    }
+
+    function showMicError() {
+        var micBtn = document.getElementById("mic-btn");
+        var errorEl = document.getElementById("mic-error");
+        if (errorEl) {
+            errorEl.textContent = (micBtn && micBtn.dataset.labelDenied) || "";
+            errorEl.hidden = false;
+        }
+    }
+
+    function startRecording() {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {
+            showMicError();
+            return;
+        }
+        navigator.mediaDevices.getUserMedia({ audio: true }).then(function (stream) {
+            var mimeType = preferredAudioMimeType();
+            var recorder = mimeType ? new MediaRecorder(stream, { mimeType: mimeType }) : new MediaRecorder(stream);
+            activeChunks = [];
+            recordingCancelled = false;
+            recorder.addEventListener("dataavailable", function (e) {
+                if (e.data && e.data.size > 0) activeChunks.push(e.data);
+            });
+            recorder.addEventListener("stop", function () {
+                stream.getTracks().forEach(function (track) { track.stop(); });
+                activeRecorder = null;
+                setRecordingUi(false);
+                if (recordingCancelled) return; // İptal edildi — hiçbir şey gönderilmiyor.
+                var blob = new Blob(activeChunks, { type: recorder.mimeType || "audio/webm" });
+                var input = document.getElementById("ses-input");
+                var form = document.querySelector(".assistant-chat__form");
+                if (input && form && blob.size > 0) {
+                    var dt = new DataTransfer();
+                    var ext = (recorder.mimeType || "audio/webm").split("/")[1].split(";")[0];
+                    dt.items.add(new File([blob], "kayit." + ext, { type: blob.type }));
+                    input.files = dt.files;
+                    form.requestSubmit();
+                }
+            });
+            activeRecorder = recorder;
+            recorder.start();
+            setRecordingUi(true);
+        }).catch(function () {
+            showMicError();
+        });
+    }
+
+    document.addEventListener("click", function (event) {
+        if (event.target.closest && event.target.closest("#mic-btn")) {
+            event.preventDefault();
+            startRecording();
+            return;
+        }
+        if (event.target.closest && event.target.closest("#recording-confirm-btn")) {
+            event.preventDefault();
+            if (activeRecorder && activeRecorder.state === "recording") activeRecorder.stop();
+            return;
+        }
+        if (event.target.closest && event.target.closest("#recording-cancel-btn")) {
+            event.preventDefault();
+            recordingCancelled = true;
+            if (activeRecorder && activeRecorder.state === "recording") activeRecorder.stop();
+            return;
         }
     });
 

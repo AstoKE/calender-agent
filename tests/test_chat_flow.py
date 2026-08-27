@@ -553,6 +553,26 @@ def test_conflict_with_alternative_chosen_moves_event(conn):
     assert state.candidate.start_datetime == state.alternatives[0]
 
 
+def test_conflict_with_second_alternative_chosen_moves_event(conn):
+    # choice="1" zaten test ediliyordu (yukarıda) — "2" (ikinci alternatif,
+    # index 1) canlı testte bulunan bir şüpheyi ELEMEK için: pür durum
+    # makinesi doğru çalışıyor (bkz. aşağıdaki HTTP-seviyeli test — asıl
+    # sorun burada değil, kalıcılık/round-trip katmanında bulundu).
+    start = _future_dt(days=1, hours=2)
+    busy = [(start, start + timedelta(minutes=30))]
+    llm = _create_event_llm(title="Toplantı", start_datetime=start.isoformat(), duration_minutes=30)
+    calendar = FakeCalendar(busy=busy)
+
+    state, messages = _advance(ChatState(), "yarın toplantı", llm=llm, calendar=calendar)
+    assert state.step == STEP_ASK_CONFLICT_ALTERNATIVE
+    assert len(state.alternatives) >= 2
+
+    state, messages = _advance(state, "2", llm=llm, calendar=calendar)
+    assert state.step == STEP_PREVIEW_CONFIRM
+    assert state.conflict_note == CONFLICT_MOVED
+    assert state.candidate.start_datetime == state.alternatives[1]
+
+
 def test_conflict_keep_anyway(conn):
     start = _future_dt(days=1, hours=2)
     busy = [(start, start + timedelta(minutes=30))]

@@ -502,6 +502,17 @@ MESSAGES: dict[str, dict[str, str]] = {
     },
     "chat.attach_file": {"tr": "Dosya ekle", "en": "Attach file"},
     "chat.file.sent_placeholder": {"tr": "Dosya gönderildi", "en": "File sent"},
+    "chat.record_audio": {"tr": "Sesli mesaj kaydet", "en": "Record voice message"},
+    "chat.recording_stop": {"tr": "Kaydı durdur ve gönder", "en": "Stop recording and send"},
+    "chat.recording_cancel": {"tr": "Kaydı iptal et", "en": "Cancel recording"},
+    "chat.audio.mic_denied": {
+        "tr": "Mikrofona erişilemedi — tarayıcı izni reddetmiş olabilir.",
+        "en": "Couldn't access the microphone — the browser may have denied permission.",
+    },
+    "chat.audio.transcription_failed": {
+        "tr": "Sesi anlayamadım, tekrar dener misiniz?",
+        "en": "I couldn't understand the recording — could you try again?",
+    },
     "chat.create.batch_progress": {"tr": "Etkinlik {index}/{total}:", "en": "Event {index}/{total}:"},
     "chat.create.ask_title": {"tr": "Etkinliğin başlığı ne olsun?", "en": "What should the event be called?"},
     "chat.create.ask_duration": {

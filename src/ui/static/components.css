@@ -1169,6 +1169,18 @@ code {
     gap: var(--space-2);
 }
 
+/* [hidden]'in `display: flex` içeren bir sınıfla AYNI özgüllükte olması
+   (ikisi de tek seçici, 0-0-1-0) yüzünden, kaynak sırasında SONRA gelen
+   author kuralı (bu ikisi) tarayıcının varsayılan `[hidden] { display: none }`
+   kuralını eziyordu — JS'in `.hidden = true` ataması görsel olarak HİÇBİR
+   ŞEY yapmıyordu, iki satır da her zaman aynı anda görünür kalıyordu (canlı
+   testte bulundu, klasik bir CSS tuzağı). Daha özgül bir `[hidden]`
+   kuralıyla düzeltiliyor. */
+.assistant-chat__input-row[hidden],
+.assistant-chat__recording-bar[hidden] {
+    display: none;
+}
+
 .assistant-chat__input-row input[type="text"] {
     flex: 1;
 }
@@ -1200,6 +1212,114 @@ code {
 }
 
 .assistant-chat__attach-btn:has(:focus-visible) {
+    box-shadow: var(--focus-ring);
+}
+
+/* Ses kaydı — mikrofon butonuna tıklayınca #chat-input-row gizlenip
+   #recording-bar aynı yerde belirir (bkz. anasayfa.html script bloğu).
+   Odak noktası merkezdeki parlayan/nabız atan "orb" (Siri/Google Asistan
+   tarzı "dinliyorum" göstergesi, kullanıcıyla netleştirildi — çubuk
+   eşitleyici/nokta izi yerine TEK bir zarif odak noktası). Ayrı bir renk
+   icat edilmedi — mevcut accent token'ı yeniden kullanılıyor. */
+.assistant-chat__recording-bar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    height: 2.5rem;
+    padding: 0 var(--space-2);
+    border-radius: var(--radius-pill);
+    border: 1px solid var(--color-border);
+    background: var(--color-surface-sunken);
+}
+
+.assistant-chat__recording-orb-wrap {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.assistant-chat__recording-orb {
+    position: relative;
+    width: 0.85rem;
+    height: 0.85rem;
+    border-radius: 50%;
+    background: var(--color-accent);
+    animation: recording-orb-pulse 1.6s ease-in-out infinite;
+}
+
+/* İki eş merkezli halka, biri diğerinden 0.7s gecikmeli başlıyor — sürekli,
+   üst üste binen bir "radar pingi" hissi versin diye (bkz. recording-orb-ring). */
+.assistant-chat__recording-orb::before,
+.assistant-chat__recording-orb::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    border: 1px solid var(--color-accent);
+    opacity: 0;
+    animation: recording-orb-ring 1.8s ease-out infinite;
+}
+
+.assistant-chat__recording-orb::after {
+    animation-delay: 0.7s;
+}
+
+@keyframes recording-orb-pulse {
+    0%, 100% {
+        transform: scale(1);
+        box-shadow: 0 0 8px 2px var(--color-accent), 0 0 18px 4px rgba(26, 115, 232, 0.35);
+    }
+    50% {
+        transform: scale(1.2);
+        box-shadow: 0 0 14px 4px var(--color-accent), 0 0 28px 8px rgba(26, 115, 232, 0.45);
+    }
+}
+
+@keyframes recording-orb-ring {
+    0% { transform: scale(1); opacity: 0.55; }
+    100% { transform: scale(3); opacity: 0; }
+}
+
+.assistant-chat__recording-timer {
+    font-variant-numeric: tabular-nums;
+    color: var(--color-text-muted);
+    font-size: 0.8rem;
+    flex-shrink: 0;
+}
+
+.assistant-chat__recording-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 50%;
+    border: none;
+    cursor: pointer;
+}
+
+.assistant-chat__recording-btn--cancel {
+    background: transparent;
+    color: var(--color-text-muted);
+}
+
+.assistant-chat__recording-btn--cancel:hover {
+    background: var(--color-surface);
+    color: var(--color-text);
+}
+
+.assistant-chat__recording-btn--confirm {
+    background: var(--color-accent);
+    color: #fff;
+}
+
+.assistant-chat__recording-btn--confirm:hover {
+    filter: brightness(0.92);
+}
+
+.assistant-chat__recording-btn:focus-visible {
     box-shadow: var(--focus-ring);
 }
 

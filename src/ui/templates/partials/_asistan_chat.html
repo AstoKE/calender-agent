@@ -86,18 +86,52 @@
            kendiliğinden gösteremiyor) anasayfa.html'deki script'e küçük bir
            değişiklik-dinleyicisi eklendi. #}
         <p id="chat-file-name" class="hint assistant-chat__file-name" hidden></p>
+        <p id="mic-error" class="hint assistant-chat__file-name" hidden role="status"></p>
         {% endif %}
 
-        <div class="assistant-chat__input-row">
+        <div class="assistant-chat__input-row" id="chat-input-row">
             {% if vision_enabled and not chat_step %}
             <label for="chat-file-input" class="assistant-chat__attach-btn" title="{{ t('chat.attach_file') }}">
                 <svg class="icon" width="20" height="20" aria-hidden="true"><use href="#icon-plus"></use></svg>
                 <input type="file" id="chat-file-input" name="dosya" class="sr-only"
                        accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf" />
             </label>
+            {# Ses→metin (bkz. anasayfa.html script bloğu — MediaRecorder API):
+               gerçek kayıt tarayıcı tarafında olur, tıklanınca bu satırın
+               yerini #recording-bar alır (bkz. altta); kayıt durunca gizli
+               #ses-input dosya alanına atanıp normal form gönderimi
+               tetiklenir; sunucu tarafı (chat_routes.py) sesi Gemini ile
+               metne çevirip normal sohbet akışına sokar. #}
+            <button type="button" id="mic-btn" class="assistant-chat__attach-btn" title="{{ t('chat.record_audio') }}"
+                    data-label-denied="{{ t('chat.audio.mic_denied') }}">
+                <svg class="icon" width="20" height="20" aria-hidden="true"><use href="#icon-mic"></use></svg>
+            </button>
+            <input type="file" id="ses-input" name="ses" class="sr-only" accept="audio/*" />
             {% endif %}
             <input type="text" name="metin" placeholder="{{ t('chat.placeholder') }}" autocomplete="off" />
             <button type="submit" class="btn btn-approve">{{ t("chat.send") }}</button>
         </div>
+
+        {% if vision_enabled and not chat_step %}
+        {# Kayıt sürerken #chat-input-row'un YERİNE geçen bar — tek bir
+           yumuşak parlayan (glow), nabız atan "orb" merkezi odak noktası
+           (Siri/Google Asistan tarzı "dinliyorum" göstergesi, bkz.
+           components.css @keyframes recording-orb-*), canlı sayaç, iptal
+           (X) ve gönder (✓) butonları. #}
+        <div class="assistant-chat__recording-bar" id="recording-bar" hidden>
+            <button type="button" id="recording-cancel-btn" class="assistant-chat__recording-btn assistant-chat__recording-btn--cancel"
+                    title="{{ t('chat.recording_cancel') }}">
+                <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-x"></use></svg>
+            </button>
+            <span class="assistant-chat__recording-orb-wrap" aria-hidden="true">
+                <span class="assistant-chat__recording-orb"></span>
+            </span>
+            <span id="chat-recording-timer" class="assistant-chat__recording-timer">0:00</span>
+            <button type="button" id="recording-confirm-btn" class="assistant-chat__recording-btn assistant-chat__recording-btn--confirm"
+                    title="{{ t('chat.recording_stop') }}">
+                <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-check"></use></svg>
+            </button>
+        </div>
+        {% endif %}
     </form>
 </section>
