@@ -11,7 +11,7 @@
 {% if c.missing_fields or c.ambiguous_fields %}
 <p class="warning">
     <svg class="icon" width="18" height="18" aria-hidden="true"><use href="#icon-warning"></use></svg>
-    {{ t("duzenle.warning.incomplete") }}: {{ (c.missing_fields + c.ambiguous_fields) | join(", ") }}
+    {{ t("duzenle.warning.incomplete") }}: {{ translate_field_names(c.missing_fields + c.ambiguous_fields, t) | join(", ") }}
 </p>
 {% endif %}
 

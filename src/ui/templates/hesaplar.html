@@ -45,7 +45,7 @@
         <dt>{{ t("hesaplar.field.provider") }}</dt>
         <dd>{{ acc.provider }}</dd>
         <dt>{{ t("hesaplar.field.status") }}</dt>
-        <dd>{{ acc.status }}</dd>
+        <dd>{{ t("common.active") if acc.status == "active" else t("common.inactive") }}</dd>
         <dt>{{ t("hesaplar.field.connected_at") }}</dt>
         <dd>{{ acc.connected_at }}</dd>
     </dl>

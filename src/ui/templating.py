@@ -32,7 +32,13 @@ from src.localization.formatting import (
 )
 from src.memory.correction_memory import candidate_snapshot
 from src.ui.nav import NAV_ITEMS
-from src.ui.presenters import avatar_color, describe_structured_action, diff_snapshots, initials
+from src.ui.presenters import (
+    avatar_color,
+    describe_structured_action,
+    diff_snapshots,
+    initials,
+    translate_field_names,
+)
 from src.ui.session import resolve_active_account, resolve_language, resolve_theme
 
 logger = get_logger("ui.templating")
@@ -104,3 +110,4 @@ templates.env.globals["avatar_color"] = avatar_color
 templates.env.globals["describe_structured_action"] = describe_structured_action
 templates.env.globals["diff_snapshots"] = diff_snapshots
 templates.env.globals["candidate_snapshot"] = candidate_snapshot
+templates.env.globals["translate_field_names"] = translate_field_names

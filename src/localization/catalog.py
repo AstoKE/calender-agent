@@ -232,8 +232,8 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "This account's calendar connection needs to be renewed.",
     },
     "takvim.no_token_hint": {
-        "tr": "CLI üzerinden (`python -m src.services.vertical_prototype`) bu hesapla tekrar giriş yapın.",
-        "en": "Sign in again with this account from the CLI (`python -m src.services.vertical_prototype`).",
+        "tr": "Bu hesapla CLI üzerinden tekrar giriş yapın:",
+        "en": "Sign in again with this account from the CLI:",
     },
     "takvim.error": {
         "tr": "Takvim şu anda yüklenemedi.",

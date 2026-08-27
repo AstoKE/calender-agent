@@ -67,6 +67,18 @@ _DIFF_FIELD_LABELS = {
 }
 
 
+def translate_field_names(fields: list[str], t: Callable[..., str]) -> list[str]:
+    """Ham Pydantic alan adlarını (bkz. duzenle.html'in eksik/belirsiz alan
+    uyarısı — CandidateEvent.missing_fields/ambiguous_fields her zaman
+    "title"/"start_datetime"/"duration_minutes" gibi İNGİLİZCE kod
+    tanımlayıcıları taşır, dile göre değişmez) kullanıcıya gösterilecek
+    çevrilmiş etiketlere çevirir — diff etiketleriyle AYNI eşlemeyi
+    (_DIFF_FIELD_LABELS) yeniden kullanır. Eşlenmemiş bir alan (bu üç
+    alanın dışında hiçbiri şu an oluşmuyor, bkz. extraction.py) ham haliyle
+    gösterilir, veri kaybolmuş gibi görünmesin."""
+    return [t(_DIFF_FIELD_LABELS[f]) if f in _DIFF_FIELD_LABELS else f for f in fields]
+
+
 def _format_diff_value(key: str, value: object, t: Callable[..., str]) -> str:
     if value in (None, "", []):
         return t("common.unspecified")
