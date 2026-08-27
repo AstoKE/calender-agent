@@ -133,7 +133,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "No connected accounts yet. Add one below.",
     },
     "hesaplar.add_account": {"tr": "Yeni hesap ekle", "en": "Add new account"},
-    "hesaplar.add_outlook_account": {"tr": "Outlook hesabı ekle", "en": "Add Outlook account"},
+    "hesaplar.choose_provider": {"tr": "Hangi sağlayıcıyla bağlanmak istersiniz?", "en": "Which provider would you like to connect?"},
     "hesaplar.account_added": {"tr": "Hesap başarıyla eklendi.", "en": "Account added successfully."},
     "hesaplar.oauth_error.reddedildi": {
         "tr": "Google onayı iptal edildi, hesap eklenmedi.",

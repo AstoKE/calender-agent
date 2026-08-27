@@ -100,10 +100,29 @@ def shell_context(request: Request) -> dict:
         return {"accounts": [], "active_account": None, "theme": "system", "notif_count": 0, "notif_items": []}
 
 
+STATIC_DIR = Path(__file__).parent / "static"
+
+
+def static_version(filename: str) -> int:
+    """Statik CSS/JS dosyalarının tarayıcı önbelleğine takılmasını önlemek
+    için — `<link>`/`<script>` URL'sine sorgu string'i olarak eklenen bir
+    "sürüm" (dosyanın son değiştirilme zamanı). Dosya URL'si (`/static/
+    components.css`) her zaman AYNI kaldığı için, tarayıcının kendi
+    ısı-tabanlı önbellek sezgisi bir CSS düzenlemesinden SONRA bile eski
+    kopyayı sunabiliyordu (canlı testte bulundu: bir stil değişikliği
+    sayfada hiç görünmüyordu, sebep kod hatası değil önbellekti — dosya her
+    değiştiğinde mtime değişip URL'yi otomatik "tazeliyor")."""
+    try:
+        return int((STATIC_DIR / filename).stat().st_mtime)
+    except OSError:
+        return 0
+
+
 templates = Jinja2Templates(
     directory=str(Path(__file__).parent / "templates"),
     context_processors=[i18n_context, shell_context],
 )
+templates.env.globals["static_version"] = static_version
 templates.env.globals["NAV_ITEMS"] = NAV_ITEMS
 templates.env.globals["initials"] = initials
 templates.env.globals["avatar_color"] = avatar_color
