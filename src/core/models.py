@@ -19,17 +19,6 @@ class EmailProvider(str, Enum):
     OUTLOOK = "outlook"
 
 
-class CalendarProvider(str, Enum):
-    GOOGLE_CALENDAR = "google_calendar"
-    MS_CALENDAR = "ms_calendar"
-
-
-class AccountType(str, Enum):
-    PERSONAL = "personal"
-    SCHOOL = "school"
-    WORK = "work"
-
-
 class EventType(str, Enum):
     MEETING = "meeting"
     APPOINTMENT = "appointment"
@@ -227,10 +216,3 @@ class UserCorrection(BaseModel):
     derived_policy_id: Optional[str] = None
     created_at: datetime
     user_id: Optional[str] = None  # bkz. plan "Per-user isolation" — None: eski/sahipsiz kayıt ya da CLI
-
-
-class SyncState(BaseModel):
-    provider: str
-    account_id: str
-    last_sync_at: Optional[datetime] = None
-    provider_cursor_or_history_id: Optional[str] = None

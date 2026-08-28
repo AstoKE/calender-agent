@@ -128,7 +128,3 @@ def load_ms_token_noninteractive(scopes: list[str], account_id: str) -> str | No
     if result and "access_token" in result:
         return result["access_token"]
     return None
-
-
-def has_usable_ms_credentials(account_id: str, scopes: list[str] = MS_ACCOUNT_SCOPES) -> bool:
-    return load_ms_token_noninteractive(scopes, account_id) is not None

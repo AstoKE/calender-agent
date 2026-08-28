@@ -123,7 +123,3 @@ def load_credentials_noninteractive(scopes: list[str], account_id: str) -> Crede
         return creds
 
     return None
-
-
-def has_usable_credentials(account_id: str, scopes: list[str] = GOOGLE_ACCOUNT_SCOPES) -> bool:
-    return load_credentials_noninteractive(scopes, account_id) is not None
