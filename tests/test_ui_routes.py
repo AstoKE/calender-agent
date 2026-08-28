@@ -523,7 +523,8 @@ def test_kurallarim_empty_state(client):
 
 def test_kurallarim_lists_active_policy(client, temp_db):
     add_policy(
-        "default_duration_minutes", "Toplantılar 45 dakika", {"default_duration_minutes": 45}, event_type="meeting"
+        "default_duration_minutes", "Toplantılar 45 dakika", {"default_duration_minutes": 45}, event_type="meeting",
+        user_id=client.test_user["id"],
     )
     response = client.get("/kurallarim")
     assert response.status_code == 200
@@ -532,7 +533,7 @@ def test_kurallarim_lists_active_policy(client, temp_db):
 
 
 def test_kurallarim_inactive_policy_is_collapsed(client, temp_db):
-    p = add_policy("importance", "eski kural", {"importance": "high"}, event_type="meeting")
+    p = add_policy("importance", "eski kural", {"importance": "high"}, event_type="meeting", user_id=client.test_user["id"])
     client.post(f"/kurallarim/{p.policy_id}/pasiflestir")
     response = client.get("/kurallarim")
     assert response.status_code == 200
@@ -541,7 +542,7 @@ def test_kurallarim_inactive_policy_is_collapsed(client, temp_db):
 
 
 def test_deactivate_rule_route(client, temp_db):
-    p = add_policy("importance", "kural", {"importance": "high"}, event_type="meeting")
+    p = add_policy("importance", "kural", {"importance": "high"}, event_type="meeting", user_id=client.test_user["id"])
     response = client.post(f"/kurallarim/{p.policy_id}/pasiflestir", follow_redirects=False)
     assert response.status_code == 303
     assert get_policy(p.policy_id).active is False
@@ -553,7 +554,7 @@ def test_deactivate_unknown_rule_does_not_500(client):
 
 
 def test_reactivate_rule_route(client, temp_db):
-    p = add_policy("importance", "kural", {"importance": "high"}, event_type="meeting")
+    p = add_policy("importance", "kural", {"importance": "high"}, event_type="meeting", user_id=client.test_user["id"])
     client.post(f"/kurallarim/{p.policy_id}/pasiflestir")
     response = client.post(f"/kurallarim/{p.policy_id}/aktiflestir", follow_redirects=False)
     assert response.status_code == 303
@@ -562,9 +563,9 @@ def test_reactivate_rule_route(client, temp_db):
 
 
 def test_reactivate_conflict_redirects_with_flag(client, temp_db):
-    p1 = add_policy("importance", "eski", {"importance": "high"}, event_type="meeting")
+    p1 = add_policy("importance", "eski", {"importance": "high"}, event_type="meeting", user_id=client.test_user["id"])
     client.post(f"/kurallarim/{p1.policy_id}/pasiflestir")
-    add_policy("importance", "yeni", {"importance": "low"}, event_type="meeting")
+    add_policy("importance", "yeni", {"importance": "low"}, event_type="meeting", user_id=client.test_user["id"])
 
     response = client.post(f"/kurallarim/{p1.policy_id}/aktiflestir", follow_redirects=False)
     assert response.status_code == 303
@@ -672,7 +673,7 @@ def test_duzeltmelerim_empty_state(client):
 
 
 def test_duzeltmelerim_lists_correction_with_no_diff_message(client, temp_db):
-    _persisted_correction("yanlış süre")
+    _persisted_correction("yanlış süre", user_id=client.test_user["id"])
     response = client.get("/duzeltmelerim")
     assert response.status_code == 200
     assert "yanlış süre" in response.text
@@ -684,6 +685,7 @@ def test_duzeltmelerim_shows_diff_table_when_snapshots_differ(client, temp_db):
         "süre düzeltildi",
         original_output={"title": "Toplantı", "duration_minutes": 30},
         corrected_output={"title": "Toplantı", "duration_minutes": 60},
+        user_id=client.test_user["id"],
     )
     response = client.get("/duzeltmelerim")
     assert response.status_code == 200
@@ -691,7 +693,7 @@ def test_duzeltmelerim_shows_diff_table_when_snapshots_differ(client, temp_db):
 
 
 def test_duzeltmelerim_classification_correction_shows_note_not_diff(client, temp_db):
-    _persisted_correction("hiç takvimlik değildi", correction_type="classification")
+    _persisted_correction("hiç takvimlik değildi", correction_type="classification", user_id=client.test_user["id"])
     response = client.get("/duzeltmelerim")
     assert response.status_code == 200
     assert 'class="diff-table"' not in response.text
@@ -701,8 +703,8 @@ def test_duzeltmelerim_filter_by_type(client, temp_db):
     # Not: geri bildirim metinleri kasıtlı benzersiz — "alan"/"sınıflandırma"
     # gibi genel kelimeler filtre çipi etiketleriyle (örn. "Alan düzeltmesi")
     # çakışıp yanlış pozitif/negatif üretir.
-    _persisted_correction("FIELDCORRECTIONTEXT")
-    _persisted_correction("CLASSIFCORRECTIONTEXT", correction_type="classification")
+    _persisted_correction("FIELDCORRECTIONTEXT", user_id=client.test_user["id"])
+    _persisted_correction("CLASSIFCORRECTIONTEXT", correction_type="classification", user_id=client.test_user["id"])
 
     all_response = client.get("/duzeltmelerim")
     assert "FIELDCORRECTIONTEXT" in all_response.text and "CLASSIFCORRECTIONTEXT" in all_response.text
@@ -715,8 +717,8 @@ def test_duzeltmelerim_filter_by_type(client, temp_db):
 
 
 def test_duzeltmelerim_shows_derived_rule_link(client, temp_db):
-    correction = _persisted_correction("kural")
-    policy = add_policy("importance", "kural", {"importance": "high"}, event_type="meeting")
+    correction = _persisted_correction("kural", user_id=client.test_user["id"])
+    policy = add_policy("importance", "kural", {"importance": "high"}, event_type="meeting", user_id=client.test_user["id"])
     mark_correction_approved(correction.correction_id, policy.policy_id)
 
     response = client.get("/duzeltmelerim")
@@ -725,8 +727,8 @@ def test_duzeltmelerim_shows_derived_rule_link(client, temp_db):
 
 
 def test_toggle_future_use_off_deactivates_derived_policy(client, temp_db):
-    correction = _persisted_correction("kural")
-    policy = add_policy("importance", "kural", {"importance": "high"}, event_type="meeting")
+    correction = _persisted_correction("kural", user_id=client.test_user["id"])
+    policy = add_policy("importance", "kural", {"importance": "high"}, event_type="meeting", user_id=client.test_user["id"])
     mark_correction_approved(correction.correction_id, policy.policy_id)
 
     response = client.post(
@@ -989,3 +991,49 @@ def test_oneriler_shows_update_suggested_badge_and_diff(client):
     assert "diff-table" in response.text
     assert "Oda 101" in response.text
     assert "Oda 202" in response.text
+
+
+# --- Per-user isolation (bkz. plan "Per-user isolation for rules, corrections, and suggestions") ---
+# İki FARKLI logged-in kullanıcı, ayrı TestClient'lar üzerinden AYNI app/DB'ye
+# karşı çalışıyor — biri diğerinin kurallarını/düzeltmelerini/önerilerini
+# görmemeli.
+
+
+def _second_client(temp_db, monkeypatch) -> TestClient:
+    monkeypatch.setattr("src.ui.app.FoundryLocalProvider", _DummyLLMProvider)
+    monkeypatch.setattr("src.ui.app.FoundryLocalEmbeddingProvider", _DummyEmbeddingProvider)
+    from src.ui.app import app
+
+    other_client = TestClient(app)
+    login_test_client(other_client, email="other@example.com")
+    return other_client
+
+
+def test_kurallarim_isolated_between_users(client, temp_db, monkeypatch):
+    add_policy(
+        "importance", "kullanici A nin kurali", {"importance": "high"}, event_type="meeting",
+        user_id=client.test_user["id"],
+    )
+    other = _second_client(temp_db, monkeypatch)
+
+    assert "kullanici A nin kurali" in client.get("/kurallarim").text
+    assert "kullanici A nin kurali" not in other.get("/kurallarim").text
+
+
+def test_duzeltmelerim_isolated_between_users(client, temp_db, monkeypatch):
+    _persisted_correction("A NIN DUZELTMESI", user_id=client.test_user["id"])
+    other = _second_client(temp_db, monkeypatch)
+
+    assert "A NIN DUZELTMESI" in client.get("/duzeltmelerim").text
+    assert "A NIN DUZELTMESI" not in other.get("/duzeltmelerim").text
+
+
+def test_oneriler_isolated_between_users(client, temp_db, monkeypatch):
+    other = _second_client(temp_db, monkeypatch)
+
+    account_id = "acc-user-a"
+    ensure_account_registered(account_id, provider="google", email="owned-by-a@example.com", user_id=client.test_user["id"])
+    _pending_candidate_for_account(account_id, title="A nin onerisi")
+
+    assert "A nin onerisi" in client.get("/oneriler").text
+    assert "A nin onerisi" not in other.get("/oneriler").text

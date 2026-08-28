@@ -236,3 +236,64 @@ def test_list_policy_versions(temp_db):
 def test_list_policy_versions_empty_for_never_versioned_policy(temp_db):
     p = add_policy("importance", "kural", {"importance": "high"}, event_type="meeting")
     assert list_policy_versions(p.policy_id) == []
+
+
+# --- Per-user isolation (bkz. plan "Per-user isolation for rules, corrections, and suggestions") ---
+# user_id, users(id)'ye FK verdiği için (PRAGMA foreign_keys=ON) gerçek kullanıcı
+# satırları gerekiyor — bkz. test_account_registry.py'deki aynı desen.
+
+
+def _two_users():
+    from src.ui.auth import create_user
+
+    return create_user("a@example.com"), create_user("b@example.com")
+
+
+def test_list_policies_filters_by_user_id(temp_db):
+    user_a, user_b = _two_users()
+    add_policy("importance", "kullanıcı A'nın kuralı", {"importance": "high"}, event_type="meeting", user_id=user_a["id"])
+    add_policy("importance", "kullanıcı B'nin kuralı", {"importance": "low"}, event_type="exam", user_id=user_b["id"])
+
+    assert [p.natural_language_rule for p in list_policies(user_id=user_a["id"])] == ["kullanıcı A'nın kuralı"]
+    assert [p.natural_language_rule for p in list_policies(user_id=user_b["id"])] == ["kullanıcı B'nin kuralı"]
+    # user_id verilmezse (CLI, eski davranış) hepsi görünür.
+    assert len(list_policies()) == 2
+
+
+def test_get_active_policies_filters_by_user_id(temp_db):
+    user_a, user_b = _two_users()
+    add_policy("importance", "A", {"importance": "high"}, event_type="meeting", user_id=user_a["id"])
+    add_policy("importance", "B", {"importance": "low"}, event_type="exam", user_id=user_b["id"])
+
+    assert len(get_active_policies(user_id=user_a["id"])) == 1
+    assert len(get_active_policies(user_id=user_b["id"])) == 1
+
+
+def test_find_active_conflicting_policy_scoped_to_user(temp_db):
+    user_a, user_b = _two_users()
+    add_policy("default_duration_minutes", "A'nın kuralı", {"default_duration_minutes": 45}, event_type="meeting", user_id=user_a["id"])
+
+    # Aynı category+kapsam ama FARKLI kullanıcı -> çelişki YOK (izole).
+    assert find_active_conflicting_policy("default_duration_minutes", event_type="meeting", user_id=user_b["id"]) is None
+    # Aynı kullanıcı -> çelişki var.
+    conflict = find_active_conflicting_policy("default_duration_minutes", event_type="meeting", user_id=user_a["id"])
+    assert conflict is not None
+
+
+def test_get_active_policies_for_sender_scoped_to_user(temp_db):
+    user_a, user_b = _two_users()
+    add_policy("importance", "A'nın kuralı", {"importance": "low"}, sender="alerts@linkedin.com", user_id=user_a["id"])
+
+    assert get_active_policies_for_sender("alerts@linkedin.com", user_id=user_b["id"]) == []
+    assert len(get_active_policies_for_sender("alerts@linkedin.com", user_id=user_a["id"])) == 1
+
+
+def test_count_active_policies_filters_by_user_id(temp_db):
+    user_a, user_b = _two_users()
+    add_policy("importance", "A", {"importance": "high"}, event_type="meeting", user_id=user_a["id"])
+    add_policy("importance", "B1", {"importance": "low"}, event_type="exam", user_id=user_b["id"])
+    add_policy("default_duration_minutes", "B2", {"default_duration_minutes": 30}, event_type="exam", user_id=user_b["id"])
+
+    assert count_active_policies(user_id=user_a["id"]) == 1
+    assert count_active_policies(user_id=user_b["id"]) == 2
+    assert count_active_policies() == 3

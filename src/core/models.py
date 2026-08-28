@@ -198,6 +198,7 @@ class PersonalPolicy(BaseModel):
     source: PolicySource
     created_at: datetime
     updated_at: datetime
+    user_id: Optional[str] = None  # bkz. plan "Per-user isolation" — None: eski/sahipsiz kayıt ya da CLI
 
 
 class UserCorrection(BaseModel):
@@ -225,6 +226,7 @@ class UserCorrection(BaseModel):
     approved_for_future_use: bool = False
     derived_policy_id: Optional[str] = None
     created_at: datetime
+    user_id: Optional[str] = None  # bkz. plan "Per-user isolation" — None: eski/sahipsiz kayıt ya da CLI
 
 
 class SyncState(BaseModel):

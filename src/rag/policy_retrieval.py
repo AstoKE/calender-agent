@@ -43,26 +43,31 @@ def embed_and_store_policy(embedding_provider: EmbeddingProvider, policy: Person
 
 
 def semantic_search_policies(
-    embedding_provider: EmbeddingProvider, query_text: str, top_k: int = 5
+    embedding_provider: EmbeddingProvider, query_text: str, top_k: int = 5, user_id: str | None = None
 ) -> list[tuple[PersonalPolicy, float]]:
     """Aktif politikalar arasında query_text'e en benzer top_k'yı, benzerlik
-    skoruyla (yüksek = daha alakalı) birlikte döner."""
+    skoruyla (yüksek = daha alakalı) birlikte döner. ``user_id`` verilirse
+    yalnızca o kullanıcının politikaları aranır (bkz. plan "Per-user
+    isolation")."""
     query_vector = np.array(embedding_provider.embed([query_text])[0], dtype=np.float32)
+
+    sql = """
+        SELECT p.*, e.embedding
+        FROM personal_policies p
+        JOIN policy_embeddings e ON e.policy_id = p.policy_id
+        WHERE p.active = 1 AND e.model_name = ?
+    """
+    params: list = [embedding_provider.model_name]
+    if user_id is not None:
+        sql += " AND p.user_id = ?"
+        params.append(user_id)
 
     with get_connection() as conn:
         # e.model_name filtresi kritik: farklı bir embedding modeli/varyantı
         # (örn. CPU<->GPU execution provider değişimi, bkz. providers/foundry_local.py)
         # farklı bir vektör uzayı üretir — eşleşmeyen model_name'li embedding'leri
         # query_vector ile karşılaştırmak anlamsız/yanıltıcı bir benzerlik skoru verir.
-        rows = conn.execute(
-            """
-            SELECT p.*, e.embedding
-            FROM personal_policies p
-            JOIN policy_embeddings e ON e.policy_id = p.policy_id
-            WHERE p.active = 1 AND e.model_name = ?
-            """,
-            (embedding_provider.model_name,),
-        ).fetchall()
+        rows = conn.execute(sql, params).fetchall()
 
     scored: list[tuple[PersonalPolicy, float]] = []
     for row in rows:
@@ -76,9 +81,13 @@ def semantic_search_policies(
 
 
 def retrieve_policies_for_event(
-    embedding_provider: EmbeddingProvider, event_type: str, sender: str | None = None, top_k: int = 5
+    embedding_provider: EmbeddingProvider, event_type: str, sender: str | None = None, top_k: int = 5,
+    user_id: str | None = None,
 ) -> list[PersonalPolicy]:
     """event_type'a (ve varsa gönderene) göre en alakalı politikaları getirir.
+    ``user_id`` verilirse yalnızca o kullanıcının politikaları (bkz. plan
+    "Per-user isolation") — ``None`` ise (CLI) eski, sahiplikten bağımsız
+    davranış.
 
     Sender-scope'lu politikalar semantik aramaya BIRAKILMIYOR: bir düzeltme
     metni ("LinkedIn'den gelenlere düşük önem ver") event_type açıklamasına
@@ -88,10 +97,10 @@ def retrieve_policies_for_event(
     koda bırakılır (bkz. §11), ve en spesifik kural olduğu için sonuçların
     başına konur (bkz. §9 politika önceliği: daha spesifik kural önce gelir).
     """
-    sender_matches = get_active_policies_for_sender(sender) if sender else []
+    sender_matches = get_active_policies_for_sender(sender, user_id=user_id) if sender else []
 
     query_text = f"etkinlik türü: {event_type}"
-    candidates = semantic_search_policies(embedding_provider, query_text, top_k=top_k * 2)
+    candidates = semantic_search_policies(embedding_provider, query_text, top_k=top_k * 2, user_id=user_id)
     # Sender-scope'lu politikalar semantik havuzdan çıkarılıyor: bunlar SADECE
     # yukarıdaki deterministik sender_matches üzerinden gelmeli. Aksi halde bir
     # politikanın metni ("LinkedIn'den gelenlere düşük önem ver") event_type

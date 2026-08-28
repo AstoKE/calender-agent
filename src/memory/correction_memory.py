@@ -36,6 +36,7 @@ def save_user_correction(
     original_output: dict | None = None,
     corrected_output: dict | None = None,
     correction_type: str | None = None,
+    user_id: str | None = None,
 ) -> UserCorrection:
     """``original_output``/``corrected_output`` verilmezse candidate'ın ŞU ANKİ
     hali kullanılır (reddetme akışı: candidate henüz düzenlenmemiştir, önce/
@@ -62,6 +63,7 @@ def save_user_correction(
         approved_for_future_use=False,
         derived_policy_id=None,
         created_at=datetime.now(timezone.utc),
+        user_id=user_id,
     )
     with get_connection() as conn:
         conn.execute(
@@ -70,8 +72,8 @@ def save_user_correction(
                 correction_id, candidate_id, original_input, original_output,
                 user_feedback_text, corrected_output, correction_scope, event_type,
                 account_scope, sender_scope, language, approved_for_future_use,
-                derived_policy_id, correction_type, created_at
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                derived_policy_id, correction_type, created_at, user_id
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 correction.correction_id,
@@ -89,6 +91,7 @@ def save_user_correction(
                 correction.derived_policy_id,
                 correction_type,
                 correction.created_at.isoformat(),
+                user_id,
             ),
         )
     return correction
@@ -99,6 +102,7 @@ def save_classification_correction(
     candidate: CandidateEvent,
     email_text: str,
     user_feedback_text: str,
+    user_id: str | None = None,
 ) -> UserCorrection:
     """Kullanıcı bir mailin BAŞTAN hiç takvimlik olmaması gerektiğini
     belirttiğinde çağrılır (bkz. capture_correction_interactively) — bir
@@ -106,7 +110,7 @@ def save_classification_correction(
     sınıflandırmasının kendisine dair bir düzeltmedir. Mail metni embed edilip
     `correction_embeddings`'e yazılır; `retrieve_similar_classification_corrections`
     gelecekteki sınıflandırma çağrılarında bunu bağlam olarak kullanır."""
-    correction = save_user_correction(candidate, user_feedback_text, correction_type="classification")
+    correction = save_user_correction(candidate, user_feedback_text, correction_type="classification", user_id=user_id)
     embed_and_store_classification_correction(embedding_provider, correction.correction_id, email_text)
     return correction
 
@@ -137,10 +141,13 @@ def _row_to_correction_dict(row) -> dict:
         "created_at": row["created_at"],
         "derived_rule_text": row["derived_rule_text"],
         "derived_rule_active": bool(row["derived_rule_active"]) if row["derived_rule_active"] is not None else None,
+        "user_id": row["user_id"] if "user_id" in row.keys() else None,
     }
 
 
-def list_corrections(limit: int = 100, offset: int = 0, correction_type: str | None = None) -> list[dict]:
+def list_corrections(
+    limit: int = 100, offset: int = 0, correction_type: str | None = None, user_id: str | None = None
+) -> list[dict]:
     """Düzeltmelerim ekranı için — `user_corrections` bugüne kadar yazma-
     yalnızca bir tabloydu (tek okuyucu, correction_retrieval.py'nin
     semantik araması, o da yalnızca correction_type='classification'
@@ -148,15 +155,25 @@ def list_corrections(limit: int = 100, offset: int = 0, correction_type: str | N
     metnini de getirir — ayrı bir sorgu gerekmesin diye.
 
     ``correction_type``: None = hepsi, "field" = correction_type IS NULL
-    (alan düzeltmesi), "classification" = correction_type = 'classification'."""
+    (alan düzeltmesi), "classification" = correction_type = 'classification'.
+    ``user_id`` verilirse yalnızca o kullanıcının düzeltmeleri (bkz. plan
+    "Per-user isolation")."""
     query = _CORRECTIONS_QUERY
+    conditions = []
+    params: list = []
     if correction_type == "classification":
-        query += " WHERE uc.correction_type = 'classification'"
+        conditions.append("uc.correction_type = 'classification'")
     elif correction_type == "field":
-        query += " WHERE uc.correction_type IS NULL"
+        conditions.append("uc.correction_type IS NULL")
+    if user_id is not None:
+        conditions.append("uc.user_id = ?")
+        params.append(user_id)
+    if conditions:
+        query += " WHERE " + " AND ".join(conditions)
     query += " ORDER BY uc.created_at DESC LIMIT ? OFFSET ?"
+    params.extend([limit, offset])
     with get_connection() as conn:
-        rows = conn.execute(query, (limit, offset)).fetchall()
+        rows = conn.execute(query, params).fetchall()
     return [_row_to_correction_dict(r) for r in rows]
 
 
@@ -166,14 +183,21 @@ def get_correction(correction_id: str) -> dict | None:
     return _row_to_correction_dict(row) if row else None
 
 
-def count_corrections(correction_type: str | None = None) -> int:
+def count_corrections(correction_type: str | None = None, user_id: str | None = None) -> int:
     query = "SELECT COUNT(*) FROM user_corrections"
+    conditions = []
+    params: list = []
     if correction_type == "classification":
-        query += " WHERE correction_type = 'classification'"
+        conditions.append("correction_type = 'classification'")
     elif correction_type == "field":
-        query += " WHERE correction_type IS NULL"
+        conditions.append("correction_type IS NULL")
+    if user_id is not None:
+        conditions.append("user_id = ?")
+        params.append(user_id)
+    if conditions:
+        query += " WHERE " + " AND ".join(conditions)
     with get_connection() as conn:
-        return conn.execute(query).fetchone()[0]
+        return conn.execute(query, params).fetchone()[0]
 
 
 def set_correction_future_use(correction_id: str, approved: bool) -> None:

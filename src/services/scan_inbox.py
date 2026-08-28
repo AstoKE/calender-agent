@@ -21,7 +21,7 @@ from __future__ import annotations
 from typing import Callable
 
 from src.candidates.store import apply_update_suggestion, find_related_candidate_by_thread, save_new_candidate
-from src.connectors.account_registry import select_account
+from src.connectors.account_registry import get_account, select_account
 from src.connectors.gmail import GmailConnector
 from src.connectors.outlook import OutlookConnector
 from src.core.logging_config import configure_logging, get_logger
@@ -53,6 +53,9 @@ def scan_account_inbox(
         if on_progress is not None:
             on_progress(message)
 
+    account = get_account(account_id)
+    owner_user_id = account["user_id"] if account is not None else None
+
     emit("Yeni mailler kontrol ediliyor...")
     new_emails = sync_new_emails(account_id)
     emit(f"{len(new_emails)} yeni mail bulundu.\n")
@@ -61,7 +64,7 @@ def scan_account_inbox(
     skipped_errors = 0
     for email_row_id, email in new_emails:
         try:
-            worthy, reason = is_calendar_worthy(llm, embedding_provider, email)
+            worthy, reason = is_calendar_worthy(llm, embedding_provider, email, user_id=owner_user_id)
         except Exception as e:
             # Model bazen boş/geçersiz JSON döndürüyor (canlı testte görüldü).
             # Tek bir sorunlu mail tüm taramayı çökertmemeli — bu maili
@@ -103,7 +106,9 @@ def scan_account_inbox(
                 mark_email_processed(email_row_id)
                 continue
 
-            apply_retrieved_policies(attachment_candidate, embedding_provider, sender=email.sender)
+            apply_retrieved_policies(
+                attachment_candidate, embedding_provider, sender=email.sender, user_id=owner_user_id
+            )
             save_new_candidate(attachment_candidate, source_email_row_id=email_row_id)
             mark_email_processed(email_row_id)
 
@@ -141,7 +146,7 @@ def scan_account_inbox(
             skipped_errors += 1
             continue
 
-        apply_retrieved_policies(candidate, embedding_provider, sender=email.sender)
+        apply_retrieved_policies(candidate, embedding_provider, sender=email.sender, user_id=owner_user_id)
         save_new_candidate(candidate, source_email_row_id=email_row_id)
         mark_email_processed(email_row_id)
 

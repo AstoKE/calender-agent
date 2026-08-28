@@ -35,7 +35,7 @@ def embed_and_store_classification_correction(
 
 
 def retrieve_similar_classification_corrections(
-    embedding_provider: EmbeddingProvider, email_text: str, top_k: int = 3
+    embedding_provider: EmbeddingProvider, email_text: str, top_k: int = 3, user_id: str | None = None
 ) -> list[str]:
     """Geçmişte kullanıcının "bu mail hiç takvimlik değildi" diye düzelttiği,
     mevcut mail metnine semantik olarak en benzer kayıtları, `is_calendar_worthy`
@@ -48,19 +48,22 @@ def retrieve_similar_classification_corrections(
     hem gereksiz bir kırılganlık kaynağı; sorgu vektörü yalnızca gerçekten
     karşılaştırılacak bir kayıt varsa hesaplanır.
     """
+    sql = """
+        SELECT c.user_feedback_text, e.embedding
+        FROM user_corrections c
+        JOIN correction_embeddings e ON e.correction_id = c.correction_id
+        WHERE c.correction_type = 'classification' AND e.model_name = ?
+    """
+    params: list = [embedding_provider.model_name]
+    if user_id is not None:
+        sql += " AND c.user_id = ?"
+        params.append(user_id)
+
     with get_connection() as conn:
         # e.model_name filtresi: policy_retrieval.py'deki aynı gerekçe —
         # farklı bir embedding modeli/varyantı farklı bir vektör uzayı
         # üretir, karışık model kaynaklı yanlış benzerlik skorunu önler.
-        rows = conn.execute(
-            """
-            SELECT c.user_feedback_text, e.embedding
-            FROM user_corrections c
-            JOIN correction_embeddings e ON e.correction_id = c.correction_id
-            WHERE c.correction_type = 'classification' AND e.model_name = ?
-            """,
-            (embedding_provider.model_name,),
-        ).fetchall()
+        rows = conn.execute(sql, params).fetchall()
 
     if not rows:
         return []

@@ -120,7 +120,7 @@ def _classification_system_prompt() -> str:
 
 
 def is_calendar_worthy(
-    llm: LLMProvider, embedding_provider: EmbeddingProvider, email: UnifiedEmail
+    llm: LLMProvider, embedding_provider: EmbeddingProvider, email: UnifiedEmail, user_id: str | None = None
 ) -> tuple[bool, str]:
     matched_categories = NON_CALENDAR_GMAIL_CATEGORIES & set(email.labels)
     if matched_categories:
@@ -138,7 +138,9 @@ def is_calendar_worthy(
     # §10) — RAG burada da bir "karar" vermiyor, sadece ilgili geçmiş
     # düzeltmeyi bağlam olarak sunuyor, son kararı yine LLM+kullanıcı onayı
     # veriyor (bkz. §11).
-    context_chunks = retrieve_similar_classification_corrections(embedding_provider, user_prompt, top_k=3)
+    context_chunks = retrieve_similar_classification_corrections(
+        embedding_provider, user_prompt, top_k=3, user_id=user_id
+    )
 
     # allow_thinking=True: /no_think ile hızlı ama canlı testte gözlenen yanlış
     # pozitifler (örn. tarih içermeyen iş ilanlarını takvimlik sanma) çok daha

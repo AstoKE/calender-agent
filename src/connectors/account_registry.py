@@ -60,7 +60,7 @@ def get_account(account_id: str) -> dict | None:
     src/ui/routes.py::_get_calendar — ikisi de artık provider'a göre dallanıyor)."""
     with get_connection() as conn:
         row = conn.execute(
-            "SELECT id, provider, email, status, connected_at FROM accounts WHERE id = ?", (account_id,)
+            "SELECT id, provider, email, status, connected_at, user_id FROM accounts WHERE id = ?", (account_id,)
         ).fetchone()
     return dict(row) if row else None
 
@@ -121,13 +121,23 @@ def ensure_account_registered(
     user_id: str | None = None,
 ) -> None:
     """`accounts` tablosunda bu account_id için kayıt yoksa oluşturur
-    (idempotent). `user_id` verilirse hesap o kullanıcıya bağlanır (bkz.
-    src/ui/auth.py) — zaten kayıtlı bir hesap için VERİLMEZ/DEĞİŞTİRİLMEZ
-    (bu fonksiyon yalnızca YENİ kayıt oluşturur, mevcut sahipliği asla
-    ezmez)."""
+    (idempotent). `user_id` verilirse hesap o kullanıcıya bağlanır.
+
+    Zaten kayıtlı bir hesap BAŞKA bir kullanıcıya bağlıyken tekrar
+    bağlanmaya çalışılırsa (canlı testte bulundu: `ceren.kisacik24@gmail.com`
+    olarak `enestugac@gmail.com`'u eklemek GERÇEK bir OAuth onayından
+    geçmesine rağmen sessizce hiçbir şey yapmıyordu, çünkü hesap zaten
+    başka bir kullanıcıya aitti) — sahiplik YENİ kullanıcıya DEVREDİLİR.
+    Bu bilinçli: bu ekranı geçmek gerçek bir OAuth onayı gerektiriyor, yani
+    o hesabı az önce kimin kontrol ettiğinin güçlü bir kanıtı — "ilk
+    bağlayan sonsuza kadar sahip olur" değil "en son gerçekten onaylayan
+    sahip olur" daha doğru bir varsayılan (tek yerel operatör senaryosunda
+    hesapların kişiler arasında GERÇEKTEN paylaşılabildiği anlamına gelir)."""
     with get_connection() as conn:
-        existing = conn.execute("SELECT 1 FROM accounts WHERE id = ?", (account_id,)).fetchone()
+        existing = conn.execute("SELECT user_id FROM accounts WHERE id = ?", (account_id,)).fetchone()
         if existing:
+            if user_id is not None and existing["user_id"] != user_id:
+                conn.execute("UPDATE accounts SET user_id = ? WHERE id = ?", (user_id, account_id))
             return
         conn.execute(
             """

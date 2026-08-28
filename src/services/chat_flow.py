@@ -166,6 +166,7 @@ def advance(
     lang: str,
     file_bytes: bytes | None = None,
     file_mime_type: str | None = None,
+    user_id: str | None = None,
 ) -> tuple[ChatState, list[str]]:
     """(yeni_state, asistan_mesajları) döner. Bir adım birden fazla satır
     üretebilir (örn. "(Kural uygulandı: ...)" + önizleme metni).
@@ -174,19 +175,25 @@ def advance(
     TAZE bir sohbette (``state.flow is None``) anlamlı — devam eden bir
     netleştirme/onay adımı sırasında bir dosya eklenirse sessizce yok
     sayılır (o adımlar zaten belirli kısa yanıtlar bekliyor, bir dosyayı
-    nasıl yorumlayacağı tanımsız olurdu)."""
+    nasıl yorumlayacağı tanımsız olurdu).
+
+    ``user_id`` (bkz. plan "Per-user isolation"): oturumun sahibi olan web
+    kullanıcısı — politika/düzeltme retrieval ve kaydını bu kullanıcıya
+    scope'lar. Her `advance()` çağrısında istekten taze gelir (ChatState'in
+    kendisinde SAKLANMAZ), CLI'nın hiç çağırmadığı bir parametre."""
     if state.flow is None:
         if file_bytes is not None:
             return _dispatch_file_upload(
                 file_bytes, file_mime_type or "application/octet-stream", user_text,
-                llm=llm, embedding_provider=embedding_provider, calendar=calendar, lang=lang,
+                llm=llm, embedding_provider=embedding_provider, calendar=calendar, lang=lang, user_id=user_id,
             )
         return _dispatch_intent(
-            user_text, llm=llm, embedding_provider=embedding_provider, calendar=calendar, lang=lang
+            user_text, llm=llm, embedding_provider=embedding_provider, calendar=calendar, lang=lang, user_id=user_id
         )
     if state.flow == FLOW_CREATE_EVENT:
         return _advance_create_event(
-            state, user_text, llm=llm, embedding_provider=embedding_provider, calendar=calendar, lang=lang
+            state, user_text, llm=llm, embedding_provider=embedding_provider, calendar=calendar, lang=lang,
+            user_id=user_id,
         )
     if state.flow == FLOW_UPDATE_EVENT:
         return _advance_update_event(state, user_text, calendar=calendar, lang=lang)
@@ -195,7 +202,7 @@ def advance(
 
 
 def _dispatch_intent(
-    user_text: str, *, llm, embedding_provider, calendar, lang: str
+    user_text: str, *, llm, embedding_provider, calendar, lang: str, user_id: str | None = None
 ) -> tuple[ChatState, list[str]]:
     intent = classify_intent(llm, user_text)
 
@@ -215,7 +222,7 @@ def _dispatch_intent(
         # (çoğunluk durum) davranış hiç değişmez.
         first, *rest = candidates
         batch_total = len(candidates)
-        applied_messages = apply_retrieved_policies(first, embedding_provider)
+        applied_messages = apply_retrieved_policies(first, embedding_provider, user_id=user_id)
         initial_state = ChatState(
             flow=FLOW_CREATE_EVENT,
             candidate=first,
@@ -223,13 +230,13 @@ def _dispatch_intent(
             batch_index=1 if batch_total > 1 else 0,
             batch_total=batch_total if batch_total > 1 else 0,
         )
-        return _continue_create_event(initial_state, lang=lang, calendar=calendar, embedding_provider=embedding_provider, prefix_messages=applied_messages)
+        return _continue_create_event(initial_state, lang=lang, calendar=calendar, embedding_provider=embedding_provider, prefix_messages=applied_messages, user_id=user_id)
 
     if intent.intent == IntentType.UPDATE_EVENT:
         return _start_update_event(user_text, llm=llm, calendar=calendar, lang=lang)
 
     if intent.intent == IntentType.DEFINE_POLICY:
-        return _handle_define_policy(user_text, llm=llm, embedding_provider=embedding_provider, lang=lang)
+        return _handle_define_policy(user_text, llm=llm, embedding_provider=embedding_provider, lang=lang, user_id=user_id)
 
     return ChatState(), [translate("chat.other", lang)]
 
@@ -251,7 +258,8 @@ MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024  # 10 MB — telefon fotoğrafı/taranmı
 
 
 def _dispatch_file_upload(
-    file_bytes: bytes, mime_type: str, user_text: str, *, llm, embedding_provider, calendar, lang: str
+    file_bytes: bytes, mime_type: str, user_text: str, *, llm, embedding_provider, calendar, lang: str,
+    user_id: str | None = None,
 ) -> tuple[ChatState, list[str]]:
     if not isinstance(llm, FileInputCapable):
         # Varsayılan (Foundry Local) provider dosya girişini desteklemiyor —
@@ -275,7 +283,7 @@ def _dispatch_file_upload(
     # _finish_candidate her candidate tamamlandığında sırayla işler.
     first, *rest = candidates
     batch_total = len(candidates)
-    applied_messages = apply_retrieved_policies(first, embedding_provider)
+    applied_messages = apply_retrieved_policies(first, embedding_provider, user_id=user_id)
     initial_state = ChatState(
         flow=FLOW_CREATE_EVENT,
         candidate=first,
@@ -283,17 +291,17 @@ def _dispatch_file_upload(
         batch_index=1 if batch_total > 1 else 0,
         batch_total=batch_total if batch_total > 1 else 0,
     )
-    return _continue_create_event(initial_state, lang=lang, calendar=calendar, embedding_provider=embedding_provider, prefix_messages=applied_messages)
+    return _continue_create_event(initial_state, lang=lang, calendar=calendar, embedding_provider=embedding_provider, prefix_messages=applied_messages, user_id=user_id)
 
 
 # --- define_policy (tek atımlık, CLI'nın handle_define_policy'siyle aynı — bkz. plan) ---
 
 
 def _handle_define_policy(
-    user_text: str, *, llm, embedding_provider, lang: str
+    user_text: str, *, llm, embedding_provider, lang: str, user_id: str | None = None
 ) -> tuple[ChatState, list[str]]:
     try:
-        policy = derive_and_save_policy(llm, embedding_provider, user_text)
+        policy = derive_and_save_policy(llm, embedding_provider, user_text, user_id=user_id)
     except JsonGenerationError:
         return ChatState(), [translate("chat.define_policy.extraction_failed", lang)]
 
@@ -376,7 +384,8 @@ def _resolve_create_event_state(candidate: CandidateEvent, *, lang: str) -> tupl
 
 
 def _continue_create_event(
-    state: ChatState, *, lang: str, calendar, embedding_provider, prefix_messages: list[str] | None = None
+    state: ChatState, *, lang: str, calendar, embedding_provider, prefix_messages: list[str] | None = None,
+    user_id: str | None = None,
 ) -> tuple[ChatState, list[str]]:
     prefix_messages = list(prefix_messages or [])
     next_step, extra_messages = _resolve_create_event_state(state.candidate, lang=lang)
@@ -384,7 +393,8 @@ def _continue_create_event(
 
     if next_step == _READY_FOR_CONFLICT_CHECK:
         return _run_conflict_check(
-            state, calendar=calendar, embedding_provider=embedding_provider, lang=lang, prefix_messages=messages
+            state, calendar=calendar, embedding_provider=embedding_provider, lang=lang, prefix_messages=messages,
+            user_id=user_id,
         )
 
     new_state = state.model_copy(update={"step": next_step, "attempts": 0})
@@ -392,7 +402,8 @@ def _continue_create_event(
 
 
 def _run_conflict_check(
-    state: ChatState, *, calendar, embedding_provider, lang: str, prefix_messages: list[str]
+    state: ChatState, *, calendar, embedding_provider, lang: str, prefix_messages: list[str],
+    user_id: str | None = None,
 ) -> tuple[ChatState, list[str]]:
     candidate = state.candidate
     start_dt = candidate.start_datetime
@@ -405,7 +416,8 @@ def _run_conflict_check(
     except Exception:
         logger.exception("Çakışma kontrolü başarısız (sohbet akışı)")
         return _finish_candidate(
-            state, [translate("chat.calendar_error", lang)], embedding_provider=embedding_provider, calendar=calendar, lang=lang
+            state, [translate("chat.calendar_error", lang)], embedding_provider=embedding_provider, calendar=calendar, lang=lang,
+            user_id=user_id,
         )
 
     if not conflicts:
@@ -472,7 +484,9 @@ def _enter_preview(
     return new_state, preview_messages + [_render_preview(state.candidate, conflict_token, lang)]
 
 
-def _reject_at_conflict(state: ChatState, *, embedding_provider, calendar, lang: str) -> tuple[ChatState, list[str]]:
+def _reject_at_conflict(
+    state: ChatState, *, embedding_provider, calendar, lang: str, user_id: str | None = None
+) -> tuple[ChatState, list[str]]:
     """Yalnızca İLK çakışma çözümlemesinde (candidate_saved henüz False'ken)
     ulaşılabilir — CLI'da `resolve_conflicts_interactively` alternatif
     gösterilip ne numara ne "d" seçilince `"Var (iptal edilecek)"` döner ve
@@ -485,12 +499,13 @@ def _reject_at_conflict(state: ChatState, *, embedding_provider, calendar, lang:
         update_candidate_status(conn, state.candidate.candidate_id, CandidateStatus.REJECTED)
         record_audit(conn, "reject", state.candidate.candidate_id, "Çözülmeyen çakışma nedeniyle iptal (web sohbet).")
     return _finish_candidate(
-        state, [translate("chat.create.cancelled_conflict", lang)], embedding_provider=embedding_provider, calendar=calendar, lang=lang
+        state, [translate("chat.create.cancelled_conflict", lang)], embedding_provider=embedding_provider, calendar=calendar, lang=lang,
+        user_id=user_id,
     )
 
 
 def _finish_candidate(
-    state: ChatState, messages: list[str], *, embedding_provider, calendar, lang: str
+    state: ChatState, messages: list[str], *, embedding_provider, calendar, lang: str, user_id: str | None = None
 ) -> tuple[ChatState, list[str]]:
     """create_event akışının (ve onu takip eden ACM alt-akışının) bir
     candidate için TAMAMEN bittiği HER noktada (onay/red/hata/vazgeç) bu
@@ -503,7 +518,7 @@ def _finish_candidate(
         return ChatState(), messages
 
     next_candidate, *rest = state.queued_candidates
-    applied_messages = apply_retrieved_policies(next_candidate, embedding_provider)
+    applied_messages = apply_retrieved_policies(next_candidate, embedding_provider, user_id=user_id)
     next_state = ChatState(
         flow=FLOW_CREATE_EVENT,
         candidate=next_candidate,
@@ -512,13 +527,14 @@ def _finish_candidate(
         batch_total=state.batch_total,
     )
     new_state, continue_messages = _continue_create_event(
-        next_state, lang=lang, calendar=calendar, embedding_provider=embedding_provider, prefix_messages=applied_messages
+        next_state, lang=lang, calendar=calendar, embedding_provider=embedding_provider, prefix_messages=applied_messages,
+        user_id=user_id,
     )
     return new_state, messages + continue_messages
 
 
 def _finalize_create_event(
-    state: ChatState, *, approved: bool, calendar, embedding_provider, lang: str
+    state: ChatState, *, approved: bool, calendar, embedding_provider, lang: str, user_id: str | None = None
 ) -> tuple[ChatState, list[str]]:
     candidate = state.candidate
     if not approved:
@@ -552,7 +568,8 @@ def _finalize_create_event(
     except Exception:
         logger.exception("Takvime yazma başarısız (sohbet akışı)")
         return _finish_candidate(
-            state, [translate("chat.calendar_error", lang)], embedding_provider=embedding_provider, calendar=calendar, lang=lang
+            state, [translate("chat.calendar_error", lang)], embedding_provider=embedding_provider, calendar=calendar, lang=lang,
+            user_id=user_id,
         )
 
     with get_connection() as conn:
@@ -562,7 +579,8 @@ def _finalize_create_event(
 
     if not state.edited_structured_action:
         return _finish_candidate(
-            state, [translate("chat.create.approved", lang)], embedding_provider=embedding_provider, calendar=calendar, lang=lang
+            state, [translate("chat.create.approved", lang)], embedding_provider=embedding_provider, calendar=calendar, lang=lang,
+            user_id=user_id,
         )
 
     # CLI: onaylanan candidate düzenlenmiş bir alan taşıyorsa (süre/önem),
@@ -574,7 +592,7 @@ def _finalize_create_event(
         f"{_STRUCTURED_ACTION_LABELS.get(k, k)} {v}" for k, v in state.edited_structured_action.items()
     )
     feedback = f"Kullanıcı önerideki alanı düzenledi: {field_desc}."
-    correction = save_user_correction(candidate, feedback, original_output=state.original_snapshot)
+    correction = save_user_correction(candidate, feedback, original_output=state.original_snapshot, user_id=user_id)
     acm_state = state.model_copy(
         update={
             "step": STEP_ACM_ASK_APPLY_FUTURE,
@@ -641,7 +659,7 @@ def _handle_edit_pick_field(state: ChatState, user_text: str, *, lang: str) -> t
 
 
 def _handle_edit_field_value(
-    state: ChatState, user_text: str, *, calendar, embedding_provider, lang: str
+    state: ChatState, user_text: str, *, calendar, embedding_provider, lang: str, user_id: str | None = None
 ) -> tuple[ChatState, list[str]]:
     candidate = state.candidate
     field = state.pending_edit_field
@@ -649,11 +667,11 @@ def _handle_edit_field_value(
 
     if field == "title":
         candidate.title = raw
-        return _after_edit(state, edited_category=None, calendar=calendar, embedding_provider=embedding_provider, lang=lang)
+        return _after_edit(state, edited_category=None, calendar=calendar, embedding_provider=embedding_provider, lang=lang, user_id=user_id)
 
     if field == "location":
         candidate.location = raw or None
-        return _after_edit(state, edited_category=None, calendar=calendar, embedding_provider=embedding_provider, lang=lang)
+        return _after_edit(state, edited_category=None, calendar=calendar, embedding_provider=embedding_provider, lang=lang, user_id=user_id)
 
     if field == "start_datetime":
         try:
@@ -663,7 +681,7 @@ def _handle_edit_field_value(
         except Exception:
             return _retry_edit_or_give_up(state, lang=lang, invalid_key="chat.create.start_datetime_invalid")
         candidate.start_datetime = new_value
-        return _after_edit(state, edited_category=None, calendar=calendar, embedding_provider=embedding_provider, lang=lang)
+        return _after_edit(state, edited_category=None, calendar=calendar, embedding_provider=embedding_provider, lang=lang, user_id=user_id)
 
     if field == "duration_minutes":
         minutes = parse_duration_minutes(raw)
@@ -671,7 +689,8 @@ def _handle_edit_field_value(
             return _retry_edit_or_give_up(state, lang=lang, invalid_key="chat.create.duration_invalid")
         candidate.duration_minutes = minutes
         return _after_edit(
-            state, edited_category="default_duration_minutes", calendar=calendar, embedding_provider=embedding_provider, lang=lang
+            state, edited_category="default_duration_minutes", calendar=calendar, embedding_provider=embedding_provider, lang=lang,
+            user_id=user_id,
         )
 
     if field == "importance":
@@ -684,7 +703,7 @@ def _handle_edit_field_value(
                 _render_preview(candidate, state.conflict_note, lang),
             ]
         candidate.importance = value
-        return _after_edit(state, edited_category="importance", calendar=calendar, embedding_provider=embedding_provider, lang=lang)
+        return _after_edit(state, edited_category="importance", calendar=calendar, embedding_provider=embedding_provider, lang=lang, user_id=user_id)
 
     new_state = state.model_copy(update={"step": STEP_PREVIEW_CONFIRM, "pending_edit_field": None})
     return new_state, [_render_preview(candidate, state.conflict_note, lang)]
@@ -703,7 +722,8 @@ def _retry_edit_or_give_up(state: ChatState, *, lang: str, invalid_key: str) -> 
 
 
 def _after_edit(
-    state: ChatState, *, edited_category: str | None, calendar, embedding_provider, lang: str
+    state: ChatState, *, edited_category: str | None, calendar, embedding_provider, lang: str,
+    user_id: str | None = None,
 ) -> tuple[ChatState, list[str]]:
     candidate = state.candidate
     edited_structured_action = dict(state.edited_structured_action)
@@ -717,18 +737,20 @@ def _after_edit(
 
     if candidate.start_datetime and candidate.duration_minutes:
         return _run_conflict_check(
-            working_state, calendar=calendar, embedding_provider=embedding_provider, lang=lang, prefix_messages=[]
+            working_state, calendar=calendar, embedding_provider=embedding_provider, lang=lang, prefix_messages=[],
+            user_id=user_id,
         )
     return _enter_preview(working_state, CONFLICT_NONE, lang=lang)
 
 
 def _retry_or_give_up(
-    state: ChatState, *, embedding_provider, calendar, lang: str, invalid_key: str
+    state: ChatState, *, embedding_provider, calendar, lang: str, invalid_key: str, user_id: str | None = None
 ) -> tuple[ChatState, list[str]]:
     attempts = state.attempts + 1
     if attempts >= MAX_CLARIFICATION_ATTEMPTS:
         return _finish_candidate(
-            state, [translate("chat.attempts_exhausted", lang)], embedding_provider=embedding_provider, calendar=calendar, lang=lang
+            state, [translate("chat.attempts_exhausted", lang)], embedding_provider=embedding_provider, calendar=calendar, lang=lang,
+            user_id=user_id,
         )
     new_state = state.model_copy(update={"attempts": attempts})
     return new_state, [translate(invalid_key, lang)]
@@ -740,7 +762,7 @@ def _retry_or_give_up(
 
 
 def _handle_acm_ask_reject_feedback(
-    state: ChatState, user_text: str, *, embedding_provider, calendar, lang: str
+    state: ChatState, user_text: str, *, embedding_provider, calendar, lang: str, user_id: str | None = None
 ) -> tuple[ChatState, list[str]]:
     feedback = user_text.strip()
     if not feedback or feedback.lower() in ("atla", "skip"):
@@ -748,10 +770,11 @@ def _handle_acm_ask_reject_feedback(
         # eder, hiçbir düzeltme kaydedilmez. Web'de akışı net kapatmak için
         # kısa bir onay mesajı ekleniyor (CLI'dan bilinçli fark).
         return _finish_candidate(
-            state, [translate("chat.acm.skipped", lang)], embedding_provider=embedding_provider, calendar=calendar, lang=lang
+            state, [translate("chat.acm.skipped", lang)], embedding_provider=embedding_provider, calendar=calendar, lang=lang,
+            user_id=user_id,
         )
 
-    correction = save_user_correction(state.candidate, feedback)
+    correction = save_user_correction(state.candidate, feedback, user_id=user_id)
     acm_state = state.model_copy(
         update={
             "step": STEP_ACM_ASK_APPLY_FUTURE, "acm_kind": ACM_KIND_REJECT,
@@ -762,11 +785,12 @@ def _handle_acm_ask_reject_feedback(
 
 
 def _handle_acm_ask_apply_future(
-    state: ChatState, user_text: str, *, embedding_provider, calendar, lang: str
+    state: ChatState, user_text: str, *, embedding_provider, calendar, lang: str, user_id: str | None = None
 ) -> tuple[ChatState, list[str]]:
     if user_text.strip().lower() not in ("yes", "evet", "e"):
         return _finish_candidate(
-            state, [translate("chat.acm.not_saved_as_rule", lang)], embedding_provider=embedding_provider, calendar=calendar, lang=lang
+            state, [translate("chat.acm.not_saved_as_rule", lang)], embedding_provider=embedding_provider, calendar=calendar, lang=lang,
+            user_id=user_id,
         )
     acm_state = state.model_copy(update={"step": STEP_ACM_ASK_SCOPE})
     event_type_label = translate("enum.event_type." + str(state.candidate.event_type), lang)
@@ -774,7 +798,7 @@ def _handle_acm_ask_apply_future(
 
 
 def _handle_acm_ask_scope(
-    state: ChatState, user_text: str, *, llm, embedding_provider, calendar, lang: str
+    state: ChatState, user_text: str, *, llm, embedding_provider, calendar, lang: str, user_id: str | None = None
 ) -> tuple[ChatState, list[str]]:
     # CLI'nın _choose_scope_interactively'si (sender=None dalı) ile aynı
     # geri düşüş: yalnızca "2"/"her zaman" her-zaman kapsamı seçer, BAŞKA
@@ -798,34 +822,35 @@ def _handle_acm_ask_scope(
     if state.acm_kind == ACM_KIND_EDIT:
         policy = save_derived_policy(
             embedding_provider, state.acm_feedback, state.edited_structured_action,
-            event_type=event_type_scope, source=PolicySource.CORRECTION,
+            event_type=event_type_scope, source=PolicySource.CORRECTION, user_id=user_id,
         )
     else:
         try:
             policy = derive_and_save_policy(
                 llm, embedding_provider, state.acm_feedback,
                 event_type=event_type_scope, infer_event_type=False, source=PolicySource.CORRECTION,
+                user_id=user_id,
             )
         except JsonGenerationError:
             return _finish_candidate(
                 state, [translate("chat.acm.extraction_failed", lang)],
-                embedding_provider=embedding_provider, calendar=calendar, lang=lang,
+                embedding_provider=embedding_provider, calendar=calendar, lang=lang, user_id=user_id,
             )
         if policy is None:
             return _finish_candidate(
                 state, [translate("chat.acm.no_rule_extracted", lang)],
-                embedding_provider=embedding_provider, calendar=calendar, lang=lang,
+                embedding_provider=embedding_provider, calendar=calendar, lang=lang, user_id=user_id,
             )
 
     mark_correction_approved(state.acm_correction_id, policy.policy_id, correction_scope, None)
     return _finish_candidate(
         state, [translate("chat.acm.saved_policy", lang, scope=scope_desc, feedback=state.acm_feedback)],
-        embedding_provider=embedding_provider, calendar=calendar, lang=lang,
+        embedding_provider=embedding_provider, calendar=calendar, lang=lang, user_id=user_id,
     )
 
 
 def _advance_create_event(
-    state: ChatState, user_text: str, *, llm, embedding_provider, calendar, lang: str
+    state: ChatState, user_text: str, *, llm, embedding_provider, calendar, lang: str, user_id: str | None = None
 ) -> tuple[ChatState, list[str]]:
     candidate = state.candidate
     step = state.step
@@ -839,15 +864,15 @@ def _advance_create_event(
             return state, [translate("chat.create.ask_title", lang)]
         candidate.title = title
         candidate.missing_fields = [f for f in candidate.missing_fields if f != "title"]
-        return _continue_create_event(state, lang=lang, calendar=calendar, embedding_provider=embedding_provider)
+        return _continue_create_event(state, lang=lang, calendar=calendar, embedding_provider=embedding_provider, user_id=user_id)
 
     if step == STEP_ASK_DURATION:
         minutes = parse_duration_minutes(user_text)
         if not minutes:
-            return _retry_or_give_up(state, embedding_provider=embedding_provider, calendar=calendar, lang=lang, invalid_key="chat.create.duration_invalid")
+            return _retry_or_give_up(state, embedding_provider=embedding_provider, calendar=calendar, lang=lang, invalid_key="chat.create.duration_invalid", user_id=user_id)
         candidate.duration_minutes = minutes
         candidate.missing_fields = [f for f in candidate.missing_fields if f != "duration_minutes"]
-        return _continue_create_event(state, lang=lang, calendar=calendar, embedding_provider=embedding_provider)
+        return _continue_create_event(state, lang=lang, calendar=calendar, embedding_provider=embedding_provider, user_id=user_id)
 
     if step == STEP_ASK_START_DATETIME:
         try:
@@ -855,15 +880,15 @@ def _advance_create_event(
             if new_value is None:
                 raise ValueError("boş")
         except Exception:
-            return _retry_or_give_up(state, embedding_provider=embedding_provider, calendar=calendar, lang=lang, invalid_key="chat.create.start_datetime_invalid")
+            return _retry_or_give_up(state, embedding_provider=embedding_provider, calendar=calendar, lang=lang, invalid_key="chat.create.start_datetime_invalid", user_id=user_id)
         candidate.start_datetime = new_value
         candidate.missing_fields = [f for f in candidate.missing_fields if f != "start_datetime"]
-        return _continue_create_event(state, lang=lang, calendar=calendar, embedding_provider=embedding_provider)
+        return _continue_create_event(state, lang=lang, calendar=calendar, embedding_provider=embedding_provider, user_id=user_id)
 
     if step == STEP_ASK_AMBIGUOUS_TIME:
         clock = parse_clock_time(user_text.strip())
         if not clock:
-            return _retry_or_give_up(state, embedding_provider=embedding_provider, calendar=calendar, lang=lang, invalid_key="chat.create.ambiguous_time_invalid")
+            return _retry_or_give_up(state, embedding_provider=embedding_provider, calendar=calendar, lang=lang, invalid_key="chat.create.ambiguous_time_invalid", user_id=user_id)
         start = candidate.start_datetime
         date_part = (
             start.date().isoformat() if isinstance(start, datetime) else (start or datetime.now().date().isoformat())[:10]
@@ -871,9 +896,9 @@ def _advance_create_event(
         try:
             candidate.start_datetime = ensure_timezone(f"{date_part}T{clock}:00")
         except Exception:
-            return _retry_or_give_up(state, embedding_provider=embedding_provider, calendar=calendar, lang=lang, invalid_key="chat.create.ambiguous_time_invalid")
+            return _retry_or_give_up(state, embedding_provider=embedding_provider, calendar=calendar, lang=lang, invalid_key="chat.create.ambiguous_time_invalid", user_id=user_id)
         candidate.ambiguous_fields = [f for f in candidate.ambiguous_fields if f != "start_datetime"]
-        return _continue_create_event(state, lang=lang, calendar=calendar, embedding_provider=embedding_provider)
+        return _continue_create_event(state, lang=lang, calendar=calendar, embedding_provider=embedding_provider, user_id=user_id)
 
     if step == STEP_ASK_CONFLICT_NO_ALTERNATIVES:
         token = CONFLICT_KEPT_ANYWAY if user_text.strip().lower() in ("yes", "evet", "e") else CONFLICT_UNRESOLVED
@@ -888,7 +913,7 @@ def _advance_create_event(
         if choice in ("keep", "d"):
             return _enter_preview(state, CONFLICT_KEPT_ANYWAY, lang=lang)
         if not state.candidate_saved:
-            return _reject_at_conflict(state, embedding_provider=embedding_provider, calendar=calendar, lang=lang)
+            return _reject_at_conflict(state, embedding_provider=embedding_provider, calendar=calendar, lang=lang, user_id=user_id)
         # Düzenleme sonrası yeniden kontrol — CLI'da bu durum OTOMATİK
         # REDDETMEZ (bkz. review_and_confirm_candidate satır 629'un while
         # döngüsünün DIŞINDA olması), yalnızca not olarak önizlemede gösterilir.
@@ -903,9 +928,9 @@ def _advance_create_event(
         # yalnızca TANINAN eş anlamlılar bir aksiyona eşleniyor, tanınmayan
         # girdi önizlemeyi tekrar gösteriyor (kazara reddetmeyi önlemek için).
         if action in ("approve", "e", "evet", "onayla", "yes"):
-            return _finalize_create_event(state, approved=True, calendar=calendar, embedding_provider=embedding_provider, lang=lang)
+            return _finalize_create_event(state, approved=True, calendar=calendar, embedding_provider=embedding_provider, lang=lang, user_id=user_id)
         if action in ("reject", "h", "hayır", "hayir", "reddet", "no"):
-            return _finalize_create_event(state, approved=False, calendar=calendar, embedding_provider=embedding_provider, lang=lang)
+            return _finalize_create_event(state, approved=False, calendar=calendar, embedding_provider=embedding_provider, lang=lang, user_id=user_id)
         if action in ("edit", "d", "düzenle", "duzenle"):
             new_state = state.model_copy(update={"step": STEP_EDIT_PICK_FIELD})
             return new_state, [translate("chat.create.edit_pick_field_prompt", lang)]
@@ -921,16 +946,16 @@ def _advance_create_event(
         return _handle_edit_pick_field(state, user_text, lang=lang)
 
     if step == STEP_EDIT_FIELD_VALUE:
-        return _handle_edit_field_value(state, user_text, calendar=calendar, embedding_provider=embedding_provider, lang=lang)
+        return _handle_edit_field_value(state, user_text, calendar=calendar, embedding_provider=embedding_provider, lang=lang, user_id=user_id)
 
     if step == STEP_ACM_ASK_REJECT_FEEDBACK:
-        return _handle_acm_ask_reject_feedback(state, user_text, embedding_provider=embedding_provider, calendar=calendar, lang=lang)
+        return _handle_acm_ask_reject_feedback(state, user_text, embedding_provider=embedding_provider, calendar=calendar, lang=lang, user_id=user_id)
 
     if step == STEP_ACM_ASK_APPLY_FUTURE:
-        return _handle_acm_ask_apply_future(state, user_text, embedding_provider=embedding_provider, calendar=calendar, lang=lang)
+        return _handle_acm_ask_apply_future(state, user_text, embedding_provider=embedding_provider, calendar=calendar, lang=lang, user_id=user_id)
 
     if step == STEP_ACM_ASK_SCOPE:
-        return _handle_acm_ask_scope(state, user_text, llm=llm, embedding_provider=embedding_provider, calendar=calendar, lang=lang)
+        return _handle_acm_ask_scope(state, user_text, llm=llm, embedding_provider=embedding_provider, calendar=calendar, lang=lang, user_id=user_id)
 
     logger.warning("Bilinmeyen create_event step: %r — oturum sıfırlanıyor", step)
     return ChatState(), [translate("chat.generic_error", lang)]

@@ -155,7 +155,8 @@ CREATE TABLE IF NOT EXISTS personal_policies (
     approved_by_user      INTEGER NOT NULL DEFAULT 1,
     source                TEXT NOT NULL,          -- manual | correction
     created_at            TEXT NOT NULL,
-    updated_at            TEXT NOT NULL
+    updated_at            TEXT NOT NULL,
+    user_id               TEXT REFERENCES users(id)  -- NULL: eski/sahipsiz kayıt (bkz. auth.py ilk-giriş devralma)
 );
 CREATE INDEX IF NOT EXISTS idx_policies_active_scope ON personal_policies(active, scope, category);
 
@@ -183,7 +184,8 @@ CREATE TABLE IF NOT EXISTS user_corrections (
     approved_for_future_use INTEGER NOT NULL DEFAULT 0,
     derived_policy_id     TEXT REFERENCES personal_policies(policy_id),
     correction_type       TEXT,                    -- NULL (alan düzeltmesi) | 'classification'
-    created_at            TEXT NOT NULL
+    created_at            TEXT NOT NULL,
+    user_id               TEXT REFERENCES users(id)  -- NULL: eski/sahipsiz kayıt (bkz. auth.py ilk-giriş devralma)
 );
 
 CREATE TABLE IF NOT EXISTS policy_embeddings (

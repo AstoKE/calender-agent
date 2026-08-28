@@ -81,6 +81,7 @@ def process_message(
     display_text: str | None = None,
     file_bytes: bytes | None = None,
     file_mime_type: str | None = None,
+    user_id: str | None = None,
 ) -> list[dict]:
     """Bir sohbet turunu uçtan uca işler: state'i yükler, kullanıcı mesajını
     yazar, `advance()`'i HİÇBİR bağlantı açık değilken çalıştırır (bkz. modül
@@ -105,7 +106,7 @@ def process_message(
     new_state, replies = advance(
         state, user_text,
         llm=llm, embedding_provider=embedding_provider, calendar=calendar, lang=lang,
-        file_bytes=file_bytes, file_mime_type=file_mime_type,
+        file_bytes=file_bytes, file_mime_type=file_mime_type, user_id=user_id,
     )
 
     with get_connection() as conn:

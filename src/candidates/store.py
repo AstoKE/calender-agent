@@ -118,37 +118,44 @@ _PENDING_QUERY = """
 """
 
 
-def list_pending_candidates(account_id: str | None = None) -> list[dict]:
+def list_pending_candidates(account_ids: list[str] | None = None) -> list[dict]:
     """Web'de "Gelen Öneriler" olarak gösterilecek candidate'ları döner —
     yalnızca MAIL kaynaklı (source_type='email'): konuşma kaynaklı
     candidate'ların hiçbir account_id bağlantısı yok (CLI'da anlık bağlanıyor,
     DB'ye hiç yazılmıyor), bu yüzden hangi takvime yazılacağı bilinemez.
 
-    ``account_id`` verilirse yalnızca o hesaba ait öneriler döner (Ana
-    Sayfa'nın aktif-hesap filtresi için) — ``None`` (varsayılan) eski
-    davranışı korur, tüm hesapların önerilerini döner (Gelen Öneriler
-    ekranı hâlâ tüm hesapları birlikte gösteriyor)."""
+    ``account_ids`` verilirse yalnızca o hesaplara ait öneriler döner (bir
+    kullanıcının birden fazla hesabı olabilir, bkz. plan "Per-user
+    isolation") — ``None`` (varsayılan, CLI) eski davranışı korur, tüm
+    hesapların önerilerini döner. Boş liste ([]), hiç hesabı olmayan bir
+    kullanıcı için sorgusuz doğrudan boş sonuç döner."""
+    if account_ids is not None and not account_ids:
+        return []
     query = _PENDING_QUERY
-    params: tuple = ()
-    if account_id is not None:
-        query += " AND em.account_id = ?"
-        params = (account_id,)
+    params: list = []
+    if account_ids is not None:
+        placeholders = ",".join("?" for _ in account_ids)
+        query += f" AND em.account_id IN ({placeholders})"
+        params = list(account_ids)
     with get_connection() as conn:
         rows = conn.execute(query + " ORDER BY c.created_at DESC", params).fetchall()
     return [_row_to_pending_dict(r) for r in rows]
 
 
-def count_pending_candidates(account_id: str | None = None) -> int:
+def count_pending_candidates(account_ids: list[str] | None = None) -> int:
     """Nav rozeti/Ana Sayfa istatistik satırı için — tüm Pydantic modellerini
-    hidratlamadan yalnızca sayıyı döner."""
+    hidratlamadan yalnızca sayıyı döner. ``account_ids`` bkz. list_pending_candidates."""
+    if account_ids is not None and not account_ids:
+        return 0
     query = "SELECT COUNT(*) FROM candidate_events c JOIN candidate_sources cs " \
         "ON cs.candidate_id = c.candidate_id AND cs.relation_type = 'origin' " \
         "JOIN email_messages em ON em.id = cs.email_message_id " \
         "WHERE c.status IN ('NEEDS_INFORMATION', 'READY_FOR_CONFIRMATION', 'UPDATE_SUGGESTED')"
-    params: tuple = ()
-    if account_id is not None:
-        query += " AND em.account_id = ?"
-        params = (account_id,)
+    params: list = []
+    if account_ids is not None:
+        placeholders = ",".join("?" for _ in account_ids)
+        query += f" AND em.account_id IN ({placeholders})"
+        params = list(account_ids)
     with get_connection() as conn:
         return conn.execute(query, params).fetchone()[0]
 

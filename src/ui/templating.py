@@ -85,9 +85,10 @@ def shell_context(request: Request) -> dict:
         # mantığı burada tekrarlanmıyor) — iki farklı amaç, iki farklı isim.
         notif_items: list = []
         notif_count = 0
-        if active_account:
-            notif_count = count_pending_candidates(active_account["id"])
-            notif_items = list_pending_candidates(active_account["id"])[:5]
+        if accounts:
+            account_ids = [a["id"] for a in accounts]
+            notif_count = count_pending_candidates(account_ids)
+            notif_items = list_pending_candidates(account_ids)[:5]
         return {
             "accounts": accounts,
             "active_account": active_account,

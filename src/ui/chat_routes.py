@@ -218,6 +218,7 @@ def send_chat_message(
                 display_text=display_text,
                 file_bytes=file_bytes,
                 file_mime_type=file_mime_type,
+                user_id=request.state.user["id"],
             )
         except Exception:
             # Önceki sürüm burada YALNIZCA log yazıp geçiyordu — kullanıcının

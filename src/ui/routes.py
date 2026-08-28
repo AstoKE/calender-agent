@@ -52,12 +52,13 @@ from src.localization.preferences import get_effective_timezone, get_localizatio
 from src.memory.correction_memory import (
     count_corrections,
     delete_correction,
+    get_correction,
     list_corrections,
     save_user_correction,
     set_correction_future_use,
 )
 from src.policies.derivation import derive_and_save_policy, save_derived_policy
-from src.policies.store import deactivate_policy_by_id, get_active_policies, list_policies, reactivate_policy
+from src.policies.store import deactivate_policy_by_id, get_active_policies, get_policy, list_policies, reactivate_policy
 from src.providers.json_generation import JsonGenerationError
 from src.services.availability import find_conflicts
 from src.services.calendar_cache import list_events_cached
@@ -151,9 +152,10 @@ def home_page(request: Request, mesgul: bool = False):
                 calendar_state = "unavailable"
 
     account_id = active_account["id"] if active_account else None
-    pending_preview = list_pending_candidates(account_id)[:3] if account_id else []
-    pending_count = count_pending_candidates(account_id) if account_id else 0
-    others_pending = (count_pending_candidates(None) - pending_count) if account_id else 0
+    all_account_ids = [a["id"] for a in request.state.accounts]
+    pending_preview = list_pending_candidates([account_id])[:3] if account_id else []
+    pending_count = count_pending_candidates([account_id]) if account_id else 0
+    others_pending = (count_pending_candidates(all_account_ids) - pending_count) if account_id else 0
 
     chat_context = build_chat_widget_context(request, account_id) if CHAT_ENABLED else {}
 
@@ -167,7 +169,7 @@ def home_page(request: Request, mesgul: bool = False):
             "pending_preview": pending_preview,
             "pending_count": pending_count,
             "others_pending": others_pending,
-            "active_policy_count": len(get_active_policies()),
+            "active_policy_count": len(get_active_policies(user_id=request.state.user["id"])),
             "scan_busy": mesgul,
             "chat_enabled": CHAT_ENABLED,
             **chat_context,
@@ -332,7 +334,7 @@ def calendar_page(request: Request, hafta: str | None = None):
 
 @router.get("/kurallarim", response_class=HTMLResponse)
 def rules_page(request: Request, cakisma: bool = False):
-    policies = list_policies(include_inactive=True)
+    policies = list_policies(include_inactive=True, user_id=request.state.user["id"])
     return templates.TemplateResponse(
         request,
         "kurallarim.html",
@@ -346,13 +348,18 @@ def rules_page(request: Request, cakisma: bool = False):
 
 
 @router.post("/kurallarim/{policy_id}/pasiflestir")
-def deactivate_rule(policy_id: str):
-    deactivate_policy_by_id(policy_id)
+def deactivate_rule(request: Request, policy_id: str):
+    policy = get_policy(policy_id)
+    if policy is not None and policy.user_id == request.state.user["id"]:
+        deactivate_policy_by_id(policy_id)
     return RedirectResponse("/kurallarim", status_code=303)
 
 
 @router.post("/kurallarim/{policy_id}/aktiflestir")
-def reactivate_rule(policy_id: str):
+def reactivate_rule(request: Request, policy_id: str):
+    policy = get_policy(policy_id)
+    if policy is None or policy.user_id != request.state.user["id"]:
+        return RedirectResponse("/kurallarim", status_code=303)
     if reactivate_policy(policy_id) is None:
         return RedirectResponse("/kurallarim?cakisma=1", status_code=303)
     return RedirectResponse("/kurallarim", status_code=303)
@@ -395,6 +402,7 @@ def new_rule_submit(
         event_type=(event_type or None) if scope_type == "event_type" else None,
         sender=(sender or None) if scope_type == "sender" else None,
         source=PolicySource.MANUAL,
+        user_id=request.state.user["id"],
     )
     return RedirectResponse("/kurallarim", status_code=303)
 
@@ -412,6 +420,7 @@ def new_rule_submit_natural_language(request: Request, rule_text: str = Form(...
             request.app.state.embedding_provider,
             rule_text,
             source=PolicySource.MANUAL,
+            user_id=request.state.user["id"],
         )
     except JsonGenerationError:
         policy = None
@@ -424,29 +433,34 @@ def new_rule_submit_natural_language(request: Request, rule_text: str = Form(...
 @router.get("/duzeltmelerim", response_class=HTMLResponse)
 def corrections_page(request: Request, tur: str | None = None):
     filter_type = "field" if tur == "alan" else "classification" if tur == "siniflandirma" else None
+    user_id = request.state.user["id"]
     return templates.TemplateResponse(
         request,
         "duzeltmelerim.html",
         {
             "active_page": "duzeltmelerim",
-            "corrections": list_corrections(correction_type=filter_type),
+            "corrections": list_corrections(correction_type=filter_type, user_id=user_id),
             "current_filter": tur or "hepsi",
-            "total_count": count_corrections(),
-            "field_count": count_corrections("field"),
-            "classification_count": count_corrections("classification"),
+            "total_count": count_corrections(user_id=user_id),
+            "field_count": count_corrections("field", user_id=user_id),
+            "classification_count": count_corrections("classification", user_id=user_id),
         },
     )
 
 
 @router.post("/duzeltmelerim/{correction_id}/gelecekte-kullan")
-def toggle_correction_future_use(correction_id: str, enabled: bool = Form(...)):
-    set_correction_future_use(correction_id, enabled)
+def toggle_correction_future_use(request: Request, correction_id: str, enabled: bool = Form(...)):
+    correction = get_correction(correction_id)
+    if correction is not None and correction["user_id"] == request.state.user["id"]:
+        set_correction_future_use(correction_id, enabled)
     return RedirectResponse("/duzeltmelerim", status_code=303)
 
 
 @router.post("/duzeltmelerim/{correction_id}/sil")
-def delete_correction_route(correction_id: str):
-    delete_correction(correction_id)
+def delete_correction_route(request: Request, correction_id: str):
+    correction = get_correction(correction_id)
+    if correction is not None and correction["user_id"] == request.state.user["id"]:
+        delete_correction(correction_id)
     return RedirectResponse("/duzeltmelerim", status_code=303)
 
 
@@ -495,7 +509,7 @@ def set_region_settings(request: Request, saat_dilimi: str = Form(...)):
 
 @router.get("/oneriler", response_class=HTMLResponse)
 def list_candidates(request: Request):
-    pending = list_pending_candidates()
+    pending = list_pending_candidates([a["id"] for a in request.state.accounts])
     return templates.TemplateResponse(
         request, "oneriler.html", {"pending": pending, "active_page": "oneriler"}
     )
@@ -547,7 +561,7 @@ def approve(request: Request, candidate_id: str, force: bool = Form(False), next
 
 
 @router.post("/oneriler/{candidate_id}/reddet")
-def reject(candidate_id: str, reason: str = Form(""), next: str = Form("/oneriler")):
+def reject(request: Request, candidate_id: str, reason: str = Form(""), next: str = Form("/oneriler")):
     next_url = safe_next(next, fallback="/oneriler")
     # Sırayla dikkat: önce candidate'ı (hâlâ NEEDS_INFORMATION/READY_FOR_CONFIRMATION
     # durumundayken) çekiyoruz — status REJECTED'a çevrildikten sonra
@@ -555,6 +569,7 @@ def reject(candidate_id: str, reason: str = Form(""), next: str = Form("/onerile
     pending = get_pending_candidate(candidate_id)
     if pending is None:
         return RedirectResponse(next_url, status_code=303)
+    user_id = request.state.user["id"]
 
     if pending["candidate"].status == CandidateStatus.UPDATE_SUGGESTED:
         # Bir güncelleme ÖNERİSİNİ reddetmek REJECTED anlamına gelmez (o "bunu
@@ -565,7 +580,7 @@ def reject(candidate_id: str, reason: str = Form(""), next: str = Form("/onerile
             "reject_update", candidate_id, reason.strip() or "Güncelleme önerisi reddedildi (sebep belirtilmedi)."
         )
         if reason.strip():
-            save_user_correction(pending["candidate"], reason.strip())
+            save_user_correction(pending["candidate"], reason.strip(), user_id=user_id)
         return RedirectResponse(next_url, status_code=303)
 
     update_candidate_status(candidate_id, CandidateStatus.REJECTED)
@@ -576,7 +591,7 @@ def reject(candidate_id: str, reason: str = Form(""), next: str = Form("/onerile
     # seçimi) bu dilimde YOK — yalnızca ham düzeltme kaydediliyor, denetim/
     # ileride manuel inceleme için. Politika teklifi CLI'da kalmaya devam ediyor.
     if reason.strip():
-        save_user_correction(pending["candidate"], reason.strip())
+        save_user_correction(pending["candidate"], reason.strip(), user_id=user_id)
     return RedirectResponse(next_url, status_code=303)
 
 

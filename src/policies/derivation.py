@@ -38,6 +38,7 @@ def save_derived_policy(
     event_type: str | None = None,
     sender: str | None = None,
     source: PolicySource = PolicySource.MANUAL,
+    user_id: str | None = None,
 ) -> PersonalPolicy:
     """`structured_action` zaten belli olduğunda (LLM'e ihtiyaç yok — örn.
     kullanıcı önerideki bir alanı doğrudan düzenlediğinde, bkz.
@@ -50,12 +51,14 @@ def save_derived_policy(
 
     Aynı `category`+kapsam (event_type/sender/global) kombinasyonunda zaten
     aktif bir politika varsa, yenisi oluşturulduktan sonra eskisi
-    `deactivate_policy` ile versiyonlanır (§9)."""
+    `deactivate_policy` ile versiyonlanır (§9). ``user_id`` verilirse (Web
+    UI) yalnızca AYNI kullanıcının politikaları çelişki/versiyonlama
+    kapsamına girer — bkz. plan "Per-user isolation"."""
     if sender:
         event_type = None
     category = next(iter(structured_action))
 
-    conflict = find_active_conflicting_policy(category, event_type=event_type, sender=sender)
+    conflict = find_active_conflicting_policy(category, event_type=event_type, sender=sender, user_id=user_id)
 
     policy = add_policy(
         category=category,
@@ -64,6 +67,7 @@ def save_derived_policy(
         event_type=event_type,
         sender=sender,
         source=source,
+        user_id=user_id,
     )
     embed_and_store_policy(embedding_provider, policy)
 
@@ -81,6 +85,7 @@ def derive_and_save_policy(
     sender: str | None = None,
     infer_event_type: bool = True,
     source: PolicySource = PolicySource.MANUAL,
+    user_id: str | None = None,
 ) -> PersonalPolicy | None:
     """Doğal dil kural metnini LLM ile yapılandırılmış hale getirip
     `save_derived_policy` ile kaydeder.
@@ -120,4 +125,5 @@ def derive_and_save_policy(
         event_type=effective_event_type,
         sender=sender,
         source=source,
+        user_id=user_id,
     )

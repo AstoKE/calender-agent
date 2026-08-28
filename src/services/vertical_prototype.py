@@ -208,13 +208,19 @@ MAX_CLARIFICATION_ATTEMPTS = 3
 
 
 def apply_retrieved_policies(
-    candidate: CandidateEvent, embedding_provider: EmbeddingProvider, sender: str | None = None
+    candidate: CandidateEvent,
+    embedding_provider: EmbeddingProvider,
+    sender: str | None = None,
+    user_id: str | None = None,
 ) -> list[str]:
     """Rule Engine adımı: RAG'ın getirdiği politikaları deterministik olarak
     uygular (LLM'e "hangi değer" kararını bırakmaz, bkz. §9/§11). Yalnızca
     hâlâ eksik olan alanlara dokunur — kullanıcının bu mesajda açıkça verdiği
     bilgiyi asla ezmez. ``sender`` verilirse (mail kaynaklı candidate'lar)
-    sender-scope'lu politikalar da retrieval'a dahil edilir.
+    sender-scope'lu politikalar da retrieval'a dahil edilir. ``user_id``
+    verilirse (Web UI) yalnızca o kullanıcının politikaları aranır (bkz. plan
+    "Per-user isolation") — CLI ``None`` bırakır (eski, sahiplikten bağımsız
+    davranış).
 
     Uygulanan her kural için "(Kural uygulandı: ...)" satırını hem `print()`
     eder (CLI, davranış değişmiyor) HEM DE listeye ekleyip döner — web
@@ -223,7 +229,9 @@ def apply_retrieved_policies(
     mevcut çağrı noktası da (`scan_inbox.py`, bu dosyada `review_and_confirm_candidate`)
     dönüş değerini kullanmıyor, bu yüzden imza değişikliği geriye dönük güvenli."""
     applied_messages: list[str] = []
-    policies = retrieve_policies_for_event(embedding_provider, candidate.event_type, sender=sender, top_k=5)
+    policies = retrieve_policies_for_event(
+        embedding_provider, candidate.event_type, sender=sender, top_k=5, user_id=user_id
+    )
 
     if not candidate.duration_minutes:  # None veya 0 — bkz. fill_missing_fields_interactively'deki not
         for policy in policies:

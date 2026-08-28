@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 
 from src.candidates.store import (
     apply_update_suggestion,
+    count_pending_candidates,
     find_related_candidate_by_thread,
     get_pending_candidate,
     list_pending_candidates,
@@ -240,3 +241,33 @@ def test_update_suggested_candidate_listed_as_pending(temp_db):
     pending = list_pending_candidates()
     assert len(pending) == 1
     assert pending[0]["candidate"].candidate_id == candidate.candidate_id
+
+
+# --- Multi-account filtering (bkz. plan "Per-user isolation for rules, corrections, and suggestions") ---
+
+
+def test_list_pending_candidates_filters_by_account_ids(temp_db):
+    email_id_a = _insert_account_and_email(account_id="acc-a")
+    save_new_candidate(_candidate(), source_email_row_id=email_id_a)
+    email_id_b = _insert_account_and_email(account_id="acc-b")
+    save_new_candidate(_candidate(), source_email_row_id=email_id_b)
+
+    assert len(list_pending_candidates(["acc-a"])) == 1
+    assert list_pending_candidates(["acc-a"])[0]["account_id"] == "acc-a"
+    assert len(list_pending_candidates(["acc-a", "acc-b"])) == 2
+    # None (varsayılan, CLI) -> eski davranış, hepsini döner.
+    assert len(list_pending_candidates()) == 2
+    # Boş liste -> hiç hesabı olmayan bir kullanıcı, sorgusuz boş sonuç.
+    assert list_pending_candidates([]) == []
+
+
+def test_count_pending_candidates_filters_by_account_ids(temp_db):
+    email_id_a = _insert_account_and_email(account_id="acc-a")
+    save_new_candidate(_candidate(), source_email_row_id=email_id_a)
+    email_id_b = _insert_account_and_email(account_id="acc-b")
+    save_new_candidate(_candidate(), source_email_row_id=email_id_b)
+
+    assert count_pending_candidates(["acc-a"]) == 1
+    assert count_pending_candidates(["acc-a", "acc-b"]) == 2
+    assert count_pending_candidates() == 2
+    assert count_pending_candidates([]) == 0

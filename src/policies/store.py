@@ -49,7 +49,11 @@ def add_policy(
     language: str = "tr",
     priority: int = 0,
     source: PolicySource = PolicySource.MANUAL,
+    user_id: str | None = None,
 ) -> PersonalPolicy:
+    """``user_id`` verilirse (Web UI — bkz. src/ui/auth.py) kural o kullanıcıya
+    bağlanır; ``None`` ise (CLI, login sisteminin BİLEREK dışında) eski,
+    sahiplikten bağımsız davranış (bkz. plan "Per-user isolation")."""
     scope = _policy_scope(event_type, sender)
     now = datetime.now(timezone.utc)
     policy = PersonalPolicy(
@@ -74,8 +78,8 @@ def add_policy(
             INSERT INTO personal_policies (
                 policy_id, category, scope, natural_language_rule, language,
                 structured_conditions, structured_action, priority, version,
-                active, approved_by_user, source, created_at, updated_at
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                active, approved_by_user, source, created_at, updated_at, user_id
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 policy.policy_id,
@@ -92,12 +96,14 @@ def add_policy(
                 policy.source,
                 now.isoformat(),
                 now.isoformat(),
+                user_id,
             ),
         )
     return policy
 
 
 def row_to_policy(row) -> PersonalPolicy:
+    keys = row.keys()
     return PersonalPolicy(
         policy_id=row["policy_id"],
         category=row["category"],
@@ -113,26 +119,38 @@ def row_to_policy(row) -> PersonalPolicy:
         source=row["source"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
+        user_id=row["user_id"] if "user_id" in keys else None,
     )
 
 
-def list_policies(include_inactive: bool = False) -> list[PersonalPolicy]:
+def list_policies(include_inactive: bool = False, user_id: str | None = None) -> list[PersonalPolicy]:
     """Kurallarım ekranı için — `get_active_policies` yalnızca aktifleri
     döndüğünden (RAG/Rule Engine çağırıyor, adı bilerek korunuyor, aşağıya
-    bkz.) pasif kuralları görecek yeni bir okuma yolu gerekiyordu."""
+    bkz.) pasif kuralları görecek yeni bir okuma yolu gerekiyordu.
+
+    ``user_id`` verilirse (Web UI) yalnızca o kullanıcının kuralları;
+    ``None`` ise (CLI, bkz. plan "Per-user isolation") eski, sahiplikten
+    bağımsız davranış — TÜM kurallar."""
     query = "SELECT * FROM personal_policies"
+    conditions = []
+    params: list = []
     if not include_inactive:
-        query += " WHERE active = 1"
+        conditions.append("active = 1")
+    if user_id is not None:
+        conditions.append("user_id = ?")
+        params.append(user_id)
+    if conditions:
+        query += " WHERE " + " AND ".join(conditions)
     query += " ORDER BY active DESC, updated_at DESC"
     with get_connection() as conn:
-        rows = conn.execute(query).fetchall()
+        rows = conn.execute(query, params).fetchall()
     return [row_to_policy(r) for r in rows]
 
 
-def get_active_policies() -> list[PersonalPolicy]:
+def get_active_policies(user_id: str | None = None) -> list[PersonalPolicy]:
     """İSİM KORUNDU — src/rag/policy_retrieval.py ve Rule Engine yolunda
     çağrıcıları var, bir UI dilimi için bunları değiştirmek kapsam dışı."""
-    return list_policies(include_inactive=False)
+    return list_policies(include_inactive=False, user_id=user_id)
 
 
 def get_policy(policy_id: str) -> PersonalPolicy | None:
@@ -141,13 +159,18 @@ def get_policy(policy_id: str) -> PersonalPolicy | None:
     return row_to_policy(row) if row else None
 
 
-def count_active_policies() -> int:
+def count_active_policies(user_id: str | None = None) -> int:
+    query = "SELECT COUNT(*) FROM personal_policies WHERE active = 1"
+    params: tuple = ()
+    if user_id is not None:
+        query += " AND user_id = ?"
+        params = (user_id,)
     with get_connection() as conn:
-        return conn.execute("SELECT COUNT(*) FROM personal_policies WHERE active = 1").fetchone()[0]
+        return conn.execute(query, params).fetchone()[0]
 
 
 def find_active_conflicting_policy(
-    category: str, event_type: str | None = None, sender: str | None = None
+    category: str, event_type: str | None = None, sender: str | None = None, user_id: str | None = None
 ) -> PersonalPolicy | None:
     """Aynı `category` (structured_action anahtarı) ve aynı kapsamda (event_type/
     sender/global — ikisi de global ise de eşleşir) aktif bir politika var mı
@@ -155,7 +178,7 @@ def find_active_conflicting_policy(
     ile versiyonlayıp yenisiyle değiştirmeli — aynı kural iki kez tanımlanınca
     iki ayrı aktif politika birikmesin diye."""
     target = _structured_conditions(event_type, sender)
-    for policy in get_active_policies():
+    for policy in get_active_policies(user_id=user_id):
         if category not in policy.structured_action:
             continue
         if policy.structured_conditions == target:
@@ -163,12 +186,12 @@ def find_active_conflicting_policy(
     return None
 
 
-def get_active_policies_for_sender(sender: str) -> list[PersonalPolicy]:
+def get_active_policies_for_sender(sender: str, user_id: str | None = None) -> list[PersonalPolicy]:
     """Belirli bir gönderene özel (sender-scope'lu) aktif politikaları döner
     (bkz. §9). Semantik retrieval'a değil doğrudan eşleşmeye dayanır — gönderen
     adresi biliniyorsa bu deterministik bir eşleşmedir, tahmine gerek yok."""
     normalized = normalize_sender(sender)
-    return [p for p in get_active_policies() if p.structured_conditions.get("sender") == normalized]
+    return [p for p in get_active_policies(user_id=user_id) if p.structured_conditions.get("sender") == normalized]
 
 
 def deactivate_policy(policy: PersonalPolicy) -> None:

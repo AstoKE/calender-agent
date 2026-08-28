@@ -197,3 +197,47 @@ def test_delete_correction_does_not_touch_derived_policy(temp_db):
     delete_correction(correction.correction_id)
 
     assert get_policy(policy.policy_id).active is True
+
+
+# --- Per-user isolation (bkz. plan "Per-user isolation for rules, corrections, and suggestions") ---
+# user_id, users(id)'ye FK verdiği için gerçek kullanıcı satırları gerekiyor.
+
+
+def _two_users():
+    from src.ui.auth import create_user
+
+    return create_user("a@example.com"), create_user("b@example.com")
+
+
+def test_list_corrections_filters_by_user_id(temp_db):
+    user_a, user_b = _two_users()
+    c1 = _persisted_candidate()
+    save_user_correction(c1, "A'nın düzeltmesi", user_id=user_a["id"])
+    c2 = _persisted_candidate()
+    save_user_correction(c2, "B'nin düzeltmesi", user_id=user_b["id"])
+
+    assert [c["user_feedback_text"] for c in list_corrections(user_id=user_a["id"])] == ["A'nın düzeltmesi"]
+    assert [c["user_feedback_text"] for c in list_corrections(user_id=user_b["id"])] == ["B'nin düzeltmesi"]
+    assert len(list_corrections()) == 2
+
+
+def test_count_corrections_filters_by_user_id(temp_db):
+    user_a, user_b = _two_users()
+    c1 = _persisted_candidate()
+    save_user_correction(c1, "A", user_id=user_a["id"])
+    c2 = _persisted_candidate()
+    save_user_correction(c2, "B1", user_id=user_b["id"])
+    c3 = _persisted_candidate()
+    save_user_correction(c3, "B2", correction_type="classification", user_id=user_b["id"])
+
+    assert count_corrections(user_id=user_a["id"]) == 1
+    assert count_corrections(user_id=user_b["id"]) == 2
+    assert count_corrections("classification", user_id=user_b["id"]) == 1
+    assert count_corrections() == 3
+
+
+def test_row_to_correction_dict_includes_user_id(temp_db):
+    user_a, _ = _two_users()
+    candidate = _persisted_candidate()
+    correction = save_user_correction(candidate, "test", user_id=user_a["id"])
+    assert get_correction(correction.correction_id)["user_id"] == user_a["id"]

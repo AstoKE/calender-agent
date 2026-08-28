@@ -23,6 +23,8 @@ _ADHOC_COLUMN_MIGRATIONS = [
     ("calendar_events_cache", "raw_json", "TEXT"),
     ("accounts", "user_id", "TEXT"),
     ("user_preferences", "user_id", "TEXT"),
+    ("personal_policies", "user_id", "TEXT"),
+    ("user_corrections", "user_id", "TEXT"),
 ]
 
 

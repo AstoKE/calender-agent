@@ -706,3 +706,46 @@ def test_approving_last_of_two_events_finishes_normally(vision_client, monkeypat
     with get_connection() as conn:
         step = conn.execute("SELECT step FROM chat_sessions WHERE session_id = ?", (session_id,)).fetchone()["step"]
     assert step is None  # sohbet idle durumuna döndü, sırada bekleyen kalmadı
+
+
+# --- Per-user isolation (bkz. plan "Per-user isolation for rules, corrections, and suggestions") ---
+
+
+class _DefinePolicyLLMProvider(LLMProvider):
+    """`classify_intent`'i DEFINE_POLICY'ye, çıkarımı geçerli bir structured_action
+    JSON'una yönlendiren minimal sahte — sohbetten oluşturulan bir kuralın
+    oturumun sahibi kullanıcıya scope'landığını doğrulamak için."""
+
+    def generate(self, system_prompt, user_prompt, context_chunks=None, json_output=False, allow_thinking=False):
+        if "niyetini sınıflandır" in system_prompt:
+            return json.dumps({"intent": "define_policy", "query_range_start": None, "query_range_end": None})
+        return json.dumps({
+            "event_type": "meeting", "default_duration_minutes": 45,
+            "reminder_minutes_before": None, "importance": None,
+        })
+
+    def is_available(self):
+        return True
+
+
+def test_define_policy_via_chat_is_scoped_to_session_user(client):
+    from src.policies.store import list_policies
+    from src.ui.app import app
+
+    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    app.state.llm = _DefinePolicyLLMProvider()
+
+    response = client.post(
+        "/asistan/mesaj",
+        data={"metin": "toplantılar 45 dakika olsun"},
+        headers={"X-Requested-With": "fetch"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 200
+
+    policies = list_policies(user_id=client.test_user["id"])
+    assert len(policies) == 1
+    assert policies[0].structured_action == {"default_duration_minutes": 45}
+    # user_id verilmeden (izole olmayan bir bakış açısı) de aynı tek kayıt görünür
+    # olmalı — kaydın gerçekten bu kullanıcıya yazıldığını doğrular.
+    assert list_policies()[0].policy_id == policies[0].policy_id
