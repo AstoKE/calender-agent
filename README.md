@@ -12,9 +12,9 @@
 
 ## Project Demo
 
-[![Watch Demo](https://img.shields.io/badge/Watch%20Demo-Coming%20Soon-lightgrey?style=flat-square&logo=youtube&logoColor=white)](#)
+[![Watch Demo](https://img.shields.io/badge/Watch%20Demo-Google%20Drive-4285F4?style=flat-square&logo=google-drive&logoColor=white)](https://drive.google.com/file/d/1iKlYbIsNttIPag3yzwIgQzejOuc7iOQQ/view?usp=drive_link)
 
-> Walkthrough video link — coming soon.
+> Walkthrough video — sign-in, conversational event creation with conflict detection, mail-derived suggestions, and Adaptive Correction Memory in action.
 
 ---
 
