@@ -774,7 +774,7 @@ def test_ayarlar_shows_timezone_form_with_account(client):
 def test_ayarlar_shows_diagnostics(client):
     response = client.get("/ayarlar")
     assert "<code>" in response.text
-    assert "qwen3-4b" in response.text
+    assert "gemini-3.5-flash-lite" in response.text
 
 
 def test_ayarlar_shows_master_calendar_form_with_accounts(client):

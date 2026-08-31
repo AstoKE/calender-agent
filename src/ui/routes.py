@@ -482,8 +482,8 @@ def settings_page(request: Request):
             "timezones": CURATED_TIMEZONES,
             "db_path": str(DEFAULT_DB_PATH),
             "log_path": str(LOG_PATH),
-            "chat_model": "qwen3-4b",
-            "embedding_model": "qwen3-embedding-0.6b",
+            "chat_model": "gemini-3.5-flash-lite",
+            "embedding_model": "gemini-embedding-001",
             "master_account_id": get_preference(MASTER_CALENDAR_PREFERENCE_KEY, user_id=request.state.user["id"]),
         },
     )

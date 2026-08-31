@@ -1,10 +1,9 @@
 # Calendar Agent
 
-> **Local-first, multilingual RAG calendar assistant — offline inference by default, cloud only if you opt in.**
-> Built with Microsoft Foundry Local for a personal calendar/email assistant that keeps mail content on-device.
+> **Multilingual RAG calendar assistant, powered by Google Gemini.**
+> A personal email and calendar assistant with a Web UI, natural-language rules, and mandatory confirmation before every calendar write.
 
-[![Local Inference](https://img.shields.io/badge/inference-Foundry%20Local-0078d4?style=flat-square&logo=microsoft&logoColor=white)](#)
-[![Offline First](https://img.shields.io/badge/runtime-Offline%20First-0f172a?style=flat-square&logo=shield&logoColor=white)](#)
+[![Gemini](https://img.shields.io/badge/LLM-Gemini%20API-8E75B2?style=flat-square&logo=googlegemini&logoColor=white)](#)
 [![Multilingual](https://img.shields.io/badge/UI-TR%20%2F%20EN-106ebe?style=flat-square)](#)
 [![FastAPI](https://img.shields.io/badge/FastAPI-Web%20UI-009688?style=flat-square&logo=fastapi&logoColor=white)](src/ui/app.py)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?style=flat-square&logo=python&logoColor=white)](#)
@@ -20,11 +19,11 @@
 
 ## What is Calendar Agent?
 
-**Calendar Agent** is a personal, fully offline-capable Retrieval-Augmented Generation (RAG) assistant for email and calendar management. It lets you talk to your calendar in plain language — Turkish, English, or a mix of both — create events, ask what's on your schedule, define personal rules ("meetings default to 60 minutes"), and scan your Gmail/Outlook inbox for calendar-worthy content, all reviewed and confirmed by you before anything is written.
+**Calendar Agent** is a personal Retrieval-Augmented Generation (RAG) assistant for email and calendar management. It lets you talk to your calendar in plain language — Turkish, English, or a mix of both — create events, ask what's on your schedule, define personal rules ("meetings default to 60 minutes"), and scan your Gmail/Outlook inbox for calendar-worthy content, all reviewed and confirmed by you before anything is written.
 
-**No cloud required. No mail body leaves the machine. Every write needs your explicit approval.**
+**Every write needs your explicit approval — nothing is ever added to your calendar silently.**
 
-Chat inference, intent classification, and rule retrieval all run locally through **Microsoft Foundry Local** — small language models (`qwen3-4b` for chat, `qwen3-embedding-0.6b` for retrieval) executing entirely on-device, with optional GPU acceleration. A cloud backend (Google Gemini) is available as a deliberate, opt-in exception for features that need multimodal input (photos, PDFs, voice) — off by default.
+Chat inference, intent classification, field extraction, and rule retrieval run through Google's **Gemini API** — `gemini-3.5-flash-lite` for chat/intent/extraction and `gemini-embedding-001` for the RAG retrieval that matches your messages against your own rules. Gemini also powers multimodal features: extracting events from a photo/PDF and transcribing voice messages. The project also ships a fully local, offline inference path via **Microsoft Foundry Local** as an alternative backend for anyone who wants zero cloud dependency (see `LLM_PROVIDER` in `.env.example`).
 
 > Built as a personal project around the **Microsoft Foundry Local Summer School** brief (see `docs/Summer School Foundry Local Plan.pdf` and `docs/architecture-plan.md`).
 
@@ -63,13 +62,13 @@ Chat inference, intent classification, and rule retrieval all run locally throug
 ```mermaid
 flowchart LR
     U[User] --> WEB["FastAPI + Jinja2 Web UI\nlocalhost:8000"]
-    WEB -->|chat message| INT["intent.py\nqwen3-4b intent router"]
+    WEB -->|chat message| INT["intent.py\nGemini intent router"]
     INT -->|create_event| EXT["extraction.py\nfield extraction"]
     INT -->|query_calendar| CAL[("Google Calendar /\nMS Calendar")]
     INT -->|update_event| CAL
     INT -->|define_policy| DER["policies/derivation.py"]
     EXT --> RAG["rag/policy_retrieval.py\ncosine similarity search"]
-    RAG --> EMB["qwen3-embedding-0.6b"]
+    RAG --> EMB["Gemini embedding model"]
     RAG --> DB[("SQLite\ncalendar_agent.db")]
     EXT --> CONF["availability.py\nconflict check"]
     CONF --> PREVIEW["Preview + user confirmation"]
@@ -85,9 +84,9 @@ flowchart LR
 
 **Conversational create_event flow:**
 
-1. A chat message (web chatbox or CLI) reaches `intent.py`, which classifies it into `create_event` / `query_calendar` / `update_event` / `define_policy` / `other` using the local `qwen3-4b` model.
+1. A chat message (web chatbox or CLI) reaches `intent.py`, which classifies it into `create_event` / `query_calendar` / `update_event` / `define_policy` / `other` using Gemini.
 2. `create_event` runs through `extraction.py`, filling in title/time/duration/importance from the message.
-3. Active personal rules are retrieved by cosine similarity over `qwen3-embedding-0.6b` embeddings (`rag/policy_retrieval.py`) and applied deterministically to any still-missing fields — the LLM never decides *which* rule applies, retrieval does, and the rule engine applies it.
+3. Active personal rules are retrieved by cosine similarity over Gemini embeddings (`rag/policy_retrieval.py`) and applied deterministically to any still-missing fields — the LLM never decides *which* rule applies, retrieval does, and the rule engine applies it.
 4. `availability.py` checks the target slot against the calendar and proposes alternatives on conflict.
 5. The candidate is shown as a preview; nothing is written until the user approves.
 6. A rejection (with a reason) or a manual field edit can be captured by **Adaptive Correction Memory** and, only with explicit confirmation, turned into a new personal rule for next time.
@@ -100,7 +99,7 @@ Mail scanning (`scan_inbox.py`) follows a parallel path: each new message is cla
 
 ### Core Intelligence
 
-**Intent Routing** — a local `qwen3-4b` classifier routes every message into `create_event`, `query_calendar`, `update_event`, or `define_policy`, so a scheduling question is never mistakenly treated as an event-creation request.
+**Intent Routing** — a Gemini classifier routes every message into `create_event`, `query_calendar`, `update_event`, or `define_policy`, so a scheduling question is never mistakenly treated as an event-creation request.
 
 **Deterministic Rule Engine** — personal rules ("exams get a reminder 3 days before") are retrieved by embedding similarity but *applied* by plain code, not the LLM — the model never gets to guess which rule wins; sender-scoped and event-type-scoped rules are filtered before ranking to avoid cross-contamination between unrelated candidates.
 
@@ -112,7 +111,7 @@ Mail scanning (`scan_inbox.py`) follows a parallel path: each new message is cla
 
 **Gmail + Outlook scanning** — both providers are scanned through a shared, provider-agnostic pipeline (`UnifiedEmail`); Gmail's own Promotions/Social labels are used as a deterministic pre-filter before the LLM ever sees a message.
 
-**Multimodal extraction (optional)** — with the Gemini backend enabled, a photo or PDF (invitation, ticket, itinerary) can be uploaded in chat and yield multiple extracted events in one pass, each confirmed individually; the same mechanism transcribes voice messages to text.
+**Multimodal extraction** — a photo or PDF (invitation, ticket, itinerary) can be uploaded in chat and yield multiple extracted events in one pass, each confirmed individually; the same mechanism transcribes voice messages to text.
 
 **Minimum-retention mail handling** — mail body is never stored beyond a 2000-character excerpt; attachment bytes used for multimodal extraction are processed in memory and discarded immediately, never written to disk.
 
@@ -124,7 +123,7 @@ Mail scanning (`scan_inbox.py`) follows a parallel path: each new message is cla
 
 ### Security & Privacy
 
-**Offline-first inference** — chat, intent classification, extraction, and embedding all run locally through Foundry Local by default; a cloud LLM is only ever used if you explicitly set `LLM_PROVIDER=gemini`.
+**Minimum-retention by design** — mail body is capped at a short excerpt and never stored in full (see below); a fully local/offline inference path is also available for anyone who'd rather not use a cloud LLM at all.
 
 **OAuth done carefully** — PKCE-secured Google authorization code flow, minimal requested scopes (`gmail.readonly`, `calendar.events`, `calendar.readonly`), Microsoft PKCE via MSAL public client (no client secret), tokens stored locally under `data/` (gitignored) — never in the repo, never transmitted elsewhere.
 
@@ -137,8 +136,6 @@ Mail scanning (`scan_inbox.py`) follows a parallel path: each new message is cla
 **Web Chatbox with AJAX fragments** — the assistant chat updates in place without a full page reload, degrades gracefully to a normal redirect flow if JavaScript is unavailable.
 
 **Debug logging** — every LLM call's raw input/output and every decision point is logged to `data/debug.log`, so an unexpected result can be traced without guessing.
-
-**GPU acceleration (optional)** — Foundry Local's CUDA execution provider is used automatically when available, falling back silently to CPU otherwise.
 
 **pytest suite** — 478 deterministic tests (services, stores, RAG retrieval, full route-level Web UI tests via `TestClient`) with zero real LLM/network calls — every provider is a controllable fake implementing the real interface.
 
@@ -171,12 +168,13 @@ Mail scanning (`scan_inbox.py`) follows a parallel path: each new message is cla
 
 | Component | Technology |
 |---|---|
-| Local inference runtime | Microsoft Foundry Local SDK |
-| Local chat model | `qwen3-4b` |
-| Local embedding model | `qwen3-embedding-0.6b` (1024-dim) |
-| Optional cloud backend | Gemini API — `gemini-3.5-flash-lite` (chat) + `gemini-embedding-001` (embedding, 768-dim) |
+| Inference provider | Google Gemini API |
+| Chat model | `gemini-3.5-flash-lite` |
+| Embedding model | `gemini-embedding-001` (768-dim) |
+| Multimodal input | Gemini's native file input — photos, PDFs, and voice messages |
 | Vector storage | SQLite — FP32 BLOB embedding columns, brute-force cosine search |
 | Database | `data/calendar_agent.db` (local file, gitignored) |
+| Alternative backend | Microsoft Foundry Local — fully local/offline inference (`qwen3-4b` + `qwen3-embedding-0.6b`); used when `LLM_PROVIDER=gemini` is not set |
 
 ---
 
@@ -247,8 +245,7 @@ calender-agent/
 - **Python 3.11+**
 - Git
 - A Google account (Gmail + Google Calendar read/write access)
-- ~5 GB free disk space (local LLM models are downloaded once)
-- (Optional) NVIDIA GPU — used automatically if available, CPU works fine otherwise
+- A Gemini API key (free tier) — get one at [aistudio.google.com/apikey](https://aistudio.google.com/apikey)
 
 ### 1 — Clone and set up a virtual environment
 
@@ -264,9 +261,16 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-This also installs `foundry-local-sdk`; its native core ships as a platform-specific wheel, so pip picks the right one automatically.
+### 2 — Configure the Gemini API key
 
-### 2 — Google OAuth (Gmail + Calendar)
+Copy `.env.example` to `.env` and set:
+
+```
+LLM_PROVIDER=gemini
+GOOGLE_API_KEY=<your key from aistudio.google.com/apikey>
+```
+
+### 3 — Google OAuth (Gmail + Calendar)
 
 1. [console.cloud.google.com](https://console.cloud.google.com) → new project → enable `Gmail API` and `Google Calendar API`
 2. OAuth consent screen → External → add your own Gmail as a **Test user**
@@ -275,16 +279,9 @@ This also installs `foundry-local-sdk`; its native core ships as a platform-spec
 
 > Refresh tokens expire after 7 days while the app is unverified ("Testing" mode) — the app detects this and re-prompts automatically, no need to redo setup.
 
-### 3 — (Optional) Outlook/Microsoft accounts
+### 4 — (Optional) Outlook/Microsoft accounts
 
 Azure App Registration under a **personal** Microsoft account → "Personal Microsoft accounts only" → add a "Mobile and desktop applications" platform with redirect URI `http://localhost` → grant `Mail.Read`, `Calendars.ReadWrite`, `offline_access`, `User.Read` → set `MS_CLIENT_ID` in `.env` (see `.env.example`). No client secret needed.
-
-### 4 — (Optional) Cloud backend for photos/PDF/voice
-
-```
-LLM_PROVIDER=gemini
-GOOGLE_API_KEY=<free key from aistudio.google.com/apikey>
-```
 
 ### 5 — Run
 
@@ -297,7 +294,7 @@ python -m src.services.vertical_prototype   # conversational event creation / ca
 python -m src.services.scan_inbox           # scan the inbox (confirmation happens on the web)
 ```
 
-First run downloads the local models (`qwen3-4b` ~2.7 GB, `qwen3-embedding-0.6b` ~495 MB) and opens a browser tab for Google/Outlook sign-in — this only happens once.
+First run opens a browser tab for Google/Outlook sign-in — this only happens once. (If `GOOGLE_API_KEY` isn't set, the app falls back to its local Foundry Local backend instead, downloading a small local model on first run.)
 
 ### 6 — Run the tests
 
@@ -311,7 +308,7 @@ pytest tests/
 
 | Control | Implementation |
 |---|---|
-| **Offline-first inference** | Chat/intent/extraction/embedding run locally via Foundry Local by default; a cloud LLM is used only if `LLM_PROVIDER=gemini` is explicitly set. |
+| **Minimal LLM exposure** | Only the message text (and, for scanned mail, a capped excerpt) is sent to the Gemini API for a given turn — never the full mailbox, calendar, or account credentials. |
 | **Minimum-retention mail handling** | Mail body capped at a 2000-character excerpt (`BODY_EXCERPT_MAX_CHARS`); attachment bytes for multimodal extraction are processed in memory and never written to disk. |
 | **OAuth done carefully** | PKCE-secured Google authorization code flow; Microsoft PKCE via MSAL public client (no client secret); minimal scopes requested on both providers. |
 | **Local token storage** | OAuth tokens live under `data/` (gitignored) — never committed, never sent anywhere but the provider's own token endpoint. |
@@ -342,6 +339,6 @@ pytest tests/
 
 ## Attribution
 
-Built as a personal project around the **Microsoft Foundry Local Summer School** brief (`docs/Summer School Foundry Local Plan.pdf`). Inference powered by **[Microsoft Foundry Local](https://github.com/microsoft/foundry-local)**.
+Built as a personal project around the **Microsoft Foundry Local Summer School** brief (`docs/Summer School Foundry Local Plan.pdf`). Inference powered by the **Google Gemini API**, with **[Microsoft Foundry Local](https://github.com/microsoft/foundry-local)** available as a fully local alternative backend.
 
 No license file is currently included — treat this repository as all-rights-reserved by the author unless a `LICENSE` file is added.
