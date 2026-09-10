@@ -183,10 +183,11 @@ def test_callback_success_registers_account_and_sets_active_cookie(client):
     )
     assert response.status_code == 303
     assert response.headers["location"] == "/hesaplar?hesap_eklendi=1"
-    assert response.cookies.get("active_account") == "newuser"
+    account_id = response.cookies.get("active_account")
+    assert account_id and account_id != "newuser"
 
     with get_connection() as conn:
-        row = conn.execute("SELECT email, provider, status FROM accounts WHERE id = ?", ("newuser",)).fetchone()
+        row = conn.execute("SELECT email, provider, status FROM accounts WHERE id = ?", (account_id,)).fetchone()
     assert row["email"] == "newuser@example.com"
     assert row["provider"] == "google"
     assert row["status"] == "active"
@@ -204,7 +205,7 @@ def test_callback_writes_token_file(client, tmp_path, monkeypatch):
     )
     assert response.status_code == 303
 
-    token_file = data_dir / "google_token_newuser.json"
+    token_file = data_dir / f"google_token_{response.cookies['active_account']}.json"
     assert token_file.exists()
     assert token_file.read_text(encoding="utf-8") == '{"token": "fake-token"}'
 
@@ -255,7 +256,9 @@ def test_login_first_time_creates_user_and_session(anonymous_client):
     with get_connection() as conn:
         user_row = conn.execute("SELECT id, email FROM users WHERE email = ?", ("newuser@example.com",)).fetchone()
         assert user_row is not None
-        account_row = conn.execute("SELECT user_id FROM accounts WHERE id = ?", ("newuser",)).fetchone()
+        account_row = conn.execute(
+            "SELECT user_id FROM accounts WHERE provider = 'google' AND email = ?", ("newuser@example.com",)
+        ).fetchone()
         assert account_row["user_id"] == user_row["id"]
 
 
@@ -275,7 +278,9 @@ def test_login_leaves_unrelated_orphaned_accounts_unowned(anonymous_client):
     with get_connection() as conn:
         user_id = conn.execute("SELECT id FROM users WHERE email = ?", ("newuser@example.com",)).fetchone()[0]
         legacy_owner = conn.execute("SELECT user_id FROM accounts WHERE id = 'eskihesap'").fetchone()[0]
-        verified_owner = conn.execute("SELECT user_id FROM accounts WHERE id = 'newuser'").fetchone()[0]
+        verified_owner = conn.execute(
+            "SELECT user_id FROM accounts WHERE provider = 'google' AND email = ?", ("newuser@example.com",)
+        ).fetchone()[0]
     assert legacy_owner is None
     assert verified_owner == user_id
 

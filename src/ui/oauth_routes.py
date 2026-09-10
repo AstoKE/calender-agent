@@ -42,7 +42,7 @@ from fastapi.responses import RedirectResponse
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 
-from src.connectors.account_registry import _derive_account_id, ensure_account_registered
+from src.connectors.account_registry import register_account
 from src.connectors.google_auth import DEFAULT_CLIENT_SECRET_PATH, GOOGLE_ACCOUNT_SCOPES, save_credentials_for_account
 from src.core.logging_config import get_logger
 from src.ui.auth import SESSION_COOKIE, create_session, create_user, get_user_by_email
@@ -154,23 +154,31 @@ def oauth_callback(request: Request):
         logger.exception("OAuth token değişimi ya da profil sorgusu başarısız")
         return _oauth_error_redirect("basarisiz", is_login=is_login)
 
-    account_id = _derive_account_id(email)
-    save_credentials_for_account(account_id, creds)
-
     if is_login:
         # Giriş yalnızca OAuth ile doğrulanan hesabı bağlar. Sahipsiz başka
         # hesaplar, kurallar ve tercihler yeni kullanıcıya topluca devredilmez.
         user = get_user_by_email(email)
         if user is None:
             user = create_user(email)
-        ensure_account_registered(account_id, provider="google", email=email, user_id=user["id"])
+    else:
+        user = request.state.user
+
+    try:
+        account_id = register_account(provider="google", email=email, user_id=user["id"])
+        # Resolve/validate the account before touching any existing token file.
+        save_credentials_for_account(account_id, creds)
+    except Exception:
+        logger.exception("Google hesabı eşleştirilemedi veya bağlantı kaydedilemedi")
+        return _oauth_error_redirect("basarisiz", is_login=is_login)
+    getattr(request.app.state, "calendar_connectors", {}).pop(account_id, None)
+
+    if is_login:
         session_token = create_session(user["id"])
         response = RedirectResponse("/anasayfa", status_code=303)
         response.set_cookie(
             SESSION_COOKIE, session_token, max_age=400 * 24 * 3600, path="/", httponly=True, samesite="lax",
         )
     else:
-        ensure_account_registered(account_id, provider="google", email=email, user_id=request.state.user["id"])
         response = RedirectResponse("/hesaplar?hesap_eklendi=1", status_code=303)
         set_session_cookies(response, account_id=account_id)
 

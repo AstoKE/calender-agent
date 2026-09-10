@@ -29,14 +29,13 @@ döner, isteğin geldiği host'a göre dinamik ÜRETMEZ (bkz. altta)."""
 from __future__ import annotations
 
 import json
-import re
 
 import msal
 import requests
 from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse
 
-from src.connectors.account_registry import ensure_account_registered
+from src.connectors.account_registry import register_account
 from src.connectors.microsoft_auth import AUTHORITY, MS_ACCOUNT_SCOPES, ms_client_id, save_ms_token_cache
 from src.core.logging_config import get_logger
 from src.ui.auth import SESSION_COOKIE, create_session, create_user, get_user_by_email
@@ -66,19 +65,6 @@ def _redirect_uri() -> str:
     # — Microsoft'un geri yönlendirmesi yine de aynı
     # sunucuya ulaşır, çünkü ikisi de aynı loopback arayüzüne çözülür.
     return "http://localhost:8000/hesap-ekle-outlook/callback"
-
-
-def _derive_outlook_account_id(email: str) -> str:
-    """`account_registry.py::_derive_account_id` ile AYNI fikir (e-postanın
-    @ öncesi kısmı) ama BİLEREK "outlook_" önekiyle — aynı yerel parçaya
-    sahip bir Google hesabıyla (örn. hem enestugac@gmail.com HEM
-    enestugac@hotmail.com) `id` çakışmasını önler. `ensure_account_registered`
-    id zaten varsa SESSİZCE hiçbir şey yapmıyor (idempotent kayıt) — önek
-    olmadan bu, ikinci hesabın YANLIŞLIKLA birinci hesabın satırıymış gibi
-    görünmesine yol açardı (canlı geliştirme sırasında fark edilip önlendi,
-    bu makinede tam olarak bu çakışma ihtimali gerçekti)."""
-    local_part = email.split("@")[0].lower()
-    return "outlook_" + re.sub(r"[^a-z0-9_-]", "_", local_part)
 
 
 @router.get("/hesap-ekle-outlook")
@@ -170,28 +156,29 @@ def outlook_oauth_callback(request: Request):
         logger.exception("Outlook OAuth token değişimi ya da profil sorgusu başarısız")
         return _oauth_error_redirect("basarisiz", is_login=is_login)
 
-    account_id = _derive_outlook_account_id(email)
-
-    # app'in kendi (varsayılan, hiç cache verilmeden kurulan) token cache'i
-    # şu ana kadarki tüm alışverişi (access+refresh token) zaten tutuyor —
-    # bunu account_id'ye özel dosyaya taşıyoruz (bkz. microsoft_auth.py'nin
-    # dosya-başına-hesap deseni, get_ms_token/load_ms_token_noninteractive
-    # bundan sonra bu dosyayı okuyacak).
-    save_ms_token_cache(account_id, app.token_cache)
-
     if is_login:
         # bkz. oauth_routes.py::oauth_callback'teki AYNI giriş/kayıt mantığı.
         user = get_user_by_email(email)
         if user is None:
             user = create_user(email)
-        ensure_account_registered(account_id, provider="outlook", email=email, user_id=user["id"])
+    else:
+        user = request.state.user
+
+    try:
+        account_id = register_account(provider="outlook", email=email, user_id=user["id"])
+        save_ms_token_cache(account_id, app.token_cache)
+    except Exception:
+        logger.exception("Outlook hesabı eşleştirilemedi veya bağlantı kaydedilemedi")
+        return _oauth_error_redirect("basarisiz", is_login=is_login)
+    getattr(request.app.state, "calendar_connectors", {}).pop(account_id, None)
+
+    if is_login:
         session_token = create_session(user["id"])
         response = RedirectResponse("/anasayfa", status_code=303)
         response.set_cookie(
             SESSION_COOKIE, session_token, max_age=400 * 24 * 3600, path="/", httponly=True, samesite="lax",
         )
     else:
-        ensure_account_registered(account_id, provider="outlook", email=email, user_id=request.state.user["id"])
         response = RedirectResponse("/hesaplar?hesap_eklendi=1", status_code=303)
         set_session_cookies(response, account_id=account_id)
 
