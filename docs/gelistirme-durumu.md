@@ -107,7 +107,7 @@ Kullanıcı onayından sonra kalıcı test izolasyonuna geçildi; güncel durum 
 
 **Kontrol noktası 4 — TEST-01: kalıcı test izolasyonu**
 
-Durum: uygulandı, otomatik doğrulama tamamlandı; kullanıcı testi ve onayı bekleniyor. Bu adım henüz commit edilmedi.
+Durum: kullanıcı tarafından onaylandı. Kod ve testler `14fed05` commit'iyle kaydedildi.
 
 Önceden standart `pytest tests/` komutu geliştirme makinesinde 11 testte başarısız oluyordu; başarısız sohbet rotası testleri gerçek Google OAuth token yenilemesine ulaşıyordu. Testlerin geçmesi için `DATA_DIR` değerlerini süreç boyunca elle geçici klasöre yönlendiren bir sarmalayıcı gerekiyordu. Bu, gerçek kimlik bilgilerinin test sürecine sızabildiği anlamına da geliyordu; `data/` dizinindeki `google_token_acc1.json` ve `google_token_newuser.json` gibi test kaynaklı dosyalar bu sızıntının izidir.
 
@@ -175,7 +175,7 @@ Yol haritasındaki ilk sprint listesinde sırada **4. madde** var: varsayılan i
 
 **Kontrol noktası 5 — PRIV-01 (log yarısı): varsayılan log içeriği maskeleme + rotasyon**
 
-Durum: uygulandı, otomatik doğrulama tamamlandı; kullanıcı testi ve onayı bekleniyor. Bu adım henüz commit edilmedi.
+Durum: kullanıcı tarafından onaylandı. Kod ve testler `eaa5442` (`Mask sensitive log content by default, add log rotation`) commit'iyle kaydedildi.
 
 PRIV-01 bulgusunun iki parçası vardı: token’ların şifreli saklanması (sunucuya taşınırsa gereken ayrı bir anahtar-yönetimi işi, bu kontrol noktasının kapsamı DIŞINDA — yalnızca log yarısı ele alındı) ve "varsayılan loglarda içerik maskeleme, rotasyon, saklama süresi". Önceden `data/debug.log`’a her LLM çağrısının sistem/kullanıcı promptu, ham model çıktısı ve mail konusu (subject) tam metin olarak yazılıyordu — dosya şifrelenmeden diske yazıldığı için bu, mail gövdesi/sohbet metni gibi hassas içeriğin okunabilir biçimde diskte birikmesi anlamına geliyordu. Gerçek kurulumda tek dosya 8MB’ı geçmişti; rotasyon da yoktu.
 
