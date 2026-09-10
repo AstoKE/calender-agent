@@ -917,8 +917,8 @@ def test_approve_uses_master_calendar_account_when_configured(client, monkeypatc
     # ayarlı, bu yüzden onaylanınca acc2'nin takvimine yazılmalı.
     from src.storage.preferences import set_preference
 
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
-    ensure_account_registered("acc2", provider="google", email="b@example.com")
+    ensure_account_registered("acc1", provider="google", email="a@example.com", user_id=client.test_user["id"])
+    ensure_account_registered("acc2", provider="google", email="b@example.com", user_id=client.test_user["id"])
     _pending_candidate_for_account("acc1")
     set_preference("calendar.master_account_id", "acc2", user_id=client.test_user["id"])
 
@@ -946,7 +946,7 @@ def test_approve_uses_master_calendar_account_when_configured(client, monkeypatc
 
 
 def test_approve_update_suggested_calls_update_event_not_create(client, monkeypatch):
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered("acc1", provider="google", email="a@example.com", user_id=client.test_user["id"])
     candidate_id = _update_suggested_candidate("acc1")
 
     calendar = _UpdateTrackingCalendar()
@@ -966,7 +966,7 @@ def test_approve_update_suggested_calls_update_event_not_create(client, monkeypa
 
 
 def test_reject_update_suggested_reverts_instead_of_rejecting(client):
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered("acc1", provider="google", email="a@example.com", user_id=client.test_user["id"])
     candidate_id = _update_suggested_candidate("acc1")
 
     response = client.post(f"/oneriler/{candidate_id}/reddet", data={}, follow_redirects=False)

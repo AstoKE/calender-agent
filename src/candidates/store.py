@@ -160,9 +160,20 @@ def count_pending_candidates(account_ids: list[str] | None = None) -> int:
         return conn.execute(query, params).fetchone()[0]
 
 
-def get_pending_candidate(candidate_id: str) -> dict | None:
+def get_pending_candidate(candidate_id: str, *, user_id: str | None = None) -> dict | None:
+    """Read a queued suggestion; web callers must supply the signed-in user.
+
+    Ownership comes from the source account, not the selected account cookie.
+    Unowned accounts are excluded when scoped. The unscoped form remains for
+    trusted local services, matching list_pending_candidates' local API.
+    """
+    query = _PENDING_QUERY + " AND c.candidate_id = ?"
+    params = [candidate_id]
+    if user_id is not None:
+        query += " AND em.account_id IN (SELECT id FROM accounts WHERE user_id = ?)"
+        params.append(user_id)
     with get_connection() as conn:
-        row = conn.execute(_PENDING_QUERY + " AND c.candidate_id = ?", (candidate_id,)).fetchone()
+        row = conn.execute(query, params).fetchone()
     return _row_to_pending_dict(row) if row else None
 
 
@@ -181,13 +192,13 @@ def _row_to_pending_dict(row) -> dict:
     }
 
 
-def update_candidate_fields(candidate_id: str, **fields) -> None:
+def update_candidate_fields(candidate_id: str, *, user_id: str | None = None, **fields) -> None:
     """Düzenleme formundan gelen alanları uygular (title/start_datetime/
     duration_minutes/importance/location), sonra missing_fields/ambiguous_fields/
     status'u aynı whitelist mantığıyla (bkz. extraction.py CLARIFIABLE_FIELDS)
     yeniden hesaplar — kullanıcı eksik bir alanı doldurunca candidate otomatik
     olarak READY_FOR_CONFIRMATION'a geçsin diye."""
-    pending = get_pending_candidate(candidate_id)
+    pending = get_pending_candidate(candidate_id, user_id=user_id)
     if pending is None:
         raise ValueError(f"Candidate bulunamadı: {candidate_id}")
     candidate = pending["candidate"]

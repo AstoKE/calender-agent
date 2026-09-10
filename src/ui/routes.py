@@ -24,7 +24,7 @@ from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 from urllib.parse import quote
 
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from src.candidates.store import (
@@ -518,9 +518,7 @@ def list_candidates(request: Request):
 @router.post("/oneriler/{candidate_id}/onayla")
 def approve(request: Request, candidate_id: str, force: bool = Form(False), next: str = Form("/oneriler")):
     next_url = safe_next(next, fallback="/oneriler")
-    pending = get_pending_candidate(candidate_id)
-    if pending is None:
-        return RedirectResponse(next_url, status_code=303)
+    pending = _require_pending_candidate(request, candidate_id)
     candidate = pending["candidate"]
 
     if candidate.missing_fields or candidate.ambiguous_fields:
@@ -566,9 +564,7 @@ def reject(request: Request, candidate_id: str, reason: str = Form(""), next: st
     # Sırayla dikkat: önce candidate'ı (hâlâ NEEDS_INFORMATION/READY_FOR_CONFIRMATION
     # durumundayken) çekiyoruz — status REJECTED'a çevrildikten sonra
     # get_pending_candidate onu artık bulamaz (WHERE status IN (...) filtresi).
-    pending = get_pending_candidate(candidate_id)
-    if pending is None:
-        return RedirectResponse(next_url, status_code=303)
+    pending = _require_pending_candidate(request, candidate_id)
     user_id = request.state.user["id"]
 
     if pending["candidate"].status == CandidateStatus.UPDATE_SUGGESTED:
@@ -598,9 +594,7 @@ def reject(request: Request, candidate_id: str, reason: str = Form(""), next: st
 @router.get("/oneriler/{candidate_id}/duzenle", response_class=HTMLResponse)
 def edit_form(request: Request, candidate_id: str, next: str = "/oneriler"):
     next_url = safe_next(next, fallback="/oneriler")
-    pending = get_pending_candidate(candidate_id)
-    if pending is None:
-        return RedirectResponse(next_url, status_code=303)
+    pending = _require_pending_candidate(request, candidate_id)
     return templates.TemplateResponse(
         request, "duzenle.html", {"pending": pending, "active_page": "oneriler", "next_url": next_url}
     )
@@ -608,6 +602,7 @@ def edit_form(request: Request, candidate_id: str, next: str = "/oneriler"):
 
 @router.post("/oneriler/{candidate_id}/duzenle")
 def edit_submit(
+    request: Request,
     candidate_id: str,
     title: str = Form(""),
     start_datetime: str = Form(""),
@@ -616,9 +611,11 @@ def edit_submit(
     location: str = Form(""),
     next: str = Form("/oneriler"),
 ):
+    _require_pending_candidate(request, candidate_id)
     try:
         update_candidate_fields(
             candidate_id,
+            user_id=request.state.user["id"],
             title=title or None,
             start_datetime=start_datetime or None,
             duration_minutes=duration_minutes or None,
@@ -630,3 +627,15 @@ def edit_submit(
         # 500 yerine listeye dön, artık orada görünmeyecek zaten.
         pass
     return RedirectResponse(safe_next(next, fallback="/oneriler"), status_code=303)
+
+
+def _require_pending_candidate(request: Request, candidate_id: str) -> dict:
+    """Guard every suggestion action before exposing data or calling a provider.
+
+    Missing and inaccessible records share a 404 so IDs cannot reveal ownership.
+    Read current database ownership on each request, including stale form POSTs.
+    """
+    pending = get_pending_candidate(candidate_id, user_id=request.state.user["id"])
+    if pending is None:
+        raise HTTPException(status_code=404)
+    return pending
