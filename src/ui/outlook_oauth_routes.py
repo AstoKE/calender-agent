@@ -39,7 +39,7 @@ from fastapi.responses import RedirectResponse
 from src.connectors.account_registry import ensure_account_registered
 from src.connectors.microsoft_auth import AUTHORITY, MS_ACCOUNT_SCOPES, ms_client_id, save_ms_token_cache
 from src.core.logging_config import get_logger
-from src.ui.auth import SESSION_COOKIE, adopt_orphaned_data, create_session, create_user, get_user_by_email
+from src.ui.auth import SESSION_COOKIE, create_session, create_user, get_user_by_email
 from src.ui.session import set_session_cookies
 
 router = APIRouter()
@@ -184,7 +184,6 @@ def outlook_oauth_callback(request: Request):
         user = get_user_by_email(email)
         if user is None:
             user = create_user(email)
-            adopt_orphaned_data(user["id"])
         ensure_account_registered(account_id, provider="outlook", email=email, user_id=user["id"])
         session_token = create_session(user["id"])
         response = RedirectResponse("/anasayfa", status_code=303)

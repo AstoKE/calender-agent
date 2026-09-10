@@ -45,7 +45,7 @@ from googleapiclient.discovery import build
 from src.connectors.account_registry import _derive_account_id, ensure_account_registered
 from src.connectors.google_auth import DEFAULT_CLIENT_SECRET_PATH, GOOGLE_ACCOUNT_SCOPES, save_credentials_for_account
 from src.core.logging_config import get_logger
-from src.ui.auth import SESSION_COOKIE, adopt_orphaned_data, create_session, create_user, get_user_by_email
+from src.ui.auth import SESSION_COOKIE, create_session, create_user, get_user_by_email
 from src.ui.session import set_session_cookies
 
 router = APIRouter()
@@ -158,17 +158,11 @@ def oauth_callback(request: Request):
     save_credentials_for_account(account_id, creds)
 
     if is_login:
-        # Giriş: bu email'e ait bir kullanıcı yoksa oluşturulur (ilk giriş =
-        # kayıt) — bu login sisteminden ÖNCE kaydedilmiş sahipsiz hesaplar/
-        # tercihler bu YENİ kullanıcıya devrediliyor (bkz. adopt_orphaned_data
-        # docstring'i: çok kiracılı bir senaryo değil, aynı kişinin kendi
-        # eski verisi). Giriş hesabının KENDİSİ de bağlı bir hesap olarak
-        # kaydediliyor ("bu hesabın içine gmail hesapları bağlayacağız" —
-        # giriş hesabı ilk bağlı hesap oluyor).
+        # Giriş yalnızca OAuth ile doğrulanan hesabı bağlar. Sahipsiz başka
+        # hesaplar, kurallar ve tercihler yeni kullanıcıya topluca devredilmez.
         user = get_user_by_email(email)
         if user is None:
             user = create_user(email)
-            adopt_orphaned_data(user["id"])
         ensure_account_registered(account_id, provider="google", email=email, user_id=user["id"])
         session_token = create_session(user["id"])
         response = RedirectResponse("/anasayfa", status_code=303)

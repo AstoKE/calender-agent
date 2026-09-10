@@ -90,12 +90,13 @@ def destroy_session(token: str) -> None:
 
 
 def adopt_orphaned_data(user_id: str) -> None:
-    """İlk giriş: `user_id IS NULL` olan (bu login sistemi eklenmeden ÖNCE
-    kayıtlı) `accounts`/`user_preferences`/`personal_policies`/
-    `user_corrections` satırlarını bu kullanıcıya devreder. Tek yönlü, tek
-    seferlik bir devir — bu, ayrı bir çok-kiracılı SENARYO değil, aynı
-    kişinin bu login katmanından ÖNCEKİ kendi verisi (bkz. plan Context:
-    yerel kurulumda gerçekçi olarak tek kullanıcı var)."""
+    """Yalnızca açıkça istenen yerel veri taşıması için toplu sahiplik ataması.
+
+    Web giriş/hesap bağlama akışları bu fonksiyonu ÇAĞIRMAMALI. Sahipsiz
+    verinin kime ait olduğu login ile kanıtlanamaz. Yerel operatör tüm eski
+    verinin hedef kullanıcıya ait olduğunu doğruladığında kullanılabilir.
+    Mevcut sahipli kayıtlar değiştirilmez.
+    """
     with get_connection() as conn:
         conn.execute("UPDATE accounts SET user_id = ? WHERE user_id IS NULL", (user_id,))
         conn.execute("UPDATE user_preferences SET user_id = ? WHERE user_id IS NULL", (user_id,))

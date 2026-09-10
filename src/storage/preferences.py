@@ -28,9 +28,8 @@ def get_preference(key: str, default: Any = None, user_id: str | None = None) ->
     dışında, bkz. plan "Real login") ESKİ, sahiplikten bağımsız davranış:
     hangi kullanıcıya ait olursa olsun bu anahtardaki satır. Web login
     katmanı eklendikten SONRA bile CLI'nın çalışmaya devam etmesi için
-    (ilk girişte mevcut satırlar o kullanıcıya devrediliyor, bkz.
-    auth.py::adopt_orphaned_data — CLI bunu hiç bilmiyor, DB'nin tamamını
-    hâlâ "tek kullanıcı" gibi okuyor)."""
+    CLI DB'nin tamamını hâlâ "tek kullanıcı" gibi okuyor; web girişi
+    sahipsiz tercihleri otomatik olarak devralmıyor."""
     with get_connection() as conn:
         if user_id is not None:
             row = conn.execute(

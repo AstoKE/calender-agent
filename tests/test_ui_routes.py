@@ -168,7 +168,10 @@ def test_unknown_page_is_404(client):
 
 
 def test_hesaplar_lists_registered_accounts(client):
-    ensure_account_registered("test_hesap", provider="google", email="test@example.com")
+    ensure_account_registered(
+        "test_hesap", provider="google", email="test@example.com",
+        user_id=client.test_user["id"],
+    )
     response = client.get("/hesaplar")
     assert response.status_code == 200
     assert "test@example.com" in response.text
@@ -273,8 +276,14 @@ def test_select_unknown_account_does_not_set_cookie(client):
 
 
 def test_select_known_account_sets_cookie_and_shows_active(client):
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
-    ensure_account_registered("acc2", provider="google", email="b@example.com")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=client.test_user["id"],
+    )
+    ensure_account_registered(
+        "acc2", provider="google", email="b@example.com",
+        user_id=client.test_user["id"],
+    )
     response = client.post(
         "/hesap-sec", data={"account_id": "acc2", "next": "/oneriler"}, follow_redirects=False
     )
@@ -285,7 +294,10 @@ def test_select_known_account_sets_cookie_and_shows_active(client):
 
 
 def test_stale_account_cookie_self_heals(client):
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=client.test_user["id"],
+    )
     # Jar'a değil, tek bir istek başlığına koyuyoruz — jar'a koymak httpx'in
     # cookie domain eşleştirmesiyle testte yapay bir CookieConflict'e yol
     # açıyor (üretimde tek bir origin olduğu için gerçek bir sorun değil).
@@ -329,7 +341,10 @@ def test_takvim_no_account_state(client):
 
 
 def test_takvim_no_token_state(client, monkeypatch):
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=client.test_user["id"],
+    )
     monkeypatch.setattr("src.ui.routes.get_calendar_or_none", lambda request, account_id: None)
     response = client.get("/takvim")
     assert response.status_code == 200
@@ -337,7 +352,10 @@ def test_takvim_no_token_state(client, monkeypatch):
 
 
 def test_takvim_error_state_does_not_500(client, monkeypatch):
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=client.test_user["id"],
+    )
     fake = _FakeCalendar(error=RuntimeError("boom"))
     monkeypatch.setattr("src.ui.routes.get_calendar_or_none", lambda request, account_id: fake)
     response = client.get("/takvim")
@@ -347,7 +365,10 @@ def test_takvim_error_state_does_not_500(client, monkeypatch):
 
 
 def test_takvim_ok_state_renders_events(client, monkeypatch):
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=client.test_user["id"],
+    )
     fake = _FakeCalendar(
         events=[
             {
@@ -372,7 +393,10 @@ def test_takvim_ok_state_renders_events(client, monkeypatch):
 def test_takvim_reload_same_week_uses_cache_not_live_api(client, monkeypatch):
     # bkz. src/services/calendar_cache.py: kısa ömürlü write-through cache —
     # aynı hafta için art arda gelen istekler canlı API'ye ikinci kez gitmemeli.
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=client.test_user["id"],
+    )
     fake = _FakeCalendar(events=[])
     monkeypatch.setattr("src.ui.routes.get_calendar_or_none", lambda request, account_id: fake)
 
@@ -383,7 +407,10 @@ def test_takvim_reload_same_week_uses_cache_not_live_api(client, monkeypatch):
 
 
 def test_takvim_invalid_week_param_falls_back_without_500(client, monkeypatch):
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=client.test_user["id"],
+    )
     fake = _FakeCalendar(events=[])
     monkeypatch.setattr("src.ui.routes.get_calendar_or_none", lambda request, account_id: fake)
     response = client.get("/takvim?hafta=not-a-date")
@@ -401,7 +428,10 @@ def test_anasayfa_no_account_state(client):
 
 
 def test_anasayfa_with_account_shows_greeting_and_scan_cta(client, monkeypatch):
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=client.test_user["id"],
+    )
     monkeypatch.setattr("src.ui.routes.get_calendar_or_none", lambda request, account_id: None)
     response = client.get("/anasayfa")
     assert response.status_code == 200
@@ -410,7 +440,10 @@ def test_anasayfa_with_account_shows_greeting_and_scan_cta(client, monkeypatch):
 
 
 def test_anasayfa_calendar_unavailable_does_not_500(client, monkeypatch):
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=client.test_user["id"],
+    )
     fake = _FakeCalendar(error=RuntimeError("boom"))
     monkeypatch.setattr("src.ui.routes.get_calendar_or_none", lambda request, account_id: fake)
     response = client.get("/anasayfa")
@@ -420,7 +453,10 @@ def test_anasayfa_calendar_unavailable_does_not_500(client, monkeypatch):
 def test_anasayfa_shows_assistant_chat_with_form(client, monkeypatch):
     # Web Chatbox (Faz 5) CHAT_ENABLED=True yaptı — _asistan_slot.html'in
     # yerini gerçek bir sohbet formu aldı (bkz. plan).
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=client.test_user["id"],
+    )
     monkeypatch.setattr("src.ui.routes.get_calendar_or_none", lambda request, account_id: None)
     response = client.get("/anasayfa")
     assert response.status_code == 200
@@ -429,7 +465,10 @@ def test_anasayfa_shows_assistant_chat_with_form(client, monkeypatch):
 
 
 def test_anasayfa_pending_preview_uses_same_card_as_oneriler(client, monkeypatch):
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=client.test_user["id"],
+    )
     monkeypatch.setattr("src.ui.routes.get_calendar_or_none", lambda request, account_id: None)
     response = client.get("/anasayfa")
     assert response.status_code == 200
@@ -437,7 +476,10 @@ def test_anasayfa_pending_preview_uses_same_card_as_oneriler(client, monkeypatch
 
 
 def test_anasayfa_scan_busy_shows_notice(client, monkeypatch):
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=client.test_user["id"],
+    )
     monkeypatch.setattr("src.ui.routes.get_calendar_or_none", lambda request, account_id: None)
     response = client.get("/anasayfa?mesgul=1")
     assert response.status_code == 200
@@ -448,7 +490,10 @@ def test_anasayfa_scan_busy_shows_notice(client, monkeypatch):
 
 
 def test_notification_bell_empty_state_when_no_pending(client, monkeypatch):
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=client.test_user["id"],
+    )
     monkeypatch.setattr("src.ui.routes.get_calendar_or_none", lambda request, account_id: None)
     response = client.get("/anasayfa")
     assert response.status_code == 200
@@ -458,7 +503,10 @@ def test_notification_bell_empty_state_when_no_pending(client, monkeypatch):
 
 
 def test_notification_bell_shows_badge_and_preview_with_pending(client, monkeypatch):
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=client.test_user["id"],
+    )
     _pending_candidate_for_account("acc1", title="Webinar Daveti")
     monkeypatch.setattr("src.ui.routes.get_calendar_or_none", lambda request, account_id: None)
 
@@ -472,7 +520,10 @@ def test_notification_bell_shows_badge_and_preview_with_pending(client, monkeypa
 
 
 def test_notification_bell_appears_on_every_page(client, monkeypatch):
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=client.test_user["id"],
+    )
     _pending_candidate_for_account("acc1")
     response = client.get("/kurallarim")
     assert response.status_code == 200
@@ -481,7 +532,10 @@ def test_notification_bell_appears_on_every_page(client, monkeypatch):
 
 
 def test_notification_badge_caps_at_nine_plus(client, monkeypatch):
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=client.test_user["id"],
+    )
     for i in range(10):
         _pending_candidate_for_account("acc1", title=f"Etkinlik {i}")
     monkeypatch.setattr("src.ui.routes.get_calendar_or_none", lambda request, account_id: None)
@@ -493,7 +547,10 @@ def test_notification_badge_caps_at_nine_plus(client, monkeypatch):
 
 
 def test_tara_active_account_single_flight_guard(client, monkeypatch):
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=client.test_user["id"],
+    )
 
     def _fake_scan(account_id, llm, embedding_provider):
         assert account_id in client.app.state.scan_in_progress
@@ -764,7 +821,10 @@ def test_ayarlar_renders_with_no_account(client):
 
 
 def test_ayarlar_shows_timezone_form_with_account(client):
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=client.test_user["id"],
+    )
     response = client.get("/ayarlar")
     assert response.status_code == 200
     assert 'action="/ayarlar/bolge"' in response.text
@@ -778,8 +838,14 @@ def test_ayarlar_shows_diagnostics(client):
 
 
 def test_ayarlar_shows_master_calendar_form_with_accounts(client):
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
-    ensure_account_registered("acc2", provider="google", email="b@example.com")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=client.test_user["id"],
+    )
+    ensure_account_registered(
+        "acc2", provider="google", email="b@example.com",
+        user_id=client.test_user["id"],
+    )
     response = client.get("/ayarlar")
     assert response.status_code == 200
     assert 'action="/ayarlar/ana-takvim"' in response.text
@@ -787,8 +853,14 @@ def test_ayarlar_shows_master_calendar_form_with_accounts(client):
 
 
 def test_set_master_calendar_persists_and_shows_selected(client):
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
-    ensure_account_registered("acc2", provider="google", email="b@example.com")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=client.test_user["id"],
+    )
+    ensure_account_registered(
+        "acc2", provider="google", email="b@example.com",
+        user_id=client.test_user["id"],
+    )
 
     response = client.post("/ayarlar/ana-takvim", data={"hesap": "acc2"}, follow_redirects=False)
     assert response.status_code == 303
@@ -798,7 +870,10 @@ def test_set_master_calendar_persists_and_shows_selected(client):
 
 
 def test_set_master_calendar_empty_resets_to_none(client):
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=client.test_user["id"],
+    )
     client.post("/ayarlar/ana-takvim", data={"hesap": "acc1"})
 
     response = client.post("/ayarlar/ana-takvim", data={"hesap": ""}, follow_redirects=False)
@@ -812,7 +887,10 @@ def test_set_master_calendar_empty_resets_to_none(client):
 
 
 def test_set_timezone_persists(client):
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=client.test_user["id"],
+    )
     response = client.post("/ayarlar/bolge", data={"saat_dilimi": "Europe/London"}, follow_redirects=False)
     assert response.status_code == 303
 
@@ -983,7 +1061,10 @@ def test_reject_update_suggested_reverts_instead_of_rejecting(client):
 
 
 def test_oneriler_shows_update_suggested_badge_and_diff(client):
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=client.test_user["id"],
+    )
     _update_suggested_candidate("acc1")
 
     response = client.get("/oneriler")

@@ -72,7 +72,8 @@ def shell_context(request: Request) -> dict:
     try:
         accounts = getattr(request.state, "accounts", None)
         if accounts is None:
-            accounts = list_accounts()
+            user = getattr(request.state, "user", None)
+            accounts = list_accounts(user_id=user["id"]) if user else []
         active_account = getattr(request.state, "active_account", None)
         if active_account is None:
             active_account = resolve_active_account(request, accounts)

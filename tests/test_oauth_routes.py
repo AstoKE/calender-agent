@@ -259,7 +259,7 @@ def test_login_first_time_creates_user_and_session(anonymous_client):
         assert account_row["user_id"] == user_row["id"]
 
 
-def test_login_adopts_previously_orphaned_accounts(anonymous_client):
+def test_login_leaves_unrelated_orphaned_accounts_unowned(anonymous_client):
     from src.connectors.account_registry import ensure_account_registered
 
     # Bu login sisteminden ÖNCE (ya da CLI'dan) eklenmiş, sahipsiz bir hesap.
@@ -274,8 +274,10 @@ def test_login_adopts_previously_orphaned_accounts(anonymous_client):
 
     with get_connection() as conn:
         user_id = conn.execute("SELECT id FROM users WHERE email = ?", ("newuser@example.com",)).fetchone()[0]
-        adopted = conn.execute("SELECT user_id FROM accounts WHERE id = 'eskihesap'").fetchone()[0]
-    assert adopted == user_id
+        legacy_owner = conn.execute("SELECT user_id FROM accounts WHERE id = 'eskihesap'").fetchone()[0]
+        verified_owner = conn.execute("SELECT user_id FROM accounts WHERE id = 'newuser'").fetchone()[0]
+    assert legacy_owner is None
+    assert verified_owner == user_id
 
 
 def test_login_second_time_reuses_existing_user_no_duplicate(anonymous_client):

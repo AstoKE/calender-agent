@@ -25,25 +25,15 @@ def _derive_account_id(email: str) -> str:
 
 def list_accounts(user_id: str | None = None) -> list[dict]:
     """Kayıtlı hesapları (id, provider, email, status, connected_at) bağlanma
-    sırasına göre döner. `user_id` verilirse o kullanıcıya ait hesaplar VE
-    henüz kimseye ait olmayan (`user_id IS NULL`) hesaplar (bkz. src/ui/auth.py
-    — Web UI'nin login katmanı, her istekte bunu geçirir); `None` ise (CLI'nın
-    select_account()'ı — CLI BİLEREK login sisteminin dışında, bkz. plan)
-    tüm hesaplar, sahiplik fark etmez.
-
-    Sahipsiz hesapların da görünür kalması BİLİNÇLİ: CLI'nın kendi
-    ensure_account_registered çağrıları hiçbir zaman user_id vermiyor (login
-    sisteminin dışında olduğu için), yani CLI'dan eklenen hesaplar KALICI
-    olarak sahipsiz kalır — bu proje tek bir yerel operatör için (bkz.
-    CLAUDE.md), o operatör hem CLI hem web'i kullanabiliyor, bu yüzden
-    "kimseye ait değil" burada "gerçek çok-kiracılı bir sızıntı" değil,
-    "bu makinenin sahibinin henüz web'den devralmadığı kendi verisi"
-    anlamına geliyor (bkz. auth.py::adopt_orphaned_data ile AYNI gerekçe)."""
+    sırasına göre döner. Web tarafında `user_id` zorunlu olarak geçirilir;
+    yalnızca o kullanıcıya ait hesaplar görünür. Sahipsiz eski/CLI hesapları
+    OAuth ile bağlanana kadar web listeleri, bildirimler ve hesap seçiminden
+    dışlanır. `None` kullanan yerel CLI tüm hesapları görmeye devam eder."""
     with get_connection() as conn:
         if user_id is not None:
             rows = conn.execute(
                 "SELECT id, provider, email, status, connected_at FROM accounts "
-                "WHERE user_id = ? OR user_id IS NULL ORDER BY connected_at",
+                "WHERE user_id = ? ORDER BY connected_at",
                 (user_id,),
             ).fetchall()
         else:

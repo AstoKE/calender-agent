@@ -202,8 +202,8 @@ def set_theme(tema: str = Form(...), next: str = Form("/anasayfa")):
 
 
 @router.post("/hesap-sec")
-def select_account(account_id: str = Form(...), next: str = Form("/anasayfa")):
-    valid_ids = {acc["id"] for acc in list_accounts()}
+def select_account(request: Request, account_id: str = Form(...), next: str = Form("/anasayfa")):
+    valid_ids = {acc["id"] for acc in list_accounts(user_id=request.state.user["id"])}
     response = RedirectResponse(safe_next(next), status_code=303)
     if account_id in valid_ids:
         set_session_cookies(response, account_id=account_id)
@@ -220,7 +220,7 @@ def accounts_page(
     hesap_eklendi: bool = False,
     oauth_hata: str | None = None,
 ):
-    accounts = list_accounts()
+    accounts = list_accounts(user_id=request.state.user["id"])
     scan_result = None
     if tarandi is not None:
         scan_result = {"total": tarandi, "candidates_found": bulunan or 0, "skipped_errors": hatali or 0}

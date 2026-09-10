@@ -132,7 +132,10 @@ def vision_client(temp_db, monkeypatch):
 
 
 def test_message_sets_cookie_and_reuses_it_on_second_message(client):
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=client.test_user["id"],
+    )
 
     response = client.post("/asistan/mesaj", data={"metin": "merhaba"})
     assert response.status_code == 200  # TestClient takip ediyor -> son yanıt /anasayfa'nın 200'ü
@@ -149,7 +152,10 @@ def test_message_sets_cookie_and_reuses_it_on_second_message(client):
 
 
 def test_message_redirects_to_next_target(client):
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=client.test_user["id"],
+    )
 
     response = client.post(
         "/asistan/mesaj", data={"metin": "merhaba", "next": "/anasayfa?foo=1"}, follow_redirects=False
@@ -169,7 +175,10 @@ def test_message_with_no_active_account_creates_no_session(client):
 
 
 def test_empty_message_is_ignored(client):
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=client.test_user["id"],
+    )
     response = client.post("/asistan/mesaj", data={"metin": "   "}, follow_redirects=False)
     assert response.status_code == 303
 
@@ -179,7 +188,10 @@ def test_empty_message_is_ignored(client):
 
 
 def test_new_chat_opens_fresh_session_and_keeps_old_one_intact(client):
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=client.test_user["id"],
+    )
     client.post("/asistan/mesaj", data={"metin": "merhaba"})
     old_session_id = client.cookies.get("chat_session")
 
@@ -214,7 +226,10 @@ def test_new_chat_with_no_active_account_does_not_error(client):
 
 
 def test_message_history_survives_simulated_restart(client, monkeypatch):
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=client.test_user["id"],
+    )
     client.post("/asistan/mesaj", data={"metin": "merhaba, ilk mesaj"})
     session_id = client.cookies.get("chat_session")
 
@@ -250,8 +265,14 @@ def test_chat_uses_master_calendar_account_when_configured(client, monkeypatch):
     # takvim çağrıları hep acc2'ye gitmeli.
     from src.storage.preferences import set_preference
 
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
-    ensure_account_registered("acc2", provider="google", email="b@example.com")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=client.test_user["id"],
+    )
+    ensure_account_registered(
+        "acc2", provider="google", email="b@example.com",
+        user_id=client.test_user["id"],
+    )
     set_preference("calendar.master_account_id", "acc2", user_id=client.test_user["id"])
 
     used_account_ids: list[str] = []
@@ -273,7 +294,10 @@ def test_chat_uses_master_calendar_account_when_configured(client, monkeypatch):
 
 
 def test_ajax_message_returns_fragment_not_redirect(client):
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=client.test_user["id"],
+    )
 
     response = client.post(
         "/asistan/mesaj",
@@ -321,7 +345,10 @@ def test_ajax_message_crash_shows_error_bubble_instead_of_silence(client, monkey
         "src.services.chat_flow.apply_retrieved_policies",
         lambda *a, **k: (_ for _ in ()).throw(RuntimeError("simulated failure")),
     )
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=client.test_user["id"],
+    )
     from src.ui.app import app
 
     app.state.llm = _CreateEventLLMProvider()
@@ -338,7 +365,10 @@ def test_ajax_message_crash_shows_error_bubble_instead_of_silence(client, monkey
 
 
 def test_ajax_new_chat_returns_fragment_not_redirect(client):
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=client.test_user["id"],
+    )
     client.post("/asistan/mesaj", data={"metin": "merhaba"})
     old_session_id = client.cookies.get("chat_session")
 
@@ -352,7 +382,10 @@ def test_ajax_new_chat_returns_fragment_not_redirect(client):
 
 
 def test_ajax_empty_message_returns_unchanged_fragment_without_new_session(client):
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=client.test_user["id"],
+    )
 
     response = client.post(
         "/asistan/mesaj", data={"metin": "   "}, headers={"X-Requested-With": "fetch"}, follow_redirects=False
@@ -369,7 +402,10 @@ def test_ajax_empty_message_returns_unchanged_fragment_without_new_session(clien
 def test_non_ajax_message_still_redirects(client):
     """JS kapalıysa/başarısızsa form normal şekilde gönderilir — AJAX
     desteği eski davranışı değiştirmemeli (bkz. plan)."""
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=client.test_user["id"],
+    )
     response = client.post("/asistan/mesaj", data={"metin": "merhaba"}, follow_redirects=False)
     assert response.status_code == 303
     assert response.headers["location"] == "/anasayfa"
@@ -382,7 +418,10 @@ def test_action_field_alone_is_processed_as_the_message(client):
     tıklanan butonun name/value'sunu formData'ya hiç eklemiyordu, butonlar
     hiçbir şey yapmıyormuş gibi görünüyordu) sunucu tarafındaki varsayımını
     doğruluyor — JS'in kendisi burada test edilemiyor, yalnızca bu sözleşme."""
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=client.test_user["id"],
+    )
     response = client.post(
         "/asistan/mesaj", data={"action": "approve"}, headers={"X-Requested-With": "fetch"}
     )
@@ -396,14 +435,20 @@ def test_action_field_alone_is_processed_as_the_message(client):
 
 
 def test_history_page_empty_when_no_past_chats(client):
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=client.test_user["id"],
+    )
     response = client.get("/asistan/gecmis")
     assert response.status_code == 200
     assert "Henüz geçmiş bir sohbetiniz yok." in response.text
 
 
 def test_history_page_lists_past_session_with_preview_and_current_marker(client):
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=client.test_user["id"],
+    )
     client.post("/asistan/mesaj", data={"metin": "merhaba dünya"})
 
     response = client.get("/asistan/gecmis")
@@ -420,7 +465,10 @@ def test_history_page_no_active_account_shows_empty(client):
 
 
 def test_resume_chat_switches_active_session_and_old_stays_accessible(client):
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=client.test_user["id"],
+    )
     client.post("/asistan/mesaj", data={"metin": "birinci sohbet"})
     first_session_id = client.cookies.get("chat_session")
 
@@ -444,8 +492,14 @@ def test_resume_chat_switches_active_session_and_old_stays_accessible(client):
 
 
 def test_resume_chat_rejects_session_belonging_to_another_account(client):
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
-    ensure_account_registered("acc2", provider="google", email="b@example.com")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=client.test_user["id"],
+    )
+    ensure_account_registered(
+        "acc2", provider="google", email="b@example.com",
+        user_id=client.test_user["id"],
+    )
 
     client.post("/asistan/mesaj", data={"metin": "acc1 sohbeti"}, cookies={"active_account": "acc1"})
     acc1_session_id = client.cookies.get("chat_session")
@@ -465,7 +519,10 @@ def test_resume_chat_rejects_session_belonging_to_another_account(client):
 
 
 def test_button_click_shows_translated_label_not_raw_action_value(client):
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=client.test_user["id"],
+    )
     response = client.post(
         "/asistan/mesaj", data={"action": "approve"}, headers={"X-Requested-With": "fetch"}
     )
@@ -477,7 +534,10 @@ def test_button_click_shows_translated_label_not_raw_action_value(client):
 def test_free_text_message_is_shown_verbatim(client):
     """Serbest metin (buton değil) dokunulmadan gösterilmeli — yalnızca
     action= dolu hızlı-yanıt tıklamaları çeviriye tabi."""
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=client.test_user["id"],
+    )
     response = client.post(
         "/asistan/mesaj", data={"metin": "approve etmek istiyorum"}, headers={"X-Requested-With": "fetch"}
     )
@@ -489,14 +549,20 @@ def test_free_text_message_is_shown_verbatim(client):
 
 
 def test_attach_row_hidden_without_vision_capable_provider(client):
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=client.test_user["id"],
+    )
     response = client.get("/anasayfa")
     assert response.status_code == 200
     assert 'name="dosya"' not in response.text
 
 
 def test_attach_row_shown_with_vision_capable_provider(vision_client):
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=vision_client.test_user["id"],
+    )
     response = vision_client.get("/anasayfa")
     assert response.status_code == 200
     assert 'name="dosya"' in response.text
@@ -507,7 +573,10 @@ def test_attach_row_shown_with_vision_capable_provider(vision_client):
 
 
 def test_mic_button_shown_with_vision_capable_provider(vision_client):
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=vision_client.test_user["id"],
+    )
     response = vision_client.get("/anasayfa")
     assert response.status_code == 200
     assert 'id="mic-btn"' in response.text
@@ -515,7 +584,10 @@ def test_mic_button_shown_with_vision_capable_provider(vision_client):
 
 
 def test_mic_button_hidden_without_vision_capable_provider(client):
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=client.test_user["id"],
+    )
     response = client.get("/anasayfa")
     assert response.status_code == 200
     assert 'id="mic-btn"' not in response.text
@@ -523,7 +595,10 @@ def test_mic_button_hidden_without_vision_capable_provider(client):
 
 def test_voice_message_transcribes_and_shows_transcript_as_user_bubble(vision_client, monkeypatch):
     monkeypatch.setattr(_DummyVisionLLMProvider, "file_response", "yarın toplantı var mı diye soruyorum")
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=vision_client.test_user["id"],
+    )
 
     response = vision_client.post(
         "/asistan/mesaj",
@@ -539,7 +614,10 @@ def test_voice_message_transcribes_and_shows_transcript_as_user_bubble(vision_cl
 
 def test_voice_message_empty_transcription_shows_error(vision_client, monkeypatch):
     monkeypatch.setattr(_DummyVisionLLMProvider, "file_response", "")
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=vision_client.test_user["id"],
+    )
 
     response = vision_client.post(
         "/asistan/mesaj",
@@ -554,7 +632,10 @@ def test_voice_message_without_vision_provider_shows_error_not_crash(client):
     # `client` (vision_client DEĞİL) — FoundryLocal sahtesi FileInputCapable
     # UYGULAMIYOR; mikrofon butonu normalde hiç gösterilmez ama doğrudan bir
     # POST (örn. eski bir sekme) sunucuyu ÇÖKERTMEMELİ, zarifçe düşmeli.
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=client.test_user["id"],
+    )
     response = client.post(
         "/asistan/mesaj",
         files={"ses": ("kayit.ogg", b"FAKE_AUDIO_BYTES", "audio/ogg")},
@@ -566,7 +647,10 @@ def test_voice_message_without_vision_provider_shows_error_not_crash(client):
 
 def test_voice_only_message_is_not_treated_as_empty(vision_client, monkeypatch):
     monkeypatch.setattr(_DummyVisionLLMProvider, "file_response", "merhaba")
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=vision_client.test_user["id"],
+    )
 
     response = vision_client.post(
         "/asistan/mesaj",
@@ -578,7 +662,10 @@ def test_voice_only_message_is_not_treated_as_empty(vision_client, monkeypatch):
 
 
 def test_file_upload_extracts_event_and_reaches_preview(vision_client):
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=vision_client.test_user["id"],
+    )
     response = vision_client.post(
         "/asistan/mesaj",
         data={"next": "/anasayfa"},
@@ -591,7 +678,10 @@ def test_file_upload_extracts_event_and_reaches_preview(vision_client):
 
 
 def test_file_upload_with_caption_shows_caption_not_placeholder(vision_client):
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=vision_client.test_user["id"],
+    )
     response = vision_client.post(
         "/asistan/mesaj",
         data={"metin": "bu davetiyeyi ekle", "next": "/anasayfa"},
@@ -606,7 +696,10 @@ def test_file_upload_with_caption_shows_caption_not_placeholder(vision_client):
 def test_file_only_message_is_not_treated_as_empty(vision_client):
     """metin bos, action bos, yalnizca dosya var — bos gonderim gibi sessizce
     yok sayilmamali (bkz. chat_routes.py::send_chat_message has_file kontrolu)."""
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=vision_client.test_user["id"],
+    )
     response = vision_client.post(
         "/asistan/mesaj",
         files={"dosya": ("davetiye.jpg", b"FAKE_JPEG_BYTES", "image/jpeg")},
@@ -617,7 +710,10 @@ def test_file_only_message_is_not_treated_as_empty(vision_client):
 
 
 def test_file_upload_unsupported_mime_type_shows_error(vision_client):
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=vision_client.test_user["id"],
+    )
     response = vision_client.post(
         "/asistan/mesaj",
         files={"dosya": ("notes.txt", b"plain text", "text/plain")},
@@ -630,7 +726,10 @@ def test_file_upload_unsupported_mime_type_shows_error(vision_client):
 def test_file_upload_without_vision_provider_shows_error(client):
     """`client` (vision_client DEĞİL) — FoundryLocal sahtesi FileInputCapable
     DEĞİL, kullanıcıya nedenini soylemeli, sessizce yutmamali."""
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=client.test_user["id"],
+    )
     response = client.post(
         "/asistan/mesaj",
         files={"dosya": ("davetiye.jpg", b"FAKE_JPEG_BYTES", "image/jpeg")},
@@ -657,7 +756,10 @@ _TWO_EVENT_FILE_RESPONSE = json.dumps([
 
 def test_file_upload_with_two_events_shows_first_with_batch_progress(vision_client, monkeypatch):
     monkeypatch.setattr(_DummyVisionLLMProvider, "file_response", _TWO_EVENT_FILE_RESPONSE)
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=vision_client.test_user["id"],
+    )
     response = vision_client.post(
         "/asistan/mesaj",
         files={"dosya": ("program.jpg", b"FAKE_JPEG_BYTES", "image/jpeg")},
@@ -671,7 +773,10 @@ def test_file_upload_with_two_events_shows_first_with_batch_progress(vision_clie
 
 def test_approving_first_of_two_events_automatically_starts_second(vision_client, monkeypatch):
     monkeypatch.setattr(_DummyVisionLLMProvider, "file_response", _TWO_EVENT_FILE_RESPONSE)
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=vision_client.test_user["id"],
+    )
     vision_client.post(
         "/asistan/mesaj",
         files={"dosya": ("program.jpg", b"FAKE_JPEG_BYTES", "image/jpeg")},
@@ -688,7 +793,10 @@ def test_approving_first_of_two_events_automatically_starts_second(vision_client
 
 def test_approving_last_of_two_events_finishes_normally(vision_client, monkeypatch):
     monkeypatch.setattr(_DummyVisionLLMProvider, "file_response", _TWO_EVENT_FILE_RESPONSE)
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=vision_client.test_user["id"],
+    )
     vision_client.post(
         "/asistan/mesaj",
         files={"dosya": ("program.jpg", b"FAKE_JPEG_BYTES", "image/jpeg")},
@@ -732,7 +840,10 @@ def test_define_policy_via_chat_is_scoped_to_session_user(client):
     from src.policies.store import list_policies
     from src.ui.app import app
 
-    ensure_account_registered("acc1", provider="google", email="a@example.com")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=client.test_user["id"],
+    )
     app.state.llm = _DefinePolicyLLMProvider()
 
     response = client.post(
