@@ -51,7 +51,7 @@ def save_credentials_for_account(account_id: str, creds: Credentials) -> None:
 def get_google_credentials(
     scopes: list[str],
     account_id: str,
-    client_secret_path: Path = DEFAULT_CLIENT_SECRET_PATH,
+    client_secret_path: Path | None = None,
 ) -> Credentials:
     """Verilen scope'lar için geçerli bir Credentials döner.
 
@@ -62,6 +62,8 @@ def get_google_credentials(
     (okuma) ve `src/ui/oauth_routes.py` (tarayıcıda yeni hesap ekleme) ayrı yollar
     kullanır, bu fonksiyonu hiç çağırmaz.
     """
+    if client_secret_path is None:
+        client_secret_path = DEFAULT_CLIENT_SECRET_PATH
     token_path = _token_path(account_id)
     creds: Credentials | None = None
 

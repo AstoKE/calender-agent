@@ -21,8 +21,8 @@ class _FakeResponse:
         return self._json_data
 
 
-def _connector(fake_request):
-    outlook_module.requests.request = fake_request  # type: ignore[attr-defined]
+def _connector(fake_request, monkeypatch):
+    monkeypatch.setattr(outlook_module.requests, "request", fake_request)
     return OutlookConnector(account_id="acc1", access_token="FAKE_TOKEN")
 
 
@@ -63,7 +63,7 @@ def test_initial_sync_paginates_sorts_and_truncates(monkeypatch):
         detail["id"] = url.rsplit("/", 1)[-1]
         return _FakeResponse(200, detail)
 
-    connector = _connector(fake_request)
+    connector = _connector(fake_request, monkeypatch)
     messages, delta_link = connector._initial_sync(max_results=2)
 
     assert delta_link == "https://graph.microsoft.com/v1.0/delta-link-1"
@@ -99,7 +99,7 @@ def test_get_message_maps_fields_and_fetches_attachments(monkeypatch):
             return _FakeResponse(200, attachments_resp)
         raise AssertionError(f"beklenmeyen URL: {url}")
 
-    connector = _connector(fake_request)
+    connector = _connector(fake_request, monkeypatch)
     email = connector.get_message("m1")
 
     assert email.subject == "Bilet"
@@ -115,7 +115,7 @@ def test_get_message_if_exists_swallows_404(monkeypatch):
     def fake_request(method, url, *, params=None, json=None, headers=None, timeout=None):
         return _FakeResponse(404, {"error": "not found"})
 
-    connector = _connector(fake_request)
+    connector = _connector(fake_request, monkeypatch)
     assert connector._get_message_if_exists("gone") is None
 
 
@@ -128,7 +128,7 @@ def test_download_attachment_decodes_base64(monkeypatch):
         assert url.endswith("/me/messages/m1/attachments/att1")
         return _FakeResponse(200, {"contentBytes": base64.b64encode(raw).decode("ascii")})
 
-    connector = _connector(fake_request)
+    connector = _connector(fake_request, monkeypatch)
     result = connector.download_attachment("m1", "att1")
 
     assert result == raw
