@@ -16,7 +16,7 @@ import re
 from datetime import datetime
 
 from src.connectors.base import AttachmentDownloadable
-from src.core.logging_config import get_logger
+from src.core.logging_config import get_logger, redact
 from src.core.models import CandidateEvent, SourceType, UnifiedEmail
 from src.providers.base import EmbeddingProvider, FileInputCapable, LLMProvider
 from src.providers.json_generation import generate_json, generate_json_from_file
@@ -126,7 +126,7 @@ def is_calendar_worthy(
     if matched_categories:
         logger.debug(
             "is_calendar_worthy: deterministic filter matched for %r (labels=%s)",
-            email.subject, email.labels,
+            redact(email.subject), email.labels,
         )
         return False, f"Gmail bunu {', '.join(sorted(matched_categories))} kategorisine ayırmış."
 
@@ -151,7 +151,10 @@ def is_calendar_worthy(
         context_chunks=context_chunks or None, allow_thinking=True,
     )
     worthy, reason = bool(data.get("is_calendar_worthy")), data.get("reason", "")
-    logger.info("is_calendar_worthy: %r -> worthy=%s reason=%r labels=%s", email.subject, worthy, reason, email.labels)
+    logger.info(
+        "is_calendar_worthy: %r -> worthy=%s reason=%r labels=%s",
+        redact(email.subject), worthy, redact(reason), email.labels,
+    )
     return worthy, reason
 
 
@@ -253,7 +256,7 @@ def analyze_possible_update(llm: LLMProvider, existing: CandidateEvent, email: U
     changed_fields = {k: v for k, v in raw_changed.items() if k in _UPDATE_FIELDS and v not in (None, "")}
     logger.info(
         "analyze_possible_update: %r -> is_update=%s changed_fields=%s",
-        email.subject, is_update, list(changed_fields),
+        redact(email.subject), is_update, list(changed_fields),
     )
     return {"is_update": is_update and bool(changed_fields), "changed_fields": changed_fields}
 
@@ -295,7 +298,7 @@ def extract_candidate_from_email(llm: LLMProvider, email: UnifiedEmail) -> Candi
     )
     logger.debug(
         "extract_candidate_from_email: %r -> event_type=%s missing=%s ambiguous=%s",
-        email.subject, candidate.event_type, candidate.missing_fields, candidate.ambiguous_fields,
+        redact(email.subject), candidate.event_type, candidate.missing_fields, candidate.ambiguous_fields,
     )
     return candidate
 
@@ -350,6 +353,6 @@ def extract_candidate_from_email_with_attachments(
     )
     logger.info(
         "extract_candidate_from_email_with_attachments: %r (%s) -> event_type=%s",
-        email.subject, attachment.filename, candidate.event_type,
+        redact(email.subject), redact(attachment.filename), candidate.event_type,
     )
     return candidate

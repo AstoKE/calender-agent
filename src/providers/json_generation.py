@@ -23,7 +23,7 @@ import json
 import re
 from typing import Callable
 
-from src.core.logging_config import get_logger
+from src.core.logging_config import get_logger, redact
 from src.providers.base import FileInputCapable, LLMProvider
 
 _CODE_FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.MULTILINE)
@@ -52,13 +52,13 @@ def _retry_and_parse(call: Callable[[], str], max_attempts: int) -> dict | list:
             logger.warning("attempt %d/%d generate call failed: %s", attempt, max_attempts, e)
             last_error = e
             continue
-        logger.debug("attempt %d/%d raw output: %r", attempt, max_attempts, raw[:1000])
+        logger.debug("attempt %d/%d raw output: %r", attempt, max_attempts, redact(raw))
         try:
             parsed = json.loads(_strip_code_fence(raw))
-            logger.debug("attempt %d/%d parsed OK: %s", attempt, max_attempts, parsed)
+            logger.debug("attempt %d/%d parsed OK: %s", attempt, max_attempts, redact(str(parsed)))
             return parsed
         except json.JSONDecodeError as e:
-            logger.warning("attempt %d/%d JSON parse failed: %s | raw=%r", attempt, max_attempts, e, raw[:300])
+            logger.warning("attempt %d/%d JSON parse failed: %s | raw=%r", attempt, max_attempts, e, redact(raw))
             last_error = e
             continue
     logger.error("JSON generation exhausted %d attempts: %s", max_attempts, last_error)
@@ -73,7 +73,9 @@ def generate_json(
     max_attempts: int = 2,
     allow_thinking: bool = False,
 ) -> dict:
-    logger.debug("generate_json call | system=%r | user=%r", system_prompt[:300], user_prompt[:500])
+    # system_prompt bizim yazdığımız sabit bir şablon (kullanıcı içeriği
+    # DEĞİL) — maskelemeye gerek yok, tam görünmesi hata ayıklamada faydalı.
+    logger.debug("generate_json call | system=%r | user=%r", system_prompt, redact(user_prompt))
     return _retry_and_parse(
         lambda: llm.generate(
             system_prompt,
@@ -102,7 +104,7 @@ def generate_json_from_file(
     döndürebilir — çağıran taraf ikisini de ele alır."""
     logger.debug(
         "generate_json_from_file call | system=%r | user=%r | mime_type=%s | %d bytes",
-        system_prompt[:300], user_prompt[:500], mime_type, len(file_bytes),
+        system_prompt, redact(user_prompt), mime_type, len(file_bytes),
     )
     return _retry_and_parse(
         lambda: llm.generate_from_file(system_prompt, user_prompt, file_bytes, mime_type, json_output=True),

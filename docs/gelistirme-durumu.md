@@ -172,3 +172,46 @@ pyflakes değişen dosyalarda temiz. Gerçek sağlayıcılara istek gönderilmed
 Ağ engeli Python soket katmanında çalışıyor; kendi soketini açan native bir kütüphane bu engele takılmaz. Bir test içinde geç çağrılan `import` ile alınan sabit kopyası da yamalanamaz; bu nedenle modül seviyesinde içe aktarma varsayımı korunmalı.
 
 Yol haritasındaki ilk sprint listesinde sırada **4. madde** var: varsayılan içerik loglarını kapatma/maskeleme (PRIV-01’in log yarısı). Şu an ham model girdisi/çıktısı ve e-posta içeriği `data/debug.log` dosyasına yazılabiliyor.
+
+**Kontrol noktası 5 — PRIV-01 (log yarısı): varsayılan log içeriği maskeleme + rotasyon**
+
+Durum: uygulandı, otomatik doğrulama tamamlandı; kullanıcı testi ve onayı bekleniyor. Bu adım henüz commit edilmedi.
+
+PRIV-01 bulgusunun iki parçası vardı: token’ların şifreli saklanması (sunucuya taşınırsa gereken ayrı bir anahtar-yönetimi işi, bu kontrol noktasının kapsamı DIŞINDA — yalnızca log yarısı ele alındı) ve "varsayılan loglarda içerik maskeleme, rotasyon, saklama süresi". Önceden `data/debug.log`’a her LLM çağrısının sistem/kullanıcı promptu, ham model çıktısı ve mail konusu (subject) tam metin olarak yazılıyordu — dosya şifrelenmeden diske yazıldığı için bu, mail gövdesi/sohbet metni gibi hassas içeriğin okunabilir biçimde diskte birikmesi anlamına geliyordu. Gerçek kurulumda tek dosya 8MB’ı geçmişti; rotasyon da yoktu.
+
+Yeni davranış:
+
+- `src/core/logging_config.py::redact()` — bir metni varsayılan olarak ilk 80 karakter + kalan uzunluk + kararlı bir kısa SHA-256 özetine indirger (`text[:80]…[N more chars redacted, sha256=xxxxxxxx]`). 80 karakterin altındaki kısa metinler (çoğu mail konusu gibi) OLDUĞU GİBİ kalır — maskeleme yalnızca uzun/serbest metinlerde devreye giriyor. Hash sayesinde "aynı içerik tekrar mı geldi" gibi karşılaştırmalar hâlâ mümkün, gerçek metin dosyada görünmüyor.
+- Bu, her LLM çağrısının ortak boğazı olan `json_generation.py::generate_json`/`generate_json_from_file`’a uygulandı: kullanıcı promptu, ham model çıktısı ve ayrıştırılmış JSON artık maskeli yazılıyor. Kendi yazdığımız sistem promptu (kullanıcı içeriği değil) maskelenmedi — tam görünmesi hata ayıklamada değerli, gizlilik riski yok.
+- `mail_analysis.py`’deki beş, `scan_inbox.py`’deki üç log satırındaki mail konusu (subject) de aynı fonksiyonla maskeleniyor.
+- `LOG_CONTENT=full` ortam değişkeni maskelemeyi devre dışı bırakıyor — yerel, aktif hata ayıklama için bilinçli bir kaçış kapısı (bkz. `.env.example`), sunucu/paylaşılan bir kurulumda set edilmemesi gerektiği not edildi.
+- Log dosyası artık `RotatingFileHandler` ile yazılıyor: ~10MB’a ulaşınca döner, en fazla 5 eski dosya tutulur (~60MB tavan). Zaman bazlı bir saklama süresi (örn. "30 günden eskisini sil") ayrı bir scheduler gerektirirdi — tek-kullanıcılı yerel uygulama için boyut bazlı rotasyonun yeterli bir sınır olduğuna karar verildi, bu bilinçli bir kapsam kararı.
+
+Kapsam dışı bırakılanlar: OAuth token dosyalarının şifreli saklanması (PRIV-01’in diğer yarısı, ayrı bir madde olarak kalmalı — sunucu dağıtımı seçilirse OS güvenli deposu/anahtar yönetimi gerektiriyor); istisna traceback’lerinin maskelenmesi (`logger.exception(...)` çağrıları — Python’un standart traceback biçimi zaten yerel değişken değerlerini basmıyor, yalnızca çağrı yığını + istisna mesajı; bir istisna mesajının kendi içine ham kullanıcı içeriği gömdüğü nadir bir durum bu kapsamda ayrıca aranmadı).
+
+Değişen dosyalar:
+
+- [logging_config.py](../src/core/logging_config.py): `redact()`, `RotatingFileHandler`.
+- [json_generation.py](../src/providers/json_generation.py): tüm LLM çağrılarının ortak boğazında maskeleme.
+- [mail_analysis.py](../src/services/mail_analysis.py): beş log satırında mail konusu maskeleme.
+- [scan_inbox.py](../src/services/scan_inbox.py): üç log satırında mail konusu maskeleme.
+- [.env.example](../.env.example): `LOG_CONTENT=full` kaçış kapısının belgelenmesi.
+- [test_logging_config.py](../tests/test_logging_config.py): 12 yeni test — `redact()`’in kendisi (kısa/uzun metin, determinizm, farklı içerik farklı hash, `LOG_CONTENT=full`), rotasyon yapılandırması, ve gerçek `generate_json()` çağrısının log dosyasına yazdığı satırı okuyarak hem kullanıcı promptunun hem ham model çıktısının gerçekten maskelendiğinin, sistem promptunun maskelenmediğinin uçtan uca doğrulanması.
+
+Doğrulama: maskeleme testinin gerçekten bir şey yakaladığını varsaymadım — `redact(user_prompt)` çağrısını geçici olarak `user_prompt`’a döndürüp testin kırıldığını ve tam gizli içeriği log dosyasında gösterdiğini doğruladım, sonra değişikliği geri aldım. Tam paket (TEST-01 izolasyonuyla, sarmalayıcı olmadan) **571 başarılı**, 13 deprecation uyarısı. Gerçek `data/` dizini bu çalıştırmadan önce/sonra dosya bazında (md5) karşılaştırıldı, değişmedi. pyflakes değişen dosyalarda temiz.
+
+**Senin yapacağın manuel kontrol**
+
+1. Uygulamayı durdurup yeniden başlat, sonra normal bir işlem yap (bir mail taraması tetikle ya da asistana bir mesaj yaz):
+
+   ```powershell
+   .venv\Scripts\python.exe -m src.ui.app
+   ```
+
+2. `data\debug.log`’un SON kısmına bak (`Get-Content data\debug.log -Tail 50`). `generate_json call | system=... | user=...` gibi satırlarda kullanıcı tarafının (`user=`) artık `[N more chars redacted, sha256=...]` ile kısaltıldığını, tam mail/sohbet metninin görünmediğini doğrula. Sistem promptunun (kendi şablonumuz) hâlâ tam göründüğünü de görebilirsin — bu kasıtlı.
+3. İstersen `LOG_CONTENT=full` satırını `.env`’e ekleyip uygulamayı yeniden başlat, aynı işlemi tekrarla — bu sefer tam metnin göründüğünü doğrula, sonra satırı `.env`’den kaldır (varsayılan davranışa dönmek için).
+4. `data\debug.log`’un artık ~10MB’ı geçince `debug.log.1` gibi dönen dosyalar üretip üretmediğini bugün gözlemlemen gerekmiyor (dosya zaten büyükse bir sonraki yeniden başlatmada otomatik döner) — istersen mevcut büyük log dosyasını silip yeniden oluşmasını izleyebilirsin, zorunlu değil.
+
+**Bu kontrol noktasının sınırı ve sıradaki iş**
+
+`data/debug.log` dosyasının bugüne kadar birikmiş, maskesiz geçmiş içeriği bu değişiklikle temizlenmedi — yalnızca BUNDAN SONRA yazılacak satırlar maskeleniyor. İstersen eski dosyayı silmemi söyle, kendiliğinden silmedim. OAuth token’larının şifreli saklanması (PRIV-01’in diğer yarısı) hâlâ açık; bu, sunucu dağıtımı kararının netleşmesini bekleyen ayrı bir iş olarak bırakıldı (bkz. yol haritası "İlk mimari kararda iki dağıtım yolu netleştirilmeli").

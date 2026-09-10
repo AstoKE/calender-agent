@@ -24,7 +24,7 @@ from src.candidates.store import apply_update_suggestion, find_related_candidate
 from src.connectors.account_registry import get_account, select_account
 from src.connectors.gmail import GmailConnector
 from src.connectors.outlook import OutlookConnector
-from src.core.logging_config import configure_logging, get_logger
+from src.core.logging_config import configure_logging, get_logger, redact
 from src.providers.base import EmbeddingProvider, FileInputCapable, LLMProvider
 from src.providers.foundry_local import FoundryLocalEmbeddingProvider, FoundryLocalProvider
 from src.services.mail_analysis import (
@@ -69,7 +69,7 @@ def scan_account_inbox(
             # Model bazen boş/geçersiz JSON döndürüyor (canlı testte görüldü).
             # Tek bir sorunlu mail tüm taramayı çökertmemeli — bu maili
             # işlenmemiş bırakıp (sonraki taramada tekrar denenir) devam et.
-            logger.warning("is_calendar_worthy failed for %r: %s", email.subject, e)
+            logger.warning("is_calendar_worthy failed for %r: %s", redact(email.subject), e)
             emit(f"[atlandı] {email.subject[:60]!r} sınıflandırılamadı: {e}")
             skipped_errors += 1
             continue
@@ -99,7 +99,7 @@ def scan_account_inbox(
                     attachment_candidate = extract_candidate_from_email_with_attachments(llm, email, mail_connector)
                 except Exception as e:
                     logger.warning(
-                        "extract_candidate_from_email_with_attachments failed for %r: %s", email.subject, e
+                        "extract_candidate_from_email_with_attachments failed for %r: %s", redact(email.subject), e
                     )
 
             if attachment_candidate is None:
@@ -125,7 +125,7 @@ def scan_account_inbox(
             try:
                 update_result = analyze_possible_update(llm, related["candidate"], email)
             except Exception as e:
-                logger.warning("analyze_possible_update failed for %r: %s", email.subject, e)
+                logger.warning("analyze_possible_update failed for %r: %s", redact(email.subject), e)
                 emit(f"[atlandı] \"{email.subject[:60]}\" güncelleme analizi başarısız oldu: {e}\n")
                 skipped_errors += 1
                 continue
@@ -141,7 +141,7 @@ def scan_account_inbox(
         try:
             candidate = extract_candidate_from_email(llm, email)
         except Exception as e:
-            logger.warning("extract_candidate_from_email failed for %r: %s", email.subject, e)
+            logger.warning("extract_candidate_from_email failed for %r: %s", redact(email.subject), e)
             emit(f"[atlandı] \"{email.subject[:60]}\" çıkarımı başarısız oldu: {e}\n")
             skipped_errors += 1
             continue
