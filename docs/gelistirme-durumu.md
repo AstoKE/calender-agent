@@ -295,7 +295,7 @@ Kapsam dışı bırakılanlar (yol haritasının aynı maddesinde anılan ama ay
 
 **Kontrol noktası 8 — WRITE-01: öneri onayında çift takvim yazma koruması**
 
-Durum: uygulandı, otomatik doğrulama tamamlandı; kullanıcı testi ve onayı bekleniyor. Bu adım henüz commit edilmedi.
+Durum: kullanıcı tarafından onaylandı. Kod ve testler `d9bebfb` (`Guard suggestion approval against duplicate calendar writes (WRITE-01)`) commit'iyle kaydedildi.
 
 WRITE-01 bulgusu: `/oneriler/{id}/onayla` route'unda sağlayıcıya yazma (`calendar.create_event`/`update_event`) ile DB durum güncellemesi (`update_candidate_status`) ARASINDA bir pencere vardı — hiçbir tek-uçuş/kilit koruması yoktu. Çift tıklama ya da iki sekmeden aynı öneriyi aynı anda onaylamak, ikisinin de candidate'ı hâlâ "beklemede" bulup ikisinin de `calendar.create_event`'i çağırmasına, yani AYNI etkinliğin takvimde İKİ KEZ oluşmasına yol açabiliyordu. Bu, `chat_in_progress`/`scan_in_progress`'in ZATEN koruduğu (sohbet üzerinden onay, mail tarama) aynı sınıf bir hatanın, Gelen Öneriler'in kendi onay route'unda hiç kapatılmamış hâliydi.
 
