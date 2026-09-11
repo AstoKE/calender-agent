@@ -119,7 +119,9 @@ def _persisted_correction(feedback: str = "yanlış süre", **correction_kwargs)
     return save_user_correction(candidate, feedback, **correction_kwargs)
 
 
-def _pending_candidate_for_account(account_id: str, title: str = "Proje toplantısı") -> None:
+def _pending_candidate_for_account(
+    account_id: str, title: str = "Proje toplantısı", reminders: list[dict] | None = None
+) -> None:
     """Bildirim çanı/rozet testleri için: `_persisted_correction`'ın ilk
     yarısı — hesap+mail+candidate zincirini kurar ama düzeltme kaydetmez,
     hesap zaten ensure_account_registered ile kayıtlı olmalı (email_messages.
@@ -151,6 +153,7 @@ def _pending_candidate_for_account(account_id: str, title: str = "Proje toplant�
         duration_minutes=60,
         status=CandidateStatus.READY_FOR_CONFIRMATION,
         extraction_reason="test",
+        reminders=reminders or [],
     )
     save_new_candidate(candidate, source_email_row_id=email_id)
 
@@ -937,12 +940,16 @@ class _UpdateTrackingCalendar:
     def get_freebusy(self, time_min, time_max, calendar_id="primary"):
         return []
 
-    def create_event(self, *, title, start, end, location=None, calendar_id="primary"):
-        self.created_events.append({"summary": title, "start": start, "end": end, "location": location})
+    def create_event(self, *, title, start, end, location=None, calendar_id="primary", reminders=None):
+        self.created_events.append(
+            {"summary": title, "start": start, "end": end, "location": location, "reminders": reminders}
+        )
         return "evt-new-1"
 
-    def update_event(self, event_id, *, title=None, start=None, end=None, location=None, calendar_id="primary"):
-        self.updated_events.append((event_id, {"summary": title, "start": start, "end": end, "location": location}))
+    def update_event(self, event_id, *, title=None, start=None, end=None, location=None, calendar_id="primary", reminders=None):
+        self.updated_events.append(
+            (event_id, {"summary": title, "start": start, "end": end, "location": location, "reminders": reminders})
+        )
 
 
 def _update_suggested_candidate(account_id: str) -> str:
@@ -1009,7 +1016,7 @@ def test_approve_uses_master_calendar_account_when_configured(client, monkeypatc
         def get_freebusy(self, *args, **kwargs):
             return []
 
-        def create_event(self, *, title, start, end, location=None, calendar_id="primary"):
+        def create_event(self, *, title, start, end, location=None, calendar_id="primary", reminders=None):
             return "evt-1"
 
     def fake_get_calendar(request, account_id):
@@ -1021,6 +1028,26 @@ def test_approve_uses_master_calendar_account_when_configured(client, monkeypatc
     response = client.post(f"/oneriler/{candidate_id}/onayla", data={}, follow_redirects=False)
     assert response.status_code == 303
     assert used_account_ids == ["acc2"]
+
+
+def test_approve_passes_candidate_reminders_to_create_event(client, monkeypatch):
+    # bkz. EVENT-01 (docs/urunlesme-ve-tasarim-yol-haritasi.md): önizlemede/
+    # candidate modelinde duran hatırlatıcı, onaylanınca connector'a
+    # ULAŞMALI — önceden sessizce düşüyordu (title/start/end/location'la
+    # sınırlıydı).
+    ensure_account_registered("acc1", provider="google", email="a@example.com", user_id=client.test_user["id"])
+    _pending_candidate_for_account("acc1", reminders=[{"minutes_before": 4320}])  # "3 gün önce"
+
+    with get_connection() as conn:
+        candidate_id = conn.execute("SELECT candidate_id FROM candidate_events").fetchone()["candidate_id"]
+
+    calendar = _UpdateTrackingCalendar()
+    monkeypatch.setattr("src.ui.routes._get_calendar", lambda request, account_id: calendar)
+
+    response = client.post(f"/oneriler/{candidate_id}/onayla", data={}, follow_redirects=False)
+    assert response.status_code == 303
+    assert len(calendar.created_events) == 1
+    assert calendar.created_events[0]["reminders"] == [{"minutes_before": 4320}]
 
 
 def test_approve_update_suggested_calls_update_event_not_create(client, monkeypatch):

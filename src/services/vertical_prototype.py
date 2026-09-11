@@ -24,6 +24,7 @@ from src.connectors.account_registry import resolve_write_account_id, select_acc
 from src.connectors.google_calendar import GoogleCalendarConnector
 from src.core.logging_config import configure_logging, get_logger
 from src.core.models import CandidateEvent, CandidateStatus, EventType, IntentType, SourceType
+from src.localization import translate
 from src.memory.correction_memory import candidate_snapshot, capture_correction_interactively, capture_edit_correction
 from src.policies.derivation import VALID_IMPORTANCE_VALUES, derive_and_save_policy
 from src.providers.base import EmbeddingProvider, FileInputCapable, LLMProvider
@@ -212,6 +213,7 @@ def apply_retrieved_policies(
     embedding_provider: EmbeddingProvider,
     sender: str | None = None,
     user_id: str | None = None,
+    lang: str = "tr",
 ) -> list[str]:
     """Rule Engine adımı: RAG'ın getirdiği politikaları deterministik olarak
     uygular (LLM'e "hangi değer" kararını bırakmaz, bkz. §9/§11). Yalnızca
@@ -222,10 +224,14 @@ def apply_retrieved_policies(
     "Per-user isolation") — CLI ``None`` bırakır (eski, sahiplikten bağımsız
     davranış).
 
-    Uygulanan her kural için "(Kural uygulandı: ...)" satırını hem `print()`
-    eder (CLI, davranış değişmiyor) HEM DE listeye ekleyip döner — web
-    chatbox'ı (`src/services/chat_flow.py`) bu print() çıktısını göremez,
-    kendi sohbet balonuna basması için dönüş değerine ihtiyacı var. İki
+    Uygulanan her kural için "(Kural uygulandı: ...)" satırını CLI'ya hep
+    TÜRKÇE `print()` eder (CLI zaten hiç lokalize değil, davranış değişmiyor)
+    HEM DE listeye ekleyip döner — web chatbox'ı (`src/services/chat_flow.py`)
+    bu print() çıktısını göremez, kendi sohbet balonuna basması için dönüş
+    değerine ihtiyacı var; bu ikinci mesaj ``lang``'a göre çevriliyor (canlı
+    testte bulunan gerçek hata: web arayüzü İngilizce ayarlıyken bu satır
+    hep Türkçe basılıyordu — `translate("chat.rule_applied", lang)` kullanan
+    çağıran ``lang`` geçmezse varsayılan "tr" eski davranışı korur). İki
     mevcut çağrı noktası da (`scan_inbox.py`, bu dosyada `review_and_confirm_candidate`)
     dönüş değerini kullanmıyor, bu yüzden imza değişikliği geriye dönük güvenli."""
     applied_messages: list[str] = []
@@ -242,7 +248,7 @@ def apply_retrieved_policies(
                 candidate.retrieved_policy_ids.append(policy.policy_id)
                 message = f'(Kural uygulandı: "{policy.natural_language_rule}")'
                 print(message)
-                applied_messages.append(message)
+                applied_messages.append(translate("chat.rule_applied", lang, rule=policy.natural_language_rule))
                 break
 
     if not candidate.reminders:
@@ -253,7 +259,7 @@ def apply_retrieved_policies(
                 candidate.retrieved_policy_ids.append(policy.policy_id)
                 message = f'(Kural uygulandı: "{policy.natural_language_rule}")'
                 print(message)
-                applied_messages.append(message)
+                applied_messages.append(translate("chat.rule_applied", lang, rule=policy.natural_language_rule))
                 break
 
     if candidate.importance is None:
@@ -267,7 +273,7 @@ def apply_retrieved_policies(
                 candidate.retrieved_policy_ids.append(policy.policy_id)
                 message = f'(Kural uygulandı: "{policy.natural_language_rule}")'
                 print(message)
-                applied_messages.append(message)
+                applied_messages.append(translate("chat.rule_applied", lang, rule=policy.natural_language_rule))
                 break
 
     return applied_messages
@@ -807,7 +813,8 @@ def review_and_confirm_candidate(
             end_dt = start_dt + timedelta(minutes=candidate.duration_minutes or DEFAULT_MEETING_DURATION_MINUTES)
 
             event_id = calendar.create_event(
-                title=candidate.title, start=start_dt, end=end_dt, location=candidate.location
+                title=candidate.title, start=start_dt, end=end_dt, location=candidate.location,
+                reminders=[r.model_dump() for r in candidate.reminders] or None,
             )
 
             update_candidate_status(conn, candidate.candidate_id, CandidateStatus.ADDED_TO_CALENDAR)

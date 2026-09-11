@@ -395,6 +395,10 @@ MESSAGES: dict[str, dict[str, str]] = {
     "ayarlar.diagnostics.embedding_model": {"tr": "Embedding modeli", "en": "Embedding model"},
 
     # --- Chatbox (bkz. plan "Web Chatbox") ---
+    "chat.rule_applied": {
+        "tr": '(Kural uygulandı: "{rule}")',
+        "en": '(Rule applied: "{rule}")',
+    },
     "chat.generic_error": {
         "tr": "Bir sorun oldu, tekrar dener misiniz?",
         "en": "Something went wrong — could you try again?",

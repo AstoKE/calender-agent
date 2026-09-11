@@ -17,9 +17,11 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from src.core.models import CandidateStatus
-from src.policies.store import get_active_policies
+from src.core.models import CandidateEvent, CandidateStatus, EventType, SourceType
+from src.policies.store import add_policy, get_active_policies
 from src.providers.base import EmbeddingProvider, LLMProvider
+from src.rag.policy_retrieval import embed_and_store_policy
+from src.services.vertical_prototype import apply_retrieved_policies
 from src.services.chat_flow import (
     ACM_KIND_EDIT,
     ACM_KIND_REJECT,
@@ -92,22 +94,28 @@ class FakeCalendar:
     def get_freebusy(self, time_min, time_max, calendar_id="primary"):
         return self._busy
 
-    def create_event(self, *, title, start, end, location=None, calendar_id="primary"):
+    def create_event(self, *, title, start, end, location=None, calendar_id="primary", reminders=None):
         # Google'ın eski JSON şeklini burada YENİDEN kuruyoruz — connector
         # arayüzü artık düz alan (title/start/end) alıyor (bkz. CalendarConnector,
         # normalizasyon sızıntısı düzeltmesi), ama bu testlerin assertion'ları
         # zaten bu şekle göre yazılmış; sahte, kaydettiği veriyi bu şekilde
         # tutmaya devam ediyor ki testler değişmesin.
-        event = {"summary": title, "location": location, "start": {"dateTime": start.isoformat()}, "end": {"dateTime": end.isoformat()}}
+        event = {
+            "summary": title, "location": location,
+            "start": {"dateTime": start.isoformat()}, "end": {"dateTime": end.isoformat()},
+            "reminders": reminders,
+        }
         self.created_events.append(event)
         return f"evt-{len(self.created_events)}"
 
-    def update_event(self, event_id, *, title=None, start=None, end=None, location=None, calendar_id="primary"):
+    def update_event(self, event_id, *, title=None, start=None, end=None, location=None, calendar_id="primary", reminders=None):
         changes: dict = {}
         if title is not None:
             changes["summary"] = title
         if location is not None:
             changes["location"] = location
+        if reminders is not None:
+            changes["reminders"] = reminders
         if start is not None:
             changes["start"] = {"dateTime": start.isoformat()}
         if end is not None:
@@ -205,6 +213,30 @@ def _advance(state, text, *, llm, embedding_provider=None, calendar=None, lang="
         calendar=calendar or FakeCalendar(),
         lang=lang,
     )
+
+
+# --- "(Kural uygulandı: ...)" mesajının dil ayarına uyması (EVENT-01 sonrası
+# canlı testte bulunan gerçek hata: web arayüzü İngilizce ayarlıyken bu
+# satır hep Türkçe basılıyordu) ---
+
+
+def test_applied_policy_message_is_localized(conn):
+    policy = add_policy(
+        category="reminder_minutes_before",
+        natural_language_rule="sınav tarihlerinin anımsatıcıları son 3 gün öncesinden olsun",
+        structured_action={"reminder_minutes_before": 4320},
+        event_type=EventType.EXAM.value,
+    )
+    embed_and_store_policy(_DummyEmbeddingProvider(), policy)
+
+    candidate_en = CandidateEvent(candidate_id="c-en", source_type=SourceType.CONVERSATION, event_type=EventType.EXAM)
+    messages_en = apply_retrieved_policies(candidate_en, _DummyEmbeddingProvider(), lang="en")
+    assert any("Rule applied" in m for m in messages_en)
+    assert not any("Kural uygulandı" in m for m in messages_en)
+
+    candidate_tr = CandidateEvent(candidate_id="c-tr", source_type=SourceType.CONVERSATION, event_type=EventType.EXAM)
+    messages_tr = apply_retrieved_policies(candidate_tr, _DummyEmbeddingProvider(), lang="tr")
+    assert any("Kural uygulandı" in m for m in messages_tr)
 
 
 # --- Mutlu yol: eksik alan yok, çakışma yok ---

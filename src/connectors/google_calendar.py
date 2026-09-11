@@ -14,7 +14,27 @@ from google.oauth2.credentials import Credentials
 
 from src.connectors.base import CalendarConnector
 from src.connectors.google_auth import GOOGLE_ACCOUNT_SCOPES, get_google_credentials
+from src.core.logging_config import get_logger
 from src.services.timeutil import DEFAULT_TIMEZONE
+
+logger = get_logger("google_calendar")
+
+# Google Calendar API'nin belgelenmiş sınırı: bir etkinlikte en fazla 5
+# override hatırlatıcı olabilir (fazlası 400 hatasına yol açar).
+_MAX_REMINDER_OVERRIDES = 5
+
+
+def _reminders_body(reminders: list[dict]) -> dict:
+    overrides = reminders[:_MAX_REMINDER_OVERRIDES]
+    if len(reminders) > _MAX_REMINDER_OVERRIDES:
+        logger.warning(
+            "%d hatırlatıcıdan yalnızca ilk %d'i Google'a gönderiliyor (API sınırı)",
+            len(reminders), _MAX_REMINDER_OVERRIDES,
+        )
+    return {
+        "useDefault": False,
+        "overrides": [{"method": "popup", "minutes": r["minutes_before"]} for r in overrides],
+    }
 
 
 class GoogleCalendarConnector(CalendarConnector):
@@ -70,6 +90,7 @@ class GoogleCalendarConnector(CalendarConnector):
         end: datetime,
         location: str | None = None,
         calendar_id: str = "primary",
+        reminders: list[dict] | None = None,
     ) -> str:
         body: dict = {
             "summary": title,
@@ -78,6 +99,8 @@ class GoogleCalendarConnector(CalendarConnector):
         }
         if location is not None:
             body["location"] = location
+        if reminders is not None:
+            body["reminders"] = _reminders_body(reminders)
         created = self._service.events().insert(calendarId=calendar_id, body=body).execute()
         return created["id"]
 
@@ -90,6 +113,7 @@ class GoogleCalendarConnector(CalendarConnector):
         end: datetime | None = None,
         location: str | None = None,
         calendar_id: str = "primary",
+        reminders: list[dict] | None = None,
     ) -> None:
         body: dict = {}
         if title is not None:
@@ -100,6 +124,8 @@ class GoogleCalendarConnector(CalendarConnector):
             body["start"] = {"dateTime": start.isoformat(), "timeZone": DEFAULT_TIMEZONE}
         if end is not None:
             body["end"] = {"dateTime": end.isoformat(), "timeZone": DEFAULT_TIMEZONE}
+        if reminders is not None:
+            body["reminders"] = _reminders_body(reminders)
         self._service.events().patch(calendarId=calendar_id, eventId=event_id, body=body).execute()
 
     def delete_event(self, event_id: str, calendar_id: str = "primary") -> None:

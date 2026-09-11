@@ -222,7 +222,7 @@ def _dispatch_intent(
         # (çoğunluk durum) davranış hiç değişmez.
         first, *rest = candidates
         batch_total = len(candidates)
-        applied_messages = apply_retrieved_policies(first, embedding_provider, user_id=user_id)
+        applied_messages = apply_retrieved_policies(first, embedding_provider, user_id=user_id, lang=lang)
         initial_state = ChatState(
             flow=FLOW_CREATE_EVENT,
             candidate=first,
@@ -283,7 +283,7 @@ def _dispatch_file_upload(
     # _finish_candidate her candidate tamamlandığında sırayla işler.
     first, *rest = candidates
     batch_total = len(candidates)
-    applied_messages = apply_retrieved_policies(first, embedding_provider, user_id=user_id)
+    applied_messages = apply_retrieved_policies(first, embedding_provider, user_id=user_id, lang=lang)
     initial_state = ChatState(
         flow=FLOW_CREATE_EVENT,
         candidate=first,
@@ -518,7 +518,7 @@ def _finish_candidate(
         return ChatState(), messages
 
     next_candidate, *rest = state.queued_candidates
-    applied_messages = apply_retrieved_policies(next_candidate, embedding_provider, user_id=user_id)
+    applied_messages = apply_retrieved_policies(next_candidate, embedding_provider, user_id=user_id, lang=lang)
     next_state = ChatState(
         flow=FLOW_CREATE_EVENT,
         candidate=next_candidate,
@@ -563,7 +563,8 @@ def _finalize_create_event(
     # docstring'i) — yazma, ağ çağrısı BİTTİKTEN sonra kendi kısa bağlantısında.
     try:
         event_id = calendar.create_event(
-            title=candidate.title, start=start_dt, end=end_dt, location=candidate.location
+            title=candidate.title, start=start_dt, end=end_dt, location=candidate.location,
+            reminders=[r.model_dump() for r in candidate.reminders] or None,
         )
     except Exception:
         logger.exception("Takvime yazma başarısız (sohbet akışı)")

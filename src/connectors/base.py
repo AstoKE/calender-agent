@@ -56,6 +56,7 @@ class CalendarConnector(ABC):
         end: datetime,
         location: str | None = None,
         calendar_id: str = "primary",
+        reminders: list[dict] | None = None,
     ) -> str:
         """Etkinliği oluşturur, sağlayıcının event_id'sini döner. Yalnızca
         Calendar Action Executor tarafından, onay sonrası çağrılmalıdır.
@@ -64,7 +65,16 @@ class CalendarConnector(ABC):
         ({"summary":..., "start": {"dateTime":...}}) ya da Microsoft
         Graph'ın kendi JSON şekli yalnızca somut implementasyonun İÇİNDE
         kurulur, çağıran katman hiçbirini bilmez (bkz. Outlook entegrasyonu
-        öncesi düzeltilen normalizasyon sızıntısı, CLAUDE.md)."""
+        öncesi düzeltilen normalizasyon sızıntısı, CLAUDE.md).
+
+        ``reminders``: `[{"minutes_before": int}, ...]` (bkz.
+        `src.core.models.ReminderSpec`), `None` = hiç belirtilmedi (sağlayıcı
+        varsayılanı kullanılır). Sağlayıcı yetenekleri FARKLI (bkz. EVENT-01,
+        docs/urunlesme-ve-tasarim-yol-haritasi.md): Google birden fazla
+        hatırlatıcıyı destekler, Microsoft Graph etkinlik başına yalnızca
+        TEK bir hatırlatıcı alanı (`reminderMinutesBeforeStart`) sunar — bu
+        durumda somut implementasyon desteklenmeyen fazlalığı SESSİZCE
+        atmaz, loglar (bkz. ms_calendar.py)."""
 
     @abstractmethod
     def update_event(
@@ -76,11 +86,14 @@ class CalendarConnector(ABC):
         end: datetime | None = None,
         location: str | None = None,
         calendar_id: str = "primary",
+        reminders: list[dict] | None = None,
     ) -> None:
         """Var olan bir etkinliği günceller. Yalnızca onay sonrası çağrılmalıdır.
         `None` bırakılan alanlar DEĞİŞTİRİLMEZ (kısmi güncelleme/PATCH
         semantiği) — örn. yalnızca `start`/`end` verilip bir etkinliği
-        taşımak, başlığı/konumu hiç etkilemez."""
+        taşımak, başlığı/konumu hiç etkilemez. `reminders=[]` (boş liste),
+        `None`'dan FARKLI olarak "hatırlatıcıları kaldır" anlamına gelir —
+        bkz. `create_event`'in `reminders` notu."""
 
     @abstractmethod
     def delete_event(self, event_id: str, calendar_id: str = "primary") -> None:

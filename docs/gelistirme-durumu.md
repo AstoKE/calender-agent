@@ -215,3 +215,42 @@ Doğrulama: maskeleme testinin gerçekten bir şey yakaladığını varsaymadım
 **Bu kontrol noktasının sınırı ve sıradaki iş**
 
 `data/debug.log` dosyasının bugüne kadar birikmiş, maskesiz geçmiş içeriği bu değişiklikle temizlenmedi — yalnızca BUNDAN SONRA yazılacak satırlar maskeleniyor. İstersen eski dosyayı silmemi söyle, kendiliğinden silmedim. OAuth token’larının şifreli saklanması (PRIV-01’in diğer yarısı) hâlâ açık; bu, sunucu dağıtımı kararının netleşmesini bekleyen ayrı bir iş olarak bırakıldı (bkz. yol haritası "İlk mimari kararda iki dağıtım yolu netleştirilmeli").
+
+**Kontrol noktası 6 — EVENT-01: önizleme → connector hatırlatıcı sözleşmesi**
+
+Durum: uygulandı, otomatik doğrulama tamamlandı; kullanıcı testi ve onayı bekleniyor. Bu adım henüz commit edilmedi.
+
+EVENT-01 bulgusu: `CandidateEvent.reminders` (bkz. `src/core/models.py::ReminderSpec`) model/DB/önizlemede zaten vardı — bir kural ("3 gün önce hatırlat" gibi, `reminder_minutes_before` structured_action) `apply_retrieved_policies` ile bir candidate'a otomatik uygulanabiliyor, CLI'nın önizleme ekranında gösteriliyor, `candidate_events` tablosunda saklanıyordu. Ama gerçek `create_event`/`update_event` çağrılarının HİÇBİRİ (`vertical_prototype.py`, `chat_flow.py`, `routes.py` — 4 çağrı noktası) bu alanı connector'a geçirmiyordu — kullanıcı "3 gün önce hatırlat" kuralını onaylasa bile Google/Outlook takviminde hiçbir hatırlatıcı oluşmuyordu, sessizce kayboluyordu. Recurrence (tekrar) ve katılımcı alanları bu candidate akışında hiç doldurulmadığı için (yol haritasının aynı maddesinde anılsa da) gerçek bir veri kaybı yok — bu kontrol noktası kapsamı bilinçli olarak yalnızca hatırlatıcıya odaklandı.
+
+Yeni davranış:
+
+- `src/connectors/base.py::CalendarConnector.create_event`/`update_event` artık `reminders: list[dict] | None = None` alıyor — sağlayıcıdan bağımsız şekil: `[{"minutes_before": int}, ...]`. `None` = hiç belirtilmedi (dokunma), `[]` = hatırlatıcıları açıkça kaldır (yalnızca `update_event`'te anlamlı).
+- `GoogleCalendarConnector`: `reminders` verilirse Google'ın `{"useDefault": False, "overrides": [{"method": "popup", "minutes": N}, ...]}` şekline çeviriyor — Google BİRDEN FAZLA hatırlatıcıyı destekliyor, hepsi override olarak gidiyor (API'nin 5 override sınırına göre kırpılıyor, aşılırsa loglanıyor).
+- `MSCalendarConnector`: Graph, Google'ın aksine etkinlik başına yalnızca TEK bir hatırlatıcı alanı sunuyor (`isReminderOn` + `reminderMinutesBeforeStart`). Birden fazla `reminders` verilirse etkinliğe EN YAKIN olanı (`minutes_before` en küçük) tutuluyor, geri kalanı SESSİZCE atılmıyor — bir `logger.warning` ile kaç tanesinin ve hangisinin düştüğü kaydediliyor (yol haritasının "Google ve Microsoft yetenek farkları görünür" kabul kriterinin karşılığı).
+- 4 çağrı noktası (`vertical_prototype.py` CLI onayı, `chat_flow.py` web sohbet onayı, `routes.py` normal onay + mail-kaynaklı UPDATE_SUGGESTED onayı) artık `reminders=[r.model_dump() for r in candidate.reminders] or None` geçiriyor — candidate'ta hiç hatırlatıcı yoksa (çoğu durum) `None` gidip sağlayıcı davranışını hiç değiştirmiyor, eski davranışla birebir aynı.
+- Bugün pratikte `candidate.reminders` en fazla TEK öge taşıyor (`apply_retrieved_policies`'in `break` ile ilk eşleşen kuralda durması) — çoklu-hatırlatıcı/kapasite-farkı kodu şu an aktif kullanılmayan ama test edilmiş bir gelecek-hazırlığı.
+
+Kapsam dışı bırakılanlar: tekrar (`recurrence`) ve katılımcı (`participants`) alanlarının connector'a aktarılması — bu candidate akışında hiçbir yerde doldurulmadıkları için şu an gerçek bir veri kaybı yok, ayrı bir iş olarak bırakıldı. `vertical_prototype.py`/`chat_flow.py`'nin KONUŞMA akışından gelen `update_event` intent'i (mevcut bir Google/MS etkinliğini taşıma, `handle_update_event`) hiç dokunulmadı — o akış ham takvim event'i üzerinde çalışıyor, `CandidateEvent`/reminders kavramı yok, bu değişiklikle ilgisiz.
+
+Değişen dosyalar:
+
+- [base.py](../src/connectors/base.py), [google_calendar.py](../src/connectors/google_calendar.py), [ms_calendar.py](../src/connectors/ms_calendar.py): `reminders` parametresi + sağlayıcıya özgü çeviri.
+- [vertical_prototype.py](../src/services/vertical_prototype.py), [chat_flow.py](../src/services/chat_flow.py), [routes.py](../src/ui/routes.py): 4 çağrı noktasında `candidate.reminders` artık geçiriliyor.
+- [test_calendar_connectors.py](../tests/test_calendar_connectors.py) (yeni, 9 test): Google/Microsoft connector'larının gerçek istek gövdesini (Google için sahte `_service` chain, Microsoft için sahte `requests.request` — gerçek API'ye hiç dokunulmuyor) doğruluyor — bu, projede Google Calendar/MS Calendar connector'ları için İLK connector-seviyesi test dosyası (CLAUDE.md'nin daha önce işaret ettiği eksik).
+- [test_ui_routes.py](../tests/test_ui_routes.py): `_pending_candidate_for_account` artık `reminders` parametresi alıyor; yeni `test_approve_passes_candidate_reminders_to_create_event` web onay akışının uçtan uca doğru geçirdiğini kanıtlıyor.
+- [test_chat_flow.py](../tests/test_chat_flow.py), [test_chat_state.py](../tests/test_chat_state.py): sahte `FakeCalendar`/`_NullCalendar` sınıfları yeni `reminders` parametresini kabul edecek şekilde güncellendi (aksi halde `TypeError` ile tüm sohbet testleri kırılıyordu).
+
+Doğrulama: hem Google hem Microsoft tarafında testlerin gerçekten bir şey yakaladığını varsaymadım — Google'da `reminders` atamasını geçici olarak kaldırıp ilgili 2 testin `KeyError: 'reminders'` ile kırıldığını, Microsoft'ta "en yakını tut" mantığını `min`'den `max`'e çevirip ilgili testin yanlış değeri (`4320` yerine beklenen `30`) yakaladığını doğruladım, sonra ikisini de geri aldım. Tam paket **581 başarılı** (571 eski + 10 yeni: 9 connector + 1 route testi), pyflakes değişen tüm dosyalarda temiz.
+
+**Senin yapacağın manuel kontrol**
+
+1. Kurallarım'da "hatırlatıcı" tipinde yeni bir kural tanımla (örn. event_type=Sınav, "3 gün önce" / 4320 dakika) — ya da mevcut bir kuralın olduğu bir mail/sohbet senaryosunu kullan.
+2. O kurala uyan bir etkinliği (mail taraması veya sohbet üzerinden) oluşturup onayla.
+3. Google Calendar'ı (gerçek hesap) açıp o etkinliğin detayına bak — artık bir hatırlatıcının (bildirim) gerçekten eklendiğini doğrula. Önceden bu adımda HİÇBİR hatırlatıcı görünmüyordu.
+4. Bir Outlook hesabın varsa aynı senaryoyu orada da dene — Outlook etkinliğinde de tek bir hatırlatıcının göründüğünü doğrula.
+
+**Bu kontrol noktasının sınırı ve sıradaki iş**
+
+Tekrar (recurrence) ve katılımcı (participants) alanlarının connector sözleşmesine eklenmesi bilinçli olarak kapsam dışı bırakıldı — bugün hiçbir candidate akışı bu alanları doldurmuyor, dolayısıyla gerçek bir veri kaybı yok; ileride bu alanlar doldurulmaya başlarsa aynı desenle (base.py imza + Google/MS çeviri + çağrı noktaları) eklenebilir.
+
+**Kullanıcının canlı testinde bulunan ek hata (2026-09-11, aynı kontrol noktası kapsamında düzeltildi):** hatırlatıcı gerçekten eklendi (doğrulandı), ama web sohbetinde arayüz dili İngilizce ayarlıyken "(Kural uygulandı: ...)" mesajı hep TÜRKÇE basıldı. Kök neden: `vertical_prototype.py::apply_retrieved_policies` bu mesajı sabit bir Türkçe f-string ile kuruyordu ve `chat_flow.py`'nin 3 çağrı noktası hiç `lang` geçmiyordu (fonksiyonun kendisinde `lang` parametresi bile yoktu). Düzeltme: yeni `chat.rule_applied` çeviri anahtarı (`src/localization/catalog.py`) + `apply_retrieved_policies`'e `lang: str = "tr"` parametresi — CLI'ya basılan `print()` çıktısı BİLEREK hâlâ sabit Türkçe (CLI zaten hiç lokalize değil), yalnızca web'e dönen `applied_messages` listesi artık `lang`'a göre çevriliyor. `chat_flow.py`'nin 3 çağrı noktası da `lang=lang` geçecek şekilde güncellendi. Yeni test: `tests/test_chat_flow.py::test_applied_policy_message_is_localized` — `lang="en"`/`"tr"` ile gerçek bir kural uygulayıp dönen mesajın doğru dilde olduğunu doğruluyor; `translate(...)` çağrısını geçici olarak eski sabit mesaja döndürüp testin kırıldığını görerek doğrulandı, sonra geri alındı. Tam paket **582 başarılı**, pyflakes temiz.

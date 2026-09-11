@@ -19,9 +19,33 @@ import requests
 
 from src.connectors.base import CalendarConnector
 from src.connectors.microsoft_auth import MS_ACCOUNT_SCOPES, get_ms_token
+from src.core.logging_config import get_logger
 from src.services.timeutil import DEFAULT_TIMEZONE
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
+
+logger = get_logger("ms_calendar")
+
+
+def _reminder_fields(reminders: list[dict]) -> dict:
+    """Graph, Google'ın aksine etkinlik başına yalnızca TEK bir hatırlatıcı
+    alanı sunuyor (`reminderMinutesBeforeStart`) — birden fazla ayrı
+    hatırlatıcı kavramı yok. Birden fazla `reminders` verilirse en YAKIN
+    (minutes_before'ı en küçük) olanı tutuyoruz — etkinlikten hemen önceki
+    son hatırlatma kullanıcı için genelde en kritik olan — geri kalanı
+    SESSİZCE atmıyoruz, logluyoruz (bkz. EVENT-01,
+    docs/urunlesme-ve-tasarim-yol-haritasi.md: sağlayıcı yetenek farkı
+    görünür olmalı)."""
+    if not reminders:
+        return {"isReminderOn": False}
+    chosen = min(reminders, key=lambda r: r["minutes_before"])
+    if len(reminders) > 1:
+        logger.warning(
+            "%d hatırlatıcıdan yalnızca en yakını (%d dk önce) Microsoft Graph'a gönderiliyor "
+            "(tek hatırlatıcı alanı sınırı) — diğerleri atlandı",
+            len(reminders), chosen["minutes_before"],
+        )
+    return {"isReminderOn": True, "reminderMinutesBeforeStart": chosen["minutes_before"]}
 
 
 class MSCalendarConnector(CalendarConnector):
@@ -113,6 +137,7 @@ class MSCalendarConnector(CalendarConnector):
         end: datetime,
         location: str | None = None,
         calendar_id: str = "primary",
+        reminders: list[dict] | None = None,
     ) -> str:
         body: dict = {
             "subject": title,
@@ -123,6 +148,8 @@ class MSCalendarConnector(CalendarConnector):
             # Graph, Google'ın aksine konumu düz bir metin değil bir nesne
             # olarak bekliyor (canlı testte doğrulandı — bkz. CLAUDE.md).
             body["location"] = {"displayName": location}
+        if reminders is not None:
+            body.update(_reminder_fields(reminders))
         created = self._request("POST", "/me/events", body)
         return created["id"]
 
@@ -135,6 +162,7 @@ class MSCalendarConnector(CalendarConnector):
         end: datetime | None = None,
         location: str | None = None,
         calendar_id: str = "primary",
+        reminders: list[dict] | None = None,
     ) -> None:
         body: dict = {}
         if title is not None:
@@ -145,6 +173,8 @@ class MSCalendarConnector(CalendarConnector):
             body["start"] = {"dateTime": start.isoformat(), "timeZone": DEFAULT_TIMEZONE}
         if end is not None:
             body["end"] = {"dateTime": end.isoformat(), "timeZone": DEFAULT_TIMEZONE}
+        if reminders is not None:
+            body.update(_reminder_fields(reminders))
         self._request("PATCH", f"/me/events/{event_id}", body)
 
     def delete_event(self, event_id: str, calendar_id: str = "primary") -> None:

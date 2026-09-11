@@ -543,7 +543,8 @@ def approve(request: Request, candidate_id: str, force: bool = Form(False), next
         # Mail-kaynaklı güncelleme önerisi (bkz. docs/architecture-plan.md §8.3):
         # yeni bir etkinlik YARATMAZ, aynı Google etkinliğini yamalar.
         calendar.update_event(
-            pending["google_event_id"], title=candidate.title, start=start_dt, end=end_dt, location=candidate.location
+            pending["google_event_id"], title=candidate.title, start=start_dt, end=end_dt, location=candidate.location,
+            reminders=[r.model_dump() for r in candidate.reminders] or None,
         )
         update_candidate_status(candidate_id, CandidateStatus.UPDATED_IN_CALENDAR)
         record_candidate_audit(
@@ -551,7 +552,10 @@ def approve(request: Request, candidate_id: str, force: bool = Form(False), next
         )
         return RedirectResponse(next_url, status_code=303)
 
-    event_id = calendar.create_event(title=candidate.title, start=start_dt, end=end_dt, location=candidate.location)
+    event_id = calendar.create_event(
+        title=candidate.title, start=start_dt, end=end_dt, location=candidate.location,
+        reminders=[r.model_dump() for r in candidate.reminders] or None,
+    )
     update_candidate_status(candidate_id, CandidateStatus.ADDED_TO_CALENDAR)
     set_candidate_google_event_id(candidate_id, event_id)
     record_candidate_audit("approve_and_write", candidate_id, f"Web'den onaylandı, event_id={event_id}")
