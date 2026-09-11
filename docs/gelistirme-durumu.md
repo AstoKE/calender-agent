@@ -292,3 +292,32 @@ Doğrulama: üç ayrı noktada testlerin gerçekten bir şey yakaladığını va
 **Bu kontrol noktasının sınırı ve sıradaki iş**
 
 Kapsam dışı bırakılanlar (yol haritasının aynı maddesinde anılan ama ayrı işler): **kullanıcı kotası** (günlük/haftalık yükleme sayısı sınırı — kalıcı sayaç + sıfırlama penceresi gerektiren ayrı bir özellik); **genel istek gövdesi sınırı** (ASGI/middleware seviyesinde tüm rotalar için `Content-Length` kontrolü — bu checkpoint yalnızca chat/mail dosya yollarını, gerçek risk yüzeyini kapsıyor, ASGI seviyesi OPS-01'e daha yakın); **ses SÜRESİ sınırı** (saniye cinsinden) — bir byte-boyutu sınırı (10 MB) dolaylı olarak bunu da sınırlıyor (webm/opus sıkıştırmasıyla saatler süren bir kayıt gerektirir), gerçek bir süre sınırı ses konteynerini decode etmeyi gerektirirdi, tek-kullanıcılı yerel bir uygulama için orantısız bulundu.
+
+**Kontrol noktası 8 — WRITE-01: öneri onayında çift takvim yazma koruması**
+
+Durum: uygulandı, otomatik doğrulama tamamlandı; kullanıcı testi ve onayı bekleniyor. Bu adım henüz commit edilmedi.
+
+WRITE-01 bulgusu: `/oneriler/{id}/onayla` route'unda sağlayıcıya yazma (`calendar.create_event`/`update_event`) ile DB durum güncellemesi (`update_candidate_status`) ARASINDA bir pencere vardı — hiçbir tek-uçuş/kilit koruması yoktu. Çift tıklama ya da iki sekmeden aynı öneriyi aynı anda onaylamak, ikisinin de candidate'ı hâlâ "beklemede" bulup ikisinin de `calendar.create_event`'i çağırmasına, yani AYNI etkinliğin takvimde İKİ KEZ oluşmasına yol açabiliyordu. Bu, `chat_in_progress`/`scan_in_progress`'in ZATEN koruduğu (sohbet üzerinden onay, mail tarama) aynı sınıf bir hatanın, Gelen Öneriler'in kendi onay route'unda hiç kapatılmamış hâliydi.
+
+Yeni davranış:
+
+- `src/ui/app.py::lifespan` — yeni `app.state.candidate_approval_in_progress` (boş `set()`), `scan_in_progress`/`chat_in_progress` ile AYNI bellek-içi tek-uçuş deseni.
+- `src/ui/routes.py::approve` — takvime yazmadan önce `candidate_id`'yi bu sete ekliyor (`try`/`finally` ile, hata da olsa temizleniyor); istek geldiğinde candidate_id zaten sette ise (başka bir istek hâlâ işliyor) ikinci istek sessizce `/oneriler`'e yönlendiriliyor, calendar'a HİÇ dokunmuyor.
+- Koruma, missing/ambiguous-field yönlendirmesinden SONRA ama çakışma kontrolünden ÖNCE başlıyor — çakışma kontrolü salt-okunur olduğu için iki eşzamanlı isteğin ikisinin de çalışması zararsız, asıl kilit yalnızca gerçek yazma dallarını (update_event/create_event) kapsıyor.
+
+Değişen dosyalar:
+
+- [app.py](../src/ui/app.py): yeni `candidate_approval_in_progress` state seti.
+- [routes.py](../src/ui/routes.py): `approve` route'u `try`/`finally` ile tek-uçuş korumasına alındı.
+- [test_ui_routes.py](../tests/test_ui_routes.py): 2 yeni test — sette zaten olan bir candidate_id'nin ikinci isteği takvime hiç yazdırmadığı; normal (tek) bir isteğin bitince seti temizlediği.
+
+Doğrulama: koruma satırını (`if candidate_id in in_progress`) geçici olarak devre dışı bırakıp, "hâlâ süren" olarak işaretlenmiş bir candidate'ın GERÇEKTEN ikinci bir takvim etkinliği oluşturduğunu (testin başarısızlık çıktısında görüldü) doğruladım, sonra geri aldım. Tam paket **594 başarılı** (592 eski + 2 yeni), pyflakes temiz.
+
+**Senin yapacağın manuel kontrol**
+
+1. Gelen Öneriler'de bir öneriyi onaylarken (özellikle yavaş bir ağ/yavaş bir Google API yanıtı varken) "Onayla" butonuna hızlıca iki kez tıkla ya da iki sekmede aynı öneriyi aç, ikisinde de onayla — Google Calendar'da yalnızca TEK bir etkinlik oluşmalı (önceden bu senaryoda iki tane oluşabilirdi, teorik olarak — canlı olarak hiç tetiklenmemiş olabilir ama kod yolu açıktı).
+2. Normal, tek seferlik bir onayın hâlâ sorunsuz çalıştığını doğrula (regresyon kontrolü).
+
+**Bu kontrol noktasının sınırı ve sıradaki iş**
+
+Bu koruma yalnızca **eşzamanlı** çift tıklama/iki sekme senaryosunu kapatıyor — yol haritasının aynı maddesinde anılan daha zor bir senaryo ("sağlayıcı yazdı ama yanıt kayboldu", örn. `calendar.create_event()` Google'da etkinliği oluşturdu ama süreç TAM O ANDA çökerse `update_candidate_status` hiç çalışmaz, candidate hâlâ "beklemede" görünür) bilerek KAPSAM DIŞI bırakıldı — bunun gerçek bir çözümü ya bir arka plan uzlaştırma işine (JOB-01'e yakın, "bu candidate'ın Google'da zaten bir karşılığı var mı" diye periyodik kontrol) ya da sağlayıcı tarafında var olmayan bir idempotency-key mekanizmasına ihtiyaç duyar — tek kullanıcılı yerel bir uygulamada bu çökme penceresi son derece dar, kullanıcı zaten kendi Google Calendar'ını görebiliyor, nadir bir mükerrer kaydı elle silebilir. Bellek-içi set aynı zamanda ÇOK-WORKER'lı bir dağıtımı kapsamıyor (bu proje bugün tek süreç, `python -m src.ui.app`) — yol haritasının "iki worker" senaryosu ancak OPS-01/OAUTH-01'in dağıtım kararı netleşince anlamlı hâle gelir.

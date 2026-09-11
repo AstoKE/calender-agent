@@ -1050,6 +1050,48 @@ def test_approve_passes_candidate_reminders_to_create_event(client, monkeypatch)
     assert calendar.created_events[0]["reminders"] == [{"minutes_before": 4320}]
 
 
+def test_approve_single_flight_guard_skips_duplicate_write(client, monkeypatch):
+    # WRITE-01 (bkz. docs/urunlesme-ve-tasarim-yol-haritasi.md): candidate_id
+    # zaten "onay sürüyor" olarak işaretliyse (çift tıklama/iki sekme'nin
+    # BİRİNCİ isteği hâlâ sürüyormuş gibi simüle ediyoruz), ikinci istek
+    # takvime hiç yazmamalı.
+    ensure_account_registered("acc1", provider="google", email="a@example.com", user_id=client.test_user["id"])
+    _pending_candidate_for_account("acc1")
+
+    with get_connection() as conn:
+        candidate_id = conn.execute("SELECT candidate_id FROM candidate_events").fetchone()["candidate_id"]
+
+    calendar = _UpdateTrackingCalendar()
+    monkeypatch.setattr("src.ui.routes._get_calendar", lambda request, account_id: calendar)
+    client.app.state.candidate_approval_in_progress.add(candidate_id)
+
+    response = client.post(f"/oneriler/{candidate_id}/onayla", data={}, follow_redirects=False)
+
+    assert response.status_code == 303
+    assert calendar.created_events == []
+    # Bu istek claim'i KENDİSİ almadığı için (zaten oradaydı) temizlemedi —
+    # "gerçek" ilk isteğin finally'si sorumlu, testin sonunda elle temizliyoruz.
+    assert candidate_id in client.app.state.candidate_approval_in_progress
+    client.app.state.candidate_approval_in_progress.discard(candidate_id)
+
+
+def test_approve_normal_request_cleans_up_in_progress_set(client, monkeypatch):
+    ensure_account_registered("acc1", provider="google", email="a@example.com", user_id=client.test_user["id"])
+    _pending_candidate_for_account("acc1")
+
+    with get_connection() as conn:
+        candidate_id = conn.execute("SELECT candidate_id FROM candidate_events").fetchone()["candidate_id"]
+
+    calendar = _UpdateTrackingCalendar()
+    monkeypatch.setattr("src.ui.routes._get_calendar", lambda request, account_id: calendar)
+
+    response = client.post(f"/oneriler/{candidate_id}/onayla", data={}, follow_redirects=False)
+
+    assert response.status_code == 303
+    assert len(calendar.created_events) == 1
+    assert client.app.state.candidate_approval_in_progress == set()
+
+
 def test_approve_update_suggested_calls_update_event_not_create(client, monkeypatch):
     ensure_account_registered("acc1", provider="google", email="a@example.com", user_id=client.test_user["id"])
     candidate_id = _update_suggested_candidate("acc1")

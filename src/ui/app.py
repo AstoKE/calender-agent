@@ -84,6 +84,14 @@ async def lifespan(app: FastAPI):
     # yazabilir — scan_in_progress ile aynı bellek-içi tek-uçuş deseni,
     # session_id bazlı.
     app.state.chat_in_progress = set()
+    # WRITE-01 (bkz. docs/urunlesme-ve-tasarim-yol-haritasi.md): Gelen
+    # Öneriler'in onayla route'unda sağlayıcıya yazma (calendar.create_event/
+    # update_event) ile DB durum güncellemesi ARASINDA bir pencere vardı —
+    # çift tıklama/iki sekme aynı candidate_id için iki eşzamanlı isteği
+    # ikisi de "hâlâ beklemede" durumda bulup ikisi de takvime yazabiliyordu.
+    # scan_in_progress/chat_in_progress ile AYNI bellek-içi tek-uçuş deseni,
+    # candidate_id bazlı — bkz. routes.py::approve.
+    app.state.candidate_approval_in_progress = set()
     yield
 
 

@@ -526,40 +526,56 @@ def approve(request: Request, candidate_id: str, force: bool = Form(False), next
             f"/oneriler/{candidate_id}/duzenle?next={quote(next_url, safe='')}", status_code=303
         )
 
-    calendar = _get_calendar(request, resolve_write_account_id(pending["account_id"], user_id=request.state.user["id"]))
-    start_dt = candidate.start_datetime
-    end_dt = start_dt + timedelta(minutes=candidate.duration_minutes)
+    # WRITE-01 (bkz. docs/urunlesme-ve-tasarim-yol-haritasi.md): aynı
+    # candidate_id için hâlâ süren bir onay isteği varsa (çift tıklama/iki
+    # sekme) bu isteği sessizce yok say — ikinci bir calendar.create_event/
+    # update_event tetiklenip aynı etkinliğin iki kez oluşmasını önler.
+    # chat_in_progress/scan_in_progress ile AYNI tek-uçuş deseni (bkz.
+    # app.py::lifespan) — süreç içi, çok-worker'lı bir dağıtımı KAPSAMAZ
+    # (bu proje bugün tek süreç, bkz. yol haritasının "iki worker" notu).
+    in_progress = request.app.state.candidate_approval_in_progress
+    if candidate_id in in_progress:
+        return RedirectResponse(next_url, status_code=303)
+    in_progress.add(candidate_id)
+    try:
+        calendar = _get_calendar(
+            request, resolve_write_account_id(pending["account_id"], user_id=request.state.user["id"])
+        )
+        start_dt = candidate.start_datetime
+        end_dt = start_dt + timedelta(minutes=candidate.duration_minutes)
 
-    if not force:
-        conflicts = find_conflicts(calendar, start_dt, end_dt)
-        if conflicts:
-            return templates.TemplateResponse(
-                request,
-                "cakisma_onay.html",
-                {"pending": pending, "conflicts": conflicts, "active_page": "oneriler", "next_url": next_url},
+        if not force:
+            conflicts = find_conflicts(calendar, start_dt, end_dt)
+            if conflicts:
+                return templates.TemplateResponse(
+                    request,
+                    "cakisma_onay.html",
+                    {"pending": pending, "conflicts": conflicts, "active_page": "oneriler", "next_url": next_url},
+                )
+
+        if candidate.status == CandidateStatus.UPDATE_SUGGESTED and pending.get("google_event_id"):
+            # Mail-kaynaklı güncelleme önerisi (bkz. docs/architecture-plan.md §8.3):
+            # yeni bir etkinlik YARATMAZ, aynı Google etkinliğini yamalar.
+            calendar.update_event(
+                pending["google_event_id"], title=candidate.title, start=start_dt, end=end_dt, location=candidate.location,
+                reminders=[r.model_dump() for r in candidate.reminders] or None,
             )
+            update_candidate_status(candidate_id, CandidateStatus.UPDATED_IN_CALENDAR)
+            record_candidate_audit(
+                "approve_update", candidate_id, f"Web'den güncelleme onaylandı, event_id={pending['google_event_id']}"
+            )
+            return RedirectResponse(next_url, status_code=303)
 
-    if candidate.status == CandidateStatus.UPDATE_SUGGESTED and pending.get("google_event_id"):
-        # Mail-kaynaklı güncelleme önerisi (bkz. docs/architecture-plan.md §8.3):
-        # yeni bir etkinlik YARATMAZ, aynı Google etkinliğini yamalar.
-        calendar.update_event(
-            pending["google_event_id"], title=candidate.title, start=start_dt, end=end_dt, location=candidate.location,
+        event_id = calendar.create_event(
+            title=candidate.title, start=start_dt, end=end_dt, location=candidate.location,
             reminders=[r.model_dump() for r in candidate.reminders] or None,
         )
-        update_candidate_status(candidate_id, CandidateStatus.UPDATED_IN_CALENDAR)
-        record_candidate_audit(
-            "approve_update", candidate_id, f"Web'den güncelleme onaylandı, event_id={pending['google_event_id']}"
-        )
+        update_candidate_status(candidate_id, CandidateStatus.ADDED_TO_CALENDAR)
+        set_candidate_google_event_id(candidate_id, event_id)
+        record_candidate_audit("approve_and_write", candidate_id, f"Web'den onaylandı, event_id={event_id}")
         return RedirectResponse(next_url, status_code=303)
-
-    event_id = calendar.create_event(
-        title=candidate.title, start=start_dt, end=end_dt, location=candidate.location,
-        reminders=[r.model_dump() for r in candidate.reminders] or None,
-    )
-    update_candidate_status(candidate_id, CandidateStatus.ADDED_TO_CALENDAR)
-    set_candidate_google_event_id(candidate_id, event_id)
-    record_candidate_audit("approve_and_write", candidate_id, f"Web'den onaylandı, event_id={event_id}")
-    return RedirectResponse(next_url, status_code=303)
+    finally:
+        in_progress.discard(candidate_id)
 
 
 @router.post("/oneriler/{candidate_id}/reddet")
