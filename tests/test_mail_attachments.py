@@ -101,7 +101,8 @@ def test_returns_none_when_attachment_has_no_attachment_id():
 
 def test_extracts_candidate_from_eligible_attachment():
     email = _email(attachments=[Attachment(filename="davetiye.jpg", content_type="image/jpeg", attachment_id="att1")])
-    gmail = _FakeGmailConnector({"att1": b"FAKE_JPEG_BYTES"})
+    jpeg_bytes = b"\xff\xd8\xff" + b"FAKE_JPEG_BYTES"
+    gmail = _FakeGmailConnector({"att1": jpeg_bytes})
     llm = _ScriptedVisionLLM()
 
     candidate = extract_candidate_from_email_with_attachments(llm, email, gmail)
@@ -112,12 +113,12 @@ def test_extracts_candidate_from_eligible_attachment():
     assert candidate.source_type == SourceType.EMAIL
     assert candidate.status == CandidateStatus.READY_FOR_CONFIRMATION
     assert gmail.download_calls == [("msg-1", "att1")]
-    assert llm.file_calls == [(b"FAKE_JPEG_BYTES", "image/jpeg")]
+    assert llm.file_calls == [(jpeg_bytes, "image/jpeg")]
 
 
 def test_disciplined_list_response_uses_first_item():
     email = _email(attachments=[Attachment(filename="program.pdf", content_type="application/pdf", attachment_id="att1")])
-    gmail = _FakeGmailConnector({"att1": b"FAKE_PDF"})
+    gmail = _FakeGmailConnector({"att1": b"%PDF-" + b"FAKE_PDF"})
     list_response = json.dumps([
         json.loads(_EVENT_JSON),
         {"event_type": "meeting", "title": "İkinci Etkinlik", "start_datetime": "2026-09-02T10:00:00",
@@ -129,3 +130,34 @@ def test_disciplined_list_response_uses_first_item():
 
     assert candidate is not None
     assert candidate.title == "Proje Toplantısı"  # yalnızca ilki alınır, tek candidate bekleniyor
+
+
+# --- INPUT-01 (bkz. docs/urunlesme-ve-tasarim-yol-haritasi.md) ---
+
+
+def test_oversized_attachment_is_rejected_without_downloading():
+    # size_bytes zaten mail metadata'sından biliniyor (Gmail/Graph liste
+    # aşamasında döndürür) — gerçek baytları hiç indirmemeliyiz.
+    email = _email(attachments=[
+        Attachment(filename="dev.pdf", content_type="application/pdf", attachment_id="att1", size_bytes=50 * 1024 * 1024)
+    ])
+    gmail = _FakeGmailConnector({"att1": b"%PDF-" + b"x" * 100})
+    llm = _ScriptedVisionLLM()
+
+    assert extract_candidate_from_email_with_attachments(llm, email, gmail) is None
+    assert gmail.download_calls == []
+    assert llm.file_calls == []
+
+
+def test_attachment_with_spoofed_content_type_is_rejected():
+    # Mail göndereni content_type alanını istediği gibi beyan edebilir —
+    # gerçek baytlar (burada aslında bir PNG) beyan edilen türle (PDF)
+    # uyuşmuyorsa reddedilmeli, LLM'e hiç gönderilmemeli.
+    email = _email(attachments=[
+        Attachment(filename="dev.pdf", content_type="application/pdf", attachment_id="att1")
+    ])
+    gmail = _FakeGmailConnector({"att1": b"\x89PNG\r\n\x1a\n" + b"not actually a pdf"})
+    llm = _ScriptedVisionLLM()
+
+    assert extract_candidate_from_email_with_attachments(llm, email, gmail) is None
+    assert llm.file_calls == []

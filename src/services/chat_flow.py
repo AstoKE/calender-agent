@@ -50,12 +50,14 @@ from src.services.timeutil import DEFAULT_TIMEZONE, ensure_timezone, parse_clock
 from src.services.vertical_prototype import (
     ACCEPTED_FILE_MIME_TYPES,
     MAX_CLARIFICATION_ATTEMPTS,
+    MAX_FILE_SIZE_BYTES,
     DEFAULT_MEETING_DURATION_MINUTES,
     _find_matching_events,
     _update_event_extraction_system_prompt,
     apply_retrieved_policies,
     extract_candidate_events_from_file,
     extract_candidate_events_from_text,
+    file_content_matches_declared_type,
     record_audit,
     save_candidate,
     set_candidate_google_event_id,
@@ -254,7 +256,9 @@ def _dispatch_intent(
 # route'un dosyayı okuyup mime_type'ını çözmekten öte hiçbir iş bilmesi
 # gerekmiyor, hem de hata mesajı doğal olarak normal bir asistan balonu
 # olarak akışa giriyor (ayrı bir "hata enjekte et" yolu gerekmiyor).
-MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024  # 10 MB — telefon fotoğrafı/taranmış PDF için yeterli, aşırı büyük yüklemeleri eler
+# MAX_FILE_SIZE_BYTES artık vertical_prototype.py'de (bkz. import) — o dosya
+# hem chat_routes.py'nin OKUMA adımında hem burada TEK kaynak olarak
+# kullanılıyor (bkz. INPUT-01 notu orada).
 
 
 def _dispatch_file_upload(
@@ -272,6 +276,12 @@ def _dispatch_file_upload(
 
     if len(file_bytes) > MAX_FILE_SIZE_BYTES:
         return ChatState(), [translate("chat.file.too_large", lang, max_mb=MAX_FILE_SIZE_BYTES // (1024 * 1024))]
+
+    if not file_content_matches_declared_type(mime_type, file_bytes):
+        # İstemcinin (tarayıcı input[type=file]/doğrudan POST) iddia ettiği
+        # Content-Type, dosyanın GERÇEK ilk baytlarıyla uyuşmuyor — bkz.
+        # INPUT-01, sniff_file_mime_type docstring'i.
+        return ChatState(), [translate("chat.file.unsupported_type", lang)]
 
     try:
         candidates = extract_candidate_events_from_file(llm, file_bytes, mime_type, user_text)

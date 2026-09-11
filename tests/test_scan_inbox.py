@@ -60,7 +60,7 @@ class _FakeGmailConnector:
         self.account_id = account_id
 
     def download_attachment(self, message_id, attachment_id):
-        return b"FAKE_IMAGE_BYTES"
+        return b"\xff\xd8\xff" + b"FAKE_IMAGE_BYTES"
 
 
 def _insert_account_and_email(account_id="acc1", email_id=None):

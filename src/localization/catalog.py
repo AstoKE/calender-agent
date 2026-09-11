@@ -530,6 +530,10 @@ MESSAGES: dict[str, dict[str, str]] = {
         "tr": "Sesi anlayamadım, tekrar dener misiniz?",
         "en": "I couldn't understand the recording — could you try again?",
     },
+    "chat.audio.too_large": {
+        "tr": "Ses kaydı çok büyük — en fazla {max_mb} MB gönderebilirsiniz.",
+        "en": "Recording is too large — the maximum size is {max_mb} MB.",
+    },
     "chat.create.batch_progress": {"tr": "Etkinlik {index}/{total}:", "en": "Event {index}/{total}:"},
     "chat.create.ask_title": {"tr": "Etkinliğin başlığı ne olsun?", "en": "What should the event be called?"},
     "chat.create.ask_duration": {

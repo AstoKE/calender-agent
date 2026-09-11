@@ -26,6 +26,7 @@ from src.connectors.account_registry import resolve_write_account_id
 from src.core.logging_config import get_logger
 from src.localization import translate
 from src.providers.base import FileInputCapable
+from src.services.vertical_prototype import MAX_AUDIO_SIZE_BYTES, MAX_FILE_SIZE_BYTES
 from src.ui.chat_session import (
     create_new_chat_session,
     get_or_create_chat_session,
@@ -65,6 +66,21 @@ def _copy_cookies(source: Response, target: Response) -> None:
     for key, value in source.raw_headers:
         if key == b"set-cookie":
             target.raw_headers.append((key, value))
+
+
+def _error_bubble_response(request, session_id, cookie_carrier, ajax, target, message):
+    """Bir sohbet turunu, işlenecek bir kullanıcı niyeti hiç oluşmadan (ses
+    tanıma/dosya doğrulaması `process_message`'a hiç girmeden) tek bir hata
+    balonuyla bitirir — transkripsiyon hatası ve boyut/tür reddi AYNI şekle
+    ihtiyaç duyuyor, bkz. çağıran yerler."""
+    with get_connection() as conn:
+        append_chat_message(conn, session_id, "assistant", message)
+    response = (
+        _chat_fragment_response_for_session(request, session_id) if ajax
+        else RedirectResponse(target, status_code=303)
+    )
+    _copy_cookies(cookie_carrier, response)
+    return response
 
 
 # Hızlı-yanıt butonlarının (bkz. partials/_asistan_chat.html) ham action=
@@ -157,8 +173,20 @@ def send_chat_message(
     session_id = get_or_create_chat_session(request, cookie_carrier, account_id)
 
     if has_audio:
-        audio_bytes = ses.file.read()
+        # INPUT-01 (bkz. docs/urunlesme-ve-tasarim-yol-haritasi.md): sınırsız
+        # `.read()` yerine en fazla izin verilen boyuttan BİR FAZLASI okunur —
+        # gövde ne kadar büyük olursa olsun bellekte/diskte tutulan miktar
+        # sınırlı kalır, kontrolün kendisi de bu sayede tam boyutu bilmeye
+        # gerek kalmadan yapılabilir.
+        audio_bytes = ses.file.read(MAX_AUDIO_SIZE_BYTES + 1)
         audio_mime_type = ses.content_type or "audio/webm"
+
+        if len(audio_bytes) > MAX_AUDIO_SIZE_BYTES:
+            return _error_bubble_response(
+                request, session_id, cookie_carrier, ajax, target,
+                translate("chat.audio.too_large", lang, max_mb=MAX_AUDIO_SIZE_BYTES // (1024 * 1024)),
+            )
+
         try:
             transcribed = _transcribe_audio(request.app.state.llm, audio_bytes, audio_mime_type)
         except Exception:
@@ -172,21 +200,20 @@ def send_chat_message(
             # başarısız sonuç döndü — işlenecek bir kullanıcı niyeti yok,
             # process_message'a HİÇ girmeden doğrudan bir hata balonu eklenir
             # (chat_routes.py'nin genel except-fallback'iyle AYNI desen).
-            with get_connection() as conn:
-                append_chat_message(conn, session_id, "assistant", translate("chat.audio.transcription_failed", lang))
-            response = (
-                _chat_fragment_response_for_session(request, session_id) if ajax
-                else RedirectResponse(target, status_code=303)
+            return _error_bubble_response(
+                request, session_id, cookie_carrier, ajax, target,
+                translate("chat.audio.transcription_failed", lang),
             )
-            _copy_cookies(cookie_carrier, response)
-            return response
 
         user_text = transcribed
 
     file_bytes: bytes | None = None
     file_mime_type: str | None = None
     if has_file:
-        file_bytes = dosya.file.read()
+        # Aynı sınırlı-okuma deseni (yukarıdaki ses notuna bkz.) — asıl
+        # mime/boyut/içerik doğrulaması chat_flow.py::_dispatch_file_upload'da
+        # (tek kaynak, MAX_FILE_SIZE_BYTES).
+        file_bytes = dosya.file.read(MAX_FILE_SIZE_BYTES + 1)
         file_mime_type = dosya.content_type or "application/octet-stream"
 
     display_text = metin.strip() if metin.strip() else (

@@ -23,7 +23,11 @@ from src.providers.json_generation import generate_json, generate_json_from_file
 from src.rag.correction_retrieval import retrieve_similar_classification_corrections
 from src.services.extraction import build_candidate_from_fields
 from src.services.timeutil import DEFAULT_TIMEZONE, ensure_timezone
-from src.services.vertical_prototype import ACCEPTED_FILE_MIME_TYPES
+from src.services.vertical_prototype import (
+    ACCEPTED_FILE_MIME_TYPES,
+    MAX_FILE_SIZE_BYTES,
+    file_content_matches_declared_type,
+)
 
 BODY_PREVIEW_MAX_CHARS = 1500
 
@@ -331,7 +335,32 @@ def extract_candidate_from_email_with_attachments(
     if attachment is None:
         return None
 
+    if attachment.size_bytes is not None and attachment.size_bytes > MAX_FILE_SIZE_BYTES:
+        # INPUT-01 (bkz. docs/urunlesme-ve-tasarim-yol-haritasi.md): boyut
+        # zaten mail listesi metadata'sından biliniyor (Gmail/Graph ikisi de
+        # bunu attachment listesinde döndürür) — gerçek baytları hiç
+        # indirmeden, oversized bir eki ağa/belleğe hiç taşımadan reddediyoruz.
+        logger.info(
+            "extract_candidate_from_email_with_attachments: ek çok büyük (%s bayt), indirilmedi (%r)",
+            attachment.size_bytes, redact(email.subject),
+        )
+        return None
+
     file_bytes = mail_connector.download_attachment(email.message_id, attachment.attachment_id)
+
+    if len(file_bytes) > MAX_FILE_SIZE_BYTES or not file_content_matches_declared_type(
+        attachment.content_type, file_bytes
+    ):
+        # size_bytes metadata'sı eksik/yanlış olabilir (bazı sağlayıcılarda
+        # None) — gerçek indirilen bayt sayısı AYRICA kontrol ediliyor.
+        # attachment.content_type de mailin kendi beyanı (gönderen tarafından
+        # kontrol edilebilir) — gerçek baytlarla doğrulanmadan LLM'e verilmiyor.
+        logger.info(
+            "extract_candidate_from_email_with_attachments: ek reddedildi (boyut/tür uyuşmazlığı) (%r)",
+            redact(email.subject),
+        )
+        return None
+
     today = datetime.now().astimezone()
     fields = generate_json_from_file(
         llm, _event_extraction_system_prompt(today), build_email_text(email), file_bytes, attachment.content_type

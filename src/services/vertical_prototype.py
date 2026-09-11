@@ -156,6 +156,52 @@ ACCEPTED_FILE_MIME_TYPES = {
     "application/pdf",
 }
 
+# INPUT-01 (bkz. docs/urunlesme-ve-tasarim-yol-haritasi.md): dosya/ses yükleme
+# rotaları önceden `.file.read()` ile TÜM gövdeyi sınırsız okuyup ancak SONRA
+# boyut kontrolü yapıyordu — kötü niyetli/kazara çok büyük bir yükleme,
+# reddedilmeden önce tamamen belleğe/diske alınmış oluyordu. Bu sabitler artık
+# chat_routes.py'nin OKUMA adımının kendisinde de (yalnızca chat_flow.py'nin
+# sonradan kontrolünde değil) kullanılıyor — TEK kaynak, ACCEPTED_FILE_MIME_TYPES
+# ile aynı desen.
+MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024  # 10 MB — telefon fotoğrafı/taranmış PDF için yeterli
+MAX_AUDIO_SIZE_BYTES = 10 * 1024 * 1024  # 10 MB — dakikalarca sesli mesaj için fazlasıyla yeterli (webm/opus yüksek sıkıştırmalı)
+
+
+def sniff_file_mime_type(data: bytes) -> str | None:
+    """İlk birkaç baytına (sihirli sayı) bakarak GERÇEK dosya türünü tespit
+    eder — istemcinin gönderdiği Content-Type/content_type ASLA güvenilir
+    bir kaynak değildir (bkz. INPUT-01: "gerçek dosya türü doğrulama"), bir
+    istemci rastgele bayt dizisine "application/pdf" iddiasında bulunabilir.
+    Yalnızca ACCEPTED_FILE_MIME_TYPES'taki türleri ayırt eder, genel amaçlı
+    bir sniffer değil."""
+    if data.startswith(b"%PDF-"):
+        return "application/pdf"
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if data.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if len(data) >= 12 and data[0:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    if len(data) >= 12 and data[4:8] == b"ftyp":
+        # ISO-BMFF konteyneri (HEIC/HEIF) — brand koduyla HEIC/HEIF ayrımı
+        # güvenilir yapılamıyor (aynı brand'ler her iki uzantıda da görülüyor),
+        # bu yüzden ikisi de tek bir "heic ailesi" olarak tanınıyor.
+        brand = data[8:12]
+        if brand in (b"heic", b"heix", b"heim", b"heis", b"hevc", b"hevx", b"hevm", b"hevs", b"mif1", b"msf1"):
+            return "image/heic"
+    return None
+
+
+def file_content_matches_declared_type(declared_mime_type: str, data: bytes) -> bool:
+    """`sniff_file_mime_type`'ın gerçek sonucunu istemcinin/mailin iddia
+    ettiği türle karşılaştırır. HEIC/HEIF aynı ailede sayılır (yukarıdaki not)."""
+    detected = sniff_file_mime_type(data)
+    if detected is None:
+        return False
+    if declared_mime_type in ("image/heic", "image/heif"):
+        return detected == "image/heic"
+    return detected == declared_mime_type
+
 _FILE_EXTRACTION_INSTRUCTION = (
     "Ekteki dosya bir davetiye, afiş, bilet, randevu onayı, ekran görüntüsü veya "
     "benzeri bir kaynak olabilir (fotoğraf ya da PDF). İçinde BİR ya da BİRDEN "

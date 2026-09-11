@@ -218,7 +218,7 @@ Doğrulama: maskeleme testinin gerçekten bir şey yakaladığını varsaymadım
 
 **Kontrol noktası 6 — EVENT-01: önizleme → connector hatırlatıcı sözleşmesi**
 
-Durum: uygulandı, otomatik doğrulama tamamlandı; kullanıcı testi ve onayı bekleniyor. Bu adım henüz commit edilmedi.
+Durum: kullanıcı tarafından canlı test edilip onaylandı (gerçek Google Calendar'da hatırlatıcının eklendiği doğrulandı). Kod ve testler `0c641a5` (`Pass candidate reminders through to the calendar connector (EVENT-01)`) commit'iyle kaydedildi.
 
 EVENT-01 bulgusu: `CandidateEvent.reminders` (bkz. `src/core/models.py::ReminderSpec`) model/DB/önizlemede zaten vardı — bir kural ("3 gün önce hatırlat" gibi, `reminder_minutes_before` structured_action) `apply_retrieved_policies` ile bir candidate'a otomatik uygulanabiliyor, CLI'nın önizleme ekranında gösteriliyor, `candidate_events` tablosunda saklanıyordu. Ama gerçek `create_event`/`update_event` çağrılarının HİÇBİRİ (`vertical_prototype.py`, `chat_flow.py`, `routes.py` — 4 çağrı noktası) bu alanı connector'a geçirmiyordu — kullanıcı "3 gün önce hatırlat" kuralını onaylasa bile Google/Outlook takviminde hiçbir hatırlatıcı oluşmuyordu, sessizce kayboluyordu. Recurrence (tekrar) ve katılımcı alanları bu candidate akışında hiç doldurulmadığı için (yol haritasının aynı maddesinde anılsa da) gerçek bir veri kaybı yok — bu kontrol noktası kapsamı bilinçli olarak yalnızca hatırlatıcıya odaklandı.
 
@@ -254,3 +254,41 @@ Doğrulama: hem Google hem Microsoft tarafında testlerin gerçekten bir şey ya
 Tekrar (recurrence) ve katılımcı (participants) alanlarının connector sözleşmesine eklenmesi bilinçli olarak kapsam dışı bırakıldı — bugün hiçbir candidate akışı bu alanları doldurmuyor, dolayısıyla gerçek bir veri kaybı yok; ileride bu alanlar doldurulmaya başlarsa aynı desenle (base.py imza + Google/MS çeviri + çağrı noktaları) eklenebilir.
 
 **Kullanıcının canlı testinde bulunan ek hata (2026-09-11, aynı kontrol noktası kapsamında düzeltildi):** hatırlatıcı gerçekten eklendi (doğrulandı), ama web sohbetinde arayüz dili İngilizce ayarlıyken "(Kural uygulandı: ...)" mesajı hep TÜRKÇE basıldı. Kök neden: `vertical_prototype.py::apply_retrieved_policies` bu mesajı sabit bir Türkçe f-string ile kuruyordu ve `chat_flow.py`'nin 3 çağrı noktası hiç `lang` geçmiyordu (fonksiyonun kendisinde `lang` parametresi bile yoktu). Düzeltme: yeni `chat.rule_applied` çeviri anahtarı (`src/localization/catalog.py`) + `apply_retrieved_policies`'e `lang: str = "tr"` parametresi — CLI'ya basılan `print()` çıktısı BİLEREK hâlâ sabit Türkçe (CLI zaten hiç lokalize değil), yalnızca web'e dönen `applied_messages` listesi artık `lang`'a göre çevriliyor. `chat_flow.py`'nin 3 çağrı noktası da `lang=lang` geçecek şekilde güncellendi. Yeni test: `tests/test_chat_flow.py::test_applied_policy_message_is_localized` — `lang="en"`/`"tr"` ile gerçek bir kural uygulayıp dönen mesajın doğru dilde olduğunu doğruluyor; `translate(...)` çağrısını geçici olarak eski sabit mesaja döndürüp testin kırıldığını görerek doğrulandı, sonra geri alındı. Tam paket **582 başarılı**, pyflakes temiz.
+
+**Kontrol noktası 7 — INPUT-01: dosya/ses yükleme sınırları + gerçek tür doğrulama**
+
+Durum: uygulandı, otomatik doğrulama tamamlandı; kullanıcı testi ve onayı bekleniyor. Bu adım henüz commit edilmedi.
+
+INPUT-01 bulgusu: dosya (`dosya`) ve ses (`ses`) yükleme rotaları `.file.read()` ile TÜM gövdeyi sınırsız okuyup ANCAK SONRA (dosyada) boyut kontrolü yapıyordu — kötü niyetli/kazara çok büyük bir yükleme, reddedilmeden önce tamamen belleğe/diske alınmış oluyordu; ses tarafında (mikrofon) HİÇBİR boyut sınırı yoktu (dosyanınki gibi post-hoc bir kontrol bile). Ayrıca hem sohbet yüklemesi hem mail eki yolu, dosya türünü yalnızca istemcinin/mailin BEYAN ettiği Content-Type'a (`dosya.content_type`/`attachment.content_type`) bakarak kabul ediyordu — bu alan tamamen istemci/gönderen kontrolünde, gerçek baytlarla hiç doğrulanmıyordu.
+
+Yeni davranış:
+
+- `src/services/vertical_prototype.py` — `MAX_FILE_SIZE_BYTES` (chat_flow.py'den taşındı) + yeni `MAX_AUDIO_SIZE_BYTES` (ikisi de 10 MB), `ACCEPTED_FILE_MIME_TYPES` ile AYNI "tek kaynak" desenini izliyor. Yeni `sniff_file_mime_type(data)`: ilk baytlara (sihirli sayı — PDF `%PDF-`, PNG/JPEG/WEBP standart imzaları, HEIC/HEIF ISO-BMFF `ftyp` kutusu) bakarak GERÇEK türü tespit ediyor. Yeni `file_content_matches_declared_type(declared, data)`: sniff sonucunu beyan edilen türle karşılaştırıyor (HEIC/HEIF aynı aile sayılıyor — brand koduyla güvenilir ayrım yapılamıyor).
+- `src/ui/chat_routes.py`: hem `dosya.file.read(...)` hem `ses.file.read(...)` artık sınırsız değil, `cap + 1` bayt okuyor — gövde ne kadar büyük olursa olsun bellekte/diskte tutulan miktar sınırlı kalıyor, kontrolün kendisi tam boyutu bilmeye gerek kalmadan yapılabiliyor. Ses için yeni bir boyut kontrolü eklendi (öncesinde HİÇ yoktu) — aşılırsa transkripsiyon hiç denenmeden yeni `chat.audio.too_large` mesajıyla erken dönülüyor. Tekrarlanan "hata balonu ekle + yanıt oluştur" deseni `_error_bubble_response` yardımcı fonksiyonuna çıkarıldı (transkripsiyon hatası + boyut reddi aynı şekli paylaşıyor).
+- `src/services/chat_flow.py::_dispatch_file_upload`: mevcut boyut kontrolünden SONRA yeni bir `file_content_matches_declared_type` kontrolü eklendi — beyan edilen tür kabul listesindeyse ve boyut sınırın altındaysa bile gerçek baytlar uyuşmuyorsa (`chat.file.unsupported_type` mesajıyla) reddediliyor, LLM'e hiç gönderilmiyor.
+- `src/services/mail_analysis.py::extract_candidate_from_email_with_attachments`: iki yeni kontrol. (1) `attachment.size_bytes` (Gmail/Graph zaten mail listesi metadata'sında bunu döndürüyor) `MAX_FILE_SIZE_BYTES`'ı aşıyorsa, gerçek baytlar HİÇ İNDİRİLMİYOR. (2) İndirildikten sonra `file_content_matches_declared_type` ile mailin beyan ettiği `content_type` gerçek baytlarla çapraz kontrol ediliyor — mail göndereni bu alanı istediği gibi ayarlayabildiği için (attacker-controlled), sniff olmadan güvenilir değildi.
+- Yeni çeviri anahtarı: `chat.audio.too_large` (TR/EN).
+
+Değişen dosyalar:
+
+- [vertical_prototype.py](../src/services/vertical_prototype.py): `MAX_FILE_SIZE_BYTES`/`MAX_AUDIO_SIZE_BYTES`/`sniff_file_mime_type`/`file_content_matches_declared_type`.
+- [chat_routes.py](../src/ui/chat_routes.py): sınırlı okuma, ses boyutu kontrolü, `_error_bubble_response`.
+- [chat_flow.py](../src/services/chat_flow.py): içerik-tür doğrulama, sabit taşındı.
+- [mail_analysis.py](../src/services/mail_analysis.py): ek boyutu ön-kontrolü (indirmeden önce) + indirilen baytların tür doğrulaması.
+- [catalog.py](../src/localization/catalog.py): `chat.audio.too_large`.
+- [test_file_type_sniffing.py](../tests/test_file_type_sniffing.py) (yeni, 9 test): sniff/eşleşme fonksiyonlarının kendisi + `_dispatch_file_upload`'ın sahte içerik/aşırı boyut karşısında LLM'e HİÇ gitmediğini (bilerek patlayan bir `_RaisingVisionLLM` ile) kanıtlıyor.
+- [test_mail_attachments.py](../tests/test_mail_attachments.py): 2 yeni test — oversized ek indirilmeden reddediliyor, sahte content_type'lı ek reddediliyor.
+- [test_chat_routes.py](../tests/test_chat_routes.py): 1 yeni test (aşırı büyük ses transkribe edilmeden reddediliyor) + var olan dosya-yükleme testlerinin sahte baytları gerçek JPEG imzasıyla (`\xff\xd8\xff`) güncellendi (aksi halde yeni sniff kontrolü onları da reddederdi).
+- [test_scan_inbox.py](../tests/test_scan_inbox.py): aynı sebeple sahte ek baytı gerçek JPEG imzasına güncellendi.
+
+Doğrulama: üç ayrı noktada testlerin gerçekten bir şey yakaladığını varsaymadım — `file_content_matches_declared_type`'ı geçici olarak hep `True` döndürecek şekilde bozup 3 testin (`test_content_mismatch_is_rejected`, `test_dispatch_file_upload_rejects_spoofed_content_type`, `test_attachment_with_spoofed_content_type_is_rejected`) kırıldığını; `chat_routes.py`'deki ses boyutu kontrolünü geçici devre dışı bırakıp reddedilmesi gereken bir transkriptin gerçekten niyet sınıflandırmaya kadar sızdığını (log'da görüldü) ve testin bunu yakaladığını; `mail_analysis.py`'deki boyut ön-kontrolünü geçici devre dışı bırakıp oversized bir ekin indirilip işlendiğini ve testin bunu yakaladığını doğruladım — üçünde de sonra geri aldım. Tam paket **592 başarılı** (582 eski + 10 yeni), pyflakes değişen tüm dosyalarda temiz.
+
+**Senin yapacağın manuel kontrol**
+
+1. Sohbette normal boyutlu bir fotoğraf/PDF yükleyip her zamanki gibi çalıştığını doğrula (regresyon kontrolü).
+2. İstersen 10 MB'ı geçen bir dosya yükleyip "çok büyük" mesajını gör.
+3. Normal bir sesli mesaj kaydedip her zamanki gibi çalıştığını doğrula (regresyon kontrolü) — asıl riskli değişiklik ses tarafında, hiç test edilmemişti.
+
+**Bu kontrol noktasının sınırı ve sıradaki iş**
+
+Kapsam dışı bırakılanlar (yol haritasının aynı maddesinde anılan ama ayrı işler): **kullanıcı kotası** (günlük/haftalık yükleme sayısı sınırı — kalıcı sayaç + sıfırlama penceresi gerektiren ayrı bir özellik); **genel istek gövdesi sınırı** (ASGI/middleware seviyesinde tüm rotalar için `Content-Length` kontrolü — bu checkpoint yalnızca chat/mail dosya yollarını, gerçek risk yüzeyini kapsıyor, ASGI seviyesi OPS-01'e daha yakın); **ses SÜRESİ sınırı** (saniye cinsinden) — bir byte-boyutu sınırı (10 MB) dolaylı olarak bunu da sınırlıyor (webm/opus sıkıştırmasıyla saatler süren bir kayıt gerektirir), gerçek bir süre sınırı ses konteynerini decode etmeyi gerektirirdi, tek-kullanıcılı yerel bir uygulama için orantısız bulundu.

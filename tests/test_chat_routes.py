@@ -628,6 +628,29 @@ def test_voice_message_empty_transcription_shows_error(vision_client, monkeypatc
     assert "anlayamadım" in response.text
 
 
+def test_voice_message_too_large_is_rejected_without_transcribing(vision_client, monkeypatch):
+    # INPUT-01 (bkz. docs/urunlesme-ve-tasarim-yol-haritasi.md): boyut sınırı
+    # aşılınca transkripsiyon HİÇ denenmemeli — reddedilmiş bir ses hiçbir
+    # şekilde LLM'e gitmemeli.
+    from src.services.vertical_prototype import MAX_AUDIO_SIZE_BYTES
+
+    monkeypatch.setattr(_DummyVisionLLMProvider, "file_response", "bu metin hiç görünmemeli")
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=vision_client.test_user["id"],
+    )
+
+    oversized = b"\x00" * (MAX_AUDIO_SIZE_BYTES + 1)
+    response = vision_client.post(
+        "/asistan/mesaj",
+        files={"ses": ("kayit.ogg", oversized, "audio/ogg")},
+        headers={"X-Requested-With": "fetch"},
+    )
+    assert response.status_code == 200
+    assert "çok büyük" in response.text
+    assert "bu metin hiç görünmemeli" not in response.text
+
+
 def test_voice_message_without_vision_provider_shows_error_not_crash(client):
     # `client` (vision_client DEĞİL) — FoundryLocal sahtesi FileInputCapable
     # UYGULAMIYOR; mikrofon butonu normalde hiç gösterilmez ama doğrudan bir
@@ -669,7 +692,7 @@ def test_file_upload_extracts_event_and_reaches_preview(vision_client):
     response = vision_client.post(
         "/asistan/mesaj",
         data={"next": "/anasayfa"},
-        files={"dosya": ("davetiye.jpg", b"FAKE_JPEG_BYTES", "image/jpeg")},
+        files={"dosya": ("davetiye.jpg", b"\xff\xd8\xff" + b"FAKE_JPEG_BYTES", "image/jpeg")},
         headers={"X-Requested-With": "fetch"},
     )
     assert response.status_code == 200
@@ -685,7 +708,7 @@ def test_file_upload_with_caption_shows_caption_not_placeholder(vision_client):
     response = vision_client.post(
         "/asistan/mesaj",
         data={"metin": "bu davetiyeyi ekle", "next": "/anasayfa"},
-        files={"dosya": ("davetiye.jpg", b"FAKE_JPEG_BYTES", "image/jpeg")},
+        files={"dosya": ("davetiye.jpg", b"\xff\xd8\xff" + b"FAKE_JPEG_BYTES", "image/jpeg")},
         headers={"X-Requested-With": "fetch"},
     )
     assert response.status_code == 200
@@ -702,7 +725,7 @@ def test_file_only_message_is_not_treated_as_empty(vision_client):
     )
     response = vision_client.post(
         "/asistan/mesaj",
-        files={"dosya": ("davetiye.jpg", b"FAKE_JPEG_BYTES", "image/jpeg")},
+        files={"dosya": ("davetiye.jpg", b"\xff\xd8\xff" + b"FAKE_JPEG_BYTES", "image/jpeg")},
         follow_redirects=False,
     )
     assert response.status_code == 303
@@ -732,7 +755,7 @@ def test_file_upload_without_vision_provider_shows_error(client):
     )
     response = client.post(
         "/asistan/mesaj",
-        files={"dosya": ("davetiye.jpg", b"FAKE_JPEG_BYTES", "image/jpeg")},
+        files={"dosya": ("davetiye.jpg", b"\xff\xd8\xff" + b"FAKE_JPEG_BYTES", "image/jpeg")},
         headers={"X-Requested-With": "fetch"},
     )
     assert response.status_code == 200
@@ -762,7 +785,7 @@ def test_file_upload_with_two_events_shows_first_with_batch_progress(vision_clie
     )
     response = vision_client.post(
         "/asistan/mesaj",
-        files={"dosya": ("program.jpg", b"FAKE_JPEG_BYTES", "image/jpeg")},
+        files={"dosya": ("program.jpg", b"\xff\xd8\xff" + b"FAKE_JPEG_BYTES", "image/jpeg")},
         headers={"X-Requested-With": "fetch"},
     )
     assert response.status_code == 200
@@ -779,7 +802,7 @@ def test_approving_first_of_two_events_automatically_starts_second(vision_client
     )
     vision_client.post(
         "/asistan/mesaj",
-        files={"dosya": ("program.jpg", b"FAKE_JPEG_BYTES", "image/jpeg")},
+        files={"dosya": ("program.jpg", b"\xff\xd8\xff" + b"FAKE_JPEG_BYTES", "image/jpeg")},
         headers={"X-Requested-With": "fetch"},
     )
 
@@ -799,7 +822,7 @@ def test_approving_last_of_two_events_finishes_normally(vision_client, monkeypat
     )
     vision_client.post(
         "/asistan/mesaj",
-        files={"dosya": ("program.jpg", b"FAKE_JPEG_BYTES", "image/jpeg")},
+        files={"dosya": ("program.jpg", b"\xff\xd8\xff" + b"FAKE_JPEG_BYTES", "image/jpeg")},
         headers={"X-Requested-With": "fetch"},
     )
     vision_client.post("/asistan/mesaj", data={"action": "approve"}, headers={"X-Requested-With": "fetch"})
