@@ -107,7 +107,7 @@ Kullanıcı onayından sonra kalıcı test izolasyonuna geçildi; güncel durum 
 
 **Kontrol noktası 4 — TEST-01: kalıcı test izolasyonu**
 
-Durum: kullanıcı tarafından onaylandı. Kod ve testler `14fed05` commit'iyle kaydedildi.
+Durum: kullanıcı tarafından onaylandı. Kod ve testler `95aea7e` commit'iyle kaydedildi.
 
 Önceden standart `pytest tests/` komutu geliştirme makinesinde 11 testte başarısız oluyordu; başarısız sohbet rotası testleri gerçek Google OAuth token yenilemesine ulaşıyordu. Testlerin geçmesi için `DATA_DIR` değerlerini süreç boyunca elle geçici klasöre yönlendiren bir sarmalayıcı gerekiyordu. Bu, gerçek kimlik bilgilerinin test sürecine sızabildiği anlamına da geliyordu; `data/` dizinindeki `google_token_acc1.json` ve `google_token_newuser.json` gibi test kaynaklı dosyalar bu sızıntının izidir.
 
@@ -175,7 +175,7 @@ Yol haritasındaki ilk sprint listesinde sırada **4. madde** var: varsayılan i
 
 **Kontrol noktası 5 — PRIV-01 (log yarısı): varsayılan log içeriği maskeleme + rotasyon**
 
-Durum: kullanıcı tarafından onaylandı. Kod ve testler `eaa5442` (`Mask sensitive log content by default, add log rotation`) commit'iyle kaydedildi.
+Durum: kullanıcı tarafından onaylandı. Kod ve testler `b0e66fc` (`Mask sensitive log content by default, add log rotation`) commit'iyle kaydedildi.
 
 PRIV-01 bulgusunun iki parçası vardı: token’ların şifreli saklanması (sunucuya taşınırsa gereken ayrı bir anahtar-yönetimi işi, bu kontrol noktasının kapsamı DIŞINDA — yalnızca log yarısı ele alındı) ve "varsayılan loglarda içerik maskeleme, rotasyon, saklama süresi". Önceden `data/debug.log`’a her LLM çağrısının sistem/kullanıcı promptu, ham model çıktısı ve mail konusu (subject) tam metin olarak yazılıyordu — dosya şifrelenmeden diske yazıldığı için bu, mail gövdesi/sohbet metni gibi hassas içeriğin okunabilir biçimde diskte birikmesi anlamına geliyordu. Gerçek kurulumda tek dosya 8MB’ı geçmişti; rotasyon da yoktu.
 
@@ -218,7 +218,7 @@ Doğrulama: maskeleme testinin gerçekten bir şey yakaladığını varsaymadım
 
 **Kontrol noktası 6 — EVENT-01: önizleme → connector hatırlatıcı sözleşmesi**
 
-Durum: kullanıcı tarafından canlı test edilip onaylandı (gerçek Google Calendar'da hatırlatıcının eklendiği doğrulandı). Kod ve testler `0c641a5` (`Pass candidate reminders through to the calendar connector (EVENT-01)`) commit'iyle kaydedildi.
+Durum: kullanıcı tarafından canlı test edilip onaylandı (gerçek Google Calendar'da hatırlatıcının eklendiği doğrulandı). Kod ve testler `d5ff5de` (`Pass candidate reminders through to the calendar connector (EVENT-01)`) commit'iyle kaydedildi.
 
 EVENT-01 bulgusu: `CandidateEvent.reminders` (bkz. `src/core/models.py::ReminderSpec`) model/DB/önizlemede zaten vardı — bir kural ("3 gün önce hatırlat" gibi, `reminder_minutes_before` structured_action) `apply_retrieved_policies` ile bir candidate'a otomatik uygulanabiliyor, CLI'nın önizleme ekranında gösteriliyor, `candidate_events` tablosunda saklanıyordu. Ama gerçek `create_event`/`update_event` çağrılarının HİÇBİRİ (`vertical_prototype.py`, `chat_flow.py`, `routes.py` — 4 çağrı noktası) bu alanı connector'a geçirmiyordu — kullanıcı "3 gün önce hatırlat" kuralını onaylasa bile Google/Outlook takviminde hiçbir hatırlatıcı oluşmuyordu, sessizce kayboluyordu. Recurrence (tekrar) ve katılımcı alanları bu candidate akışında hiç doldurulmadığı için (yol haritasının aynı maddesinde anılsa da) gerçek bir veri kaybı yok — bu kontrol noktası kapsamı bilinçli olarak yalnızca hatırlatıcıya odaklandı.
 
@@ -257,7 +257,7 @@ Tekrar (recurrence) ve katılımcı (participants) alanlarının connector sözl
 
 **Kontrol noktası 7 — INPUT-01: dosya/ses yükleme sınırları + gerçek tür doğrulama**
 
-Durum: uygulandı, otomatik doğrulama tamamlandı; kullanıcı testi ve onayı bekleniyor. Bu adım henüz commit edilmedi.
+Durum: kullanıcı tarafından onaylandı. Kod ve testler `bcb5342` (`Bound and validate chat/mail file uploads (INPUT-01)`) commit'iyle kaydedildi.
 
 INPUT-01 bulgusu: dosya (`dosya`) ve ses (`ses`) yükleme rotaları `.file.read()` ile TÜM gövdeyi sınırsız okuyup ANCAK SONRA (dosyada) boyut kontrolü yapıyordu — kötü niyetli/kazara çok büyük bir yükleme, reddedilmeden önce tamamen belleğe/diske alınmış oluyordu; ses tarafında (mikrofon) HİÇBİR boyut sınırı yoktu (dosyanınki gibi post-hoc bir kontrol bile). Ayrıca hem sohbet yüklemesi hem mail eki yolu, dosya türünü yalnızca istemcinin/mailin BEYAN ettiği Content-Type'a (`dosya.content_type`/`attachment.content_type`) bakarak kabul ediyordu — bu alan tamamen istemci/gönderen kontrolünde, gerçek baytlarla hiç doğrulanmıyordu.
 
