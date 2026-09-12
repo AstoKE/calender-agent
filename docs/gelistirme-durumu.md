@@ -324,7 +324,7 @@ Bu koruma yalnızca **eşzamanlı** çift tıklama/iki sekme senaryosunu kapatı
 
 **Kontrol noktası 9 — AUTH-03 (CSRF yarısı): fail-open kontrolü fail-closed'a çevirme**
 
-Durum: uygulandı, otomatik doğrulama tamamlandı; kullanıcı testi ve onayı bekleniyor. Bu adım henüz commit edilmedi.
+Durum: kullanıcı tarafından onaylandı. Kod ve testler `ecc2de2` (`Make CSRF check fail closed and cover all write methods (AUTH-03)`) commit'iyle kaydedildi.
 
 AUTH-03 bulgusunun üç parçası vardı: (1) oturum ömrü 400 gün + OAuth callback çerezinde `Secure` yok, (2) CSRF kontrolü başlıklar olmadığında isteği KABUL ediyordu (fail-open), (3) CSRF yalnızca POST için çalışıyordu. Bu kontrol noktası yalnızca (2) ve (3)'ü ele aldı — (1) bilinçli olarak KAPSAM DIŞI, aşağıda gerekçesi var.
 
