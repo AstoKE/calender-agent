@@ -321,6 +321,23 @@ def test_same_origin_post_is_allowed(client):
     assert response.status_code == 303
 
 
+def test_post_with_no_fetch_metadata_headers_is_rejected(temp_db, monkeypatch):
+    # AUTH-03 (bkz. docs/urunlesme-ve-tasarim-yol-haritasi.md): Sec-Fetch-Site
+    # de Origin da hiç yoksa istek artık REDDEDİLİYOR (fail-closed) — önceden
+    # bu durumda kabul ediliyordu. `client` fixture'ının kendi varsayılan
+    # header'ını atlamak için burada bilerek çıplak bir TestClient kuruluyor.
+    monkeypatch.setattr("src.ui.app.FoundryLocalProvider", _DummyLLMProvider)
+    monkeypatch.setattr("src.ui.app.FoundryLocalEmbeddingProvider", _DummyEmbeddingProvider)
+    from src.ui.app import app
+
+    with TestClient(app) as bare_client:
+        login_test_client(bare_client)
+        del bare_client.headers["sec-fetch-site"]  # login_test_client'ın koyduğu varsayılanı kaldır
+        response = bare_client.post("/dil", data={"dil": "tr"}, follow_redirects=False)
+
+    assert response.status_code == 403
+
+
 # --- Faz 5: Takvim — bozulma matrisinin dört durumu, hepsi HTTP 200 ---
 
 

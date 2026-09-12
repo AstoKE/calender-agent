@@ -321,3 +321,35 @@ Doğrulama: koruma satırını (`if candidate_id in in_progress`) geçici olarak
 **Bu kontrol noktasının sınırı ve sıradaki iş**
 
 Bu koruma yalnızca **eşzamanlı** çift tıklama/iki sekme senaryosunu kapatıyor — yol haritasının aynı maddesinde anılan daha zor bir senaryo ("sağlayıcı yazdı ama yanıt kayboldu", örn. `calendar.create_event()` Google'da etkinliği oluşturdu ama süreç TAM O ANDA çökerse `update_candidate_status` hiç çalışmaz, candidate hâlâ "beklemede" görünür) bilerek KAPSAM DIŞI bırakıldı — bunun gerçek bir çözümü ya bir arka plan uzlaştırma işine (JOB-01'e yakın, "bu candidate'ın Google'da zaten bir karşılığı var mı" diye periyodik kontrol) ya da sağlayıcı tarafında var olmayan bir idempotency-key mekanizmasına ihtiyaç duyar — tek kullanıcılı yerel bir uygulamada bu çökme penceresi son derece dar, kullanıcı zaten kendi Google Calendar'ını görebiliyor, nadir bir mükerrer kaydı elle silebilir. Bellek-içi set aynı zamanda ÇOK-WORKER'lı bir dağıtımı kapsamıyor (bu proje bugün tek süreç, `python -m src.ui.app`) — yol haritasının "iki worker" senaryosu ancak OPS-01/OAUTH-01'in dağıtım kararı netleşince anlamlı hâle gelir.
+
+**Kontrol noktası 9 — AUTH-03 (CSRF yarısı): fail-open kontrolü fail-closed'a çevirme**
+
+Durum: uygulandı, otomatik doğrulama tamamlandı; kullanıcı testi ve onayı bekleniyor. Bu adım henüz commit edilmedi.
+
+AUTH-03 bulgusunun üç parçası vardı: (1) oturum ömrü 400 gün + OAuth callback çerezinde `Secure` yok, (2) CSRF kontrolü başlıklar olmadığında isteği KABUL ediyordu (fail-open), (3) CSRF yalnızca POST için çalışıyordu. Bu kontrol noktası yalnızca (2) ve (3)'ü ele aldı — (1) bilinçli olarak KAPSAM DIŞI, aşağıda gerekçesi var.
+
+`src/ui/security.py::_is_same_origin`, ne `Sec-Fetch-Site` ne `Origin` başlığı geldiğinde isteği "aynı origin" sayıp KABUL ediyordu (gerekçe: "sunucu yalnızca localhost'a bağlanıyor"). Ama bu, korumayı fail-OPEN yapıyordu — bir script/eski tarayıcı bu başlıkları hiç göndermeden bir CSRF denemesini geçirebilirdi. Ayrıca `CSRFGuardMiddleware` yalnızca `request.method == "POST"` kontrolü yapıyordu.
+
+Yeni davranış:
+
+- İki başlık da yoksa istek artık REDDEDİLİYOR (fail-closed). Modern tarayıcılar (Chrome/Firefox/Safari/Edge, ~2020+) Fetch Metadata başlıklarını HER istekte (klasik form gönderimi dahil) gönderdiği için gerçek tarayıcı trafiği ETKİLENMİYOR — yalnızca script/araç/çok eski tarayıcı kaynaklı istekler artık reddediliyor.
+- Kontrol artık yalnızca `POST` değil, `GET`/`HEAD`/`OPTIONS` DIŞINDAKİ her metotta çalışıyor — bugün uygulamada PUT/PATCH/DELETE rotası yok (kontrol edildi), bu yalnızca ileriye dönük bir genelleme; ayrı bir test eklenmedi (test edilecek gerçek bir rota yok).
+
+Test altyapısı üzerindeki etki: `httpx` tabanlı `TestClient`, gerçek bir tarayıcının aksine Fetch Metadata başlıklarını kendiliğinden EKLEMEZ — bu değişiklik olmadan ~590 POST testinin BÜYÜK ÇOĞUNLUĞU artık 403 alırdı. Bunu tek tek her testi güncellemeden çözmek için `tests/conftest.py::login_test_client` (testlerin BÜYÜK ÇOĞUNLUĞUNun kullandığı ortak giriş noktası) artık istemci seviyesinde varsayılan bir `sec-fetch-site: same-origin` başlığı ayarlıyor — gerçek bir tarayıcının aynı sekmeden göndereceği şeyi taklit ediyor. `login_test_client`'ı KULLANMAYAN 2 dosyanın kendi inline fixture'ları da (`test_account_isolation.py::signed_in_client`, `test_candidate_authorization.py::scenario`) aynı şekilde güncellendi.
+
+Değişen dosyalar:
+
+- [security.py](../src/ui/security.py): fail-closed + tüm yazma metotlarını kapsama.
+- [conftest.py](../tests/conftest.py): `login_test_client`'a varsayılan `sec-fetch-site` başlığı.
+- [test_account_isolation.py](../tests/test_account_isolation.py), [test_candidate_authorization.py](../tests/test_candidate_authorization.py): kendi inline istemci kurulumlarına aynı varsayılan.
+- [test_ui_routes.py](../tests/test_ui_routes.py): yeni `test_post_with_no_fetch_metadata_headers_is_rejected` — varsayılan başlığı bilerek kaldırıp gerçek boşluğun artık kapalı olduğunu doğruluyor.
+
+Doğrulama: `_is_same_origin`'in son `return False`'unu geçici olarak `return True`'ya çevirip yeni testin (`403` yerine `303` alarak) kırıldığını doğruladım, sonra geri aldım. Tam paket **595 başarılı** (594 eski + 1 yeni), pyflakes değişen tüm dosyalarda temiz.
+
+**Senin yapacağın manuel kontrol**
+
+1. Uygulamayı normal tarayıcıdan kullan (form gönderimleri, Onayla/Reddet butonları, Kurallarım'da yeni kural ekleme gibi POST işlemleri) — hiçbir şeyin kırılmadığını doğrula (regresyon kontrolü, gerçek tarayıcı trafiği bu değişiklikten ETKİLENMEMELİ).
+
+**Bu kontrol noktasının sınırı ve sıradaki iş**
+
+Oturum ömrü (400 gün) ve OAuth callback çerezindeki `Secure` bayrağı BİLİNÇLİ olarak kapsam dışı bırakıldı — 400 gün değeri zaten tarayıcıların kendi `Max-Age` üst sınırına denk geliyor (tek kullanıcılı yerel bir uygulamada "hep giriş kalsın" rahatlığı için kasıtlı bir seçim), `Secure` bayrağı ise yalnızca HTTPS altında çalışan bir cookie'yi düz `http://localhost` üzerinde ANLAMSIZ/kırıcı hâle getirir (tarayıcı `Secure` işaretli bir cookie'yi düz HTTP'ye hiç göndermez). Bu ikisi de yol haritasının OAUTH-01 dağıtım kararına (localhost mu, gerçek bir sunucuya mı taşınacak) bağlı — karar netleşmeden anlamlı bir "üretim çerez profili" yazılamaz, PRIV-01'in token-şifreleme yarısıyla aynı bekleme durumu.

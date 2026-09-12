@@ -36,6 +36,7 @@ def signed_in_client(legacy_data):
     client = TestClient(app)
     client.cookies.set("session_token", create_session(user["id"]))
     client.test_user = user
+    client.headers["sec-fetch-site"] = "same-origin"  # bkz. conftest.py::login_test_client (AUTH-03)
     yield client
     client.close()
 

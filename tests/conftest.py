@@ -106,4 +106,13 @@ def login_test_client(test_client, email: str = "test@example.com") -> dict:
     token = create_session(user["id"])
     test_client.cookies.set("session_token", token)
     test_client.test_user = user  # testler user_id gerektiğinde (bkz. master takvim hesabı testleri) buradan okur
+    # AUTH-03 (bkz. src/ui/security.py): CSRFGuardMiddleware artık Fetch
+    # Metadata başlığı hiç yoksa isteği REDDEDİYOR (fail-closed) — httpx
+    # tabanlı TestClient, gerçek bir tarayıcının aksine bu başlığı kendiliğinden
+    # eklemiyor. Testlerin kendisi CSRF'i konu almadığı sürece (bkz.
+    # test_ui_routes.py'nin kendi cross-site/same-origin testleri, kendi
+    # başlıklarını AÇIKÇA veriyor ve bu varsayılanı ezer) gerçek bir aynı-
+    # sekme tarayıcı isteğini simüle etmek için istemci seviyesinde
+    # varsayılan bir "same-origin" başlığı ayarlanıyor.
+    test_client.headers["sec-fetch-site"] = "same-origin"
     return user

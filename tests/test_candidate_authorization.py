@@ -37,6 +37,13 @@ def scenario(temp_db, monkeypatch):
     monkeypatch.setattr("src.ui.routes._get_calendar", get_calendar)
     # No lifespan: these routes need neither model initialization nor real OAuth.
     client = TestClient(app)
+    # AUTH-03 (bkz. src/ui/security.py): CSRFGuardMiddleware artık Fetch
+    # Metadata başlığı hiç yoksa isteği REDDEDİYOR — bu istemci giriş
+    # yapılmadan ÖNCE de POST atıyor (bkz. test_candidate_requests_require_login),
+    # bu yüzden başlık burada, _sign_in'de değil, gerçek bir tarayıcının aynı
+    # sekmeden HER isteğinde (kimlik durumundan bağımsız) gönderdiği şeyi
+    # taklit edecek şekilde ayarlanıyor.
+    client.headers["sec-fetch-site"] = "same-origin"
     yield client, owner, other, candidate.candidate_id, get_calendar
     client.close()
 
