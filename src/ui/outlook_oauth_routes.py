@@ -38,8 +38,8 @@ from fastapi.responses import RedirectResponse
 from src.connectors.account_registry import register_account
 from src.connectors.microsoft_auth import AUTHORITY, MS_ACCOUNT_SCOPES, ms_client_id, save_ms_token_cache
 from src.core.logging_config import get_logger
-from src.ui.auth import SESSION_COOKIE, create_session, create_user, get_user_by_email
-from src.ui.session import set_session_cookies
+from src.ui.auth import SESSION_COOKIE, SESSION_MAX_AGE_DAYS, create_session, create_user, get_user_by_email
+from src.ui.session import cookie_secure, set_session_cookies
 
 router = APIRouter()
 logger = get_logger("ui.outlook_oauth_routes")
@@ -93,12 +93,12 @@ def start_outlook_oauth(request: Request, niyet: str | None = None):
     response = RedirectResponse(flow["auth_uri"], status_code=302)
     response.set_cookie(
         OAUTH_FLOW_COOKIE, json.dumps(flow), max_age=OAUTH_FLOW_MAX_AGE, path="/hesap-ekle-outlook",
-        httponly=True, samesite="lax",
+        httponly=True, samesite="lax", secure=cookie_secure(),
     )
     if niyet == "giris":
         response.set_cookie(
             OAUTH_INTENT_COOKIE, "giris", max_age=OAUTH_FLOW_MAX_AGE, path="/hesap-ekle-outlook",
-            httponly=True, samesite="lax",
+            httponly=True, samesite="lax", secure=cookie_secure(),
         )
     return response
 
@@ -176,7 +176,8 @@ def outlook_oauth_callback(request: Request):
         session_token = create_session(user["id"])
         response = RedirectResponse("/anasayfa", status_code=303)
         response.set_cookie(
-            SESSION_COOKIE, session_token, max_age=400 * 24 * 3600, path="/", httponly=True, samesite="lax",
+            SESSION_COOKIE, session_token, max_age=SESSION_MAX_AGE_DAYS * 24 * 3600, path="/",
+            httponly=True, samesite="lax", secure=cookie_secure(),
         )
     else:
         response = RedirectResponse("/hesaplar?hesap_eklendi=1", status_code=303)

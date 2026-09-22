@@ -14,12 +14,14 @@ from fastapi.testclient import TestClient
 from src.providers.base import EmbeddingProvider, LLMProvider
 from src.storage.db import get_connection
 from src.ui.auth import (
+    SESSION_MAX_AGE_DAYS,
     adopt_orphaned_data,
     create_session,
     create_user,
     destroy_session,
     get_current_user,
     get_user_by_email,
+    touch_session,
 )
 
 
@@ -109,6 +111,47 @@ def test_get_current_user_expired_session_returns_none(temp_db):
     with get_connection() as conn:
         conn.execute("UPDATE sessions SET expires_at = ? WHERE token = ?", (stale, token))
     assert get_current_user(_request({"session_token": token})) is None
+
+
+def test_session_lifetime_is_short_not_400_days(temp_db):
+    # AUTH-03 (bkz. docs/urunlesme-ve-tasarim-yol-haritasi.md): "daha kısa ve
+    # yenilenebilir oturum politikası" — 400 günlük sabit süre kayan bir
+    # 30 günlük pencereye indirildi.
+    assert SESSION_MAX_AGE_DAYS == 30
+
+
+def test_touch_session_extends_expiry_from_now(temp_db):
+    user = create_user("a@example.com")
+    token = create_session(user["id"])
+    soon = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+    with get_connection() as conn:
+        conn.execute("UPDATE sessions SET expires_at = ? WHERE token = ?", (soon, token))
+
+    touch_session(token)
+
+    with get_connection() as conn:
+        new_expiry = datetime.fromisoformat(
+            conn.execute("SELECT expires_at FROM sessions WHERE token = ?", (token,)).fetchone()["expires_at"]
+        )
+    assert new_expiry > datetime.now(timezone.utc) + timedelta(days=SESSION_MAX_AGE_DAYS - 1)
+
+
+def test_get_current_user_renews_a_session_about_to_expire(temp_db):
+    user = create_user("a@example.com")
+    token = create_session(user["id"])
+    soon = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+    with get_connection() as conn:
+        conn.execute("UPDATE sessions SET expires_at = ? WHERE token = ?", (soon, token))
+
+    # Aktif bir kullanıcı (her istekte get_current_user çağrılır, bkz.
+    # auth_guard_middleware) hiç dışarı atılmamalı — oturum otomatik uzar.
+    assert get_current_user(_request({"session_token": token})) is not None
+
+    with get_connection() as conn:
+        renewed_expiry = datetime.fromisoformat(
+            conn.execute("SELECT expires_at FROM sessions WHERE token = ?", (token,)).fetchone()["expires_at"]
+        )
+    assert renewed_expiry > datetime.now(timezone.utc) + timedelta(days=SESSION_MAX_AGE_DAYS - 1)
 
 
 def test_destroy_session_removes_row_and_invalidates(temp_db):

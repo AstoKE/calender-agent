@@ -20,7 +20,14 @@ from fastapi import Request
 from src.storage.db import get_connection
 
 SESSION_COOKIE = "session_token"
-SESSION_MAX_AGE_DAYS = 400  # session.py'nin COOKIE_MAX_AGE'iyle AYNI ~13 ay
+# AUTH-03 (bkz. docs/urunlesme-ve-tasarim-yol-haritasi.md): önceden 400 gün
+# sabitti ve HİÇ yenilenmiyordu (bir kez oluşturulup asla dokunulmuyordu) —
+# "daha kısa ve yenilenebilir oturum politikası" hedefine göre şimdi hem
+# daha kısa (30 gün) hem de KAYAN bir pencere: her başarılı doğrulamada
+# `touch_session` süreyi yeniden 30 güne uzatıyor (bkz. get_current_user),
+# yani aktif bir kullanıcı hiç çıkış yapmaz, yalnızca 30 gün boyunca HİÇ
+# istek atmayan bir oturum düşer.
+SESSION_MAX_AGE_DAYS = 30
 
 
 def create_user(email: str) -> dict:
@@ -57,6 +64,15 @@ def create_session(user_id: str) -> str:
     return token
 
 
+def touch_session(token: str) -> None:
+    """Bir oturumun `expires_at`'ini şu andan itibaren yeniden `SESSION_MAX_AGE_DAYS`
+    güne uzatır — KAYAN pencere (bkz. SESSION_MAX_AGE_DAYS notu). `get_current_user`
+    her başarılı doğrulamada bunu çağırır; aktif kullanıcı hiç dışarı atılmaz."""
+    new_expires_at = (datetime.now(timezone.utc) + timedelta(days=SESSION_MAX_AGE_DAYS)).isoformat()
+    with get_connection() as conn:
+        conn.execute("UPDATE sessions SET expires_at = ? WHERE token = ?", (new_expires_at, token))
+
+
 def get_current_user(request: Request) -> dict | None:
     """Cookie'deki token'ı `sessions`'a, oradan `users`'a çözer. Token yok/
     bilinmiyor/süresi dolmuşsa (ya da herhangi bir ayrıştırma hatası)
@@ -79,6 +95,7 @@ def get_current_user(request: Request) -> dict | None:
         expires_at = datetime.fromisoformat(row["expires_at"])
         if expires_at < datetime.now(timezone.utc):
             return None
+        touch_session(token)
         return {"id": row["id"], "email": row["email"], "created_at": row["created_at"]}
     except Exception:
         return None

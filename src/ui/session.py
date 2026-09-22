@@ -6,6 +6,8 @@ Auth yok, dolayısıyla cookie'den başka bir oturum kavramı da yok."""
 
 from __future__ import annotations
 
+import os
+
 from fastapi import Request, Response
 
 from src.connectors.account_registry import list_accounts
@@ -19,6 +21,22 @@ THEME_COOKIE = "ui_theme"
 COOKIE_MAX_AGE = 400 * 24 * 3600  # ~13 ay — tarayıcıların izin verdiği pratik üst sınıra yakın
 VALID_THEMES = {"light", "dark", "system"}
 DEFAULT_THEME = "system"
+
+
+def cookie_secure() -> bool:
+    """AUTH-03 (bkz. docs/urunlesme-ve-tasarim-yol-haritasi.md): `Secure`
+    bayrağı YALNIZCA `COOKIE_SECURE=true` (bkz. .env.example) açıkça
+    ayarlandığında set ediliyor — otomatik algılama (örn. `request.url.scheme`)
+    BİLEREK kullanılmıyor: bu uygulama bir ters vekil (nginx/Caddy) ARKASINDA
+    çalışacaksa (bkz. VPS dağıtım notları) sunucu her zaman düz `http://`
+    görebilir, `X-Forwarded-Proto` başlığına güvenmek de İSTEMCİ tarafından
+    sahteleştirilebilir bir başlığa güvenmek anlamına gelir (yalnızca vekilin
+    KENDİSİNDEN geldiği doğrulanmadan). Açık bir ortam değişkeni, operatörün
+    HTTPS'in gerçekten uçtan uca çalıştığını DOĞRULADIKTAN sonra bilinçli
+    olarak açması gereken, sahteye kapalı tek seçenek. Varsayılan `False` —
+    düz `http://localhost` üzerindeki yerel geliştirme bu bayrakla ASLA
+    kırılmaz (Secure işaretli bir çerezi tarayıcı düz HTTP'ye hiç göndermez)."""
+    return os.environ.get("COOKIE_SECURE", "").strip().lower() in ("1", "true", "yes")
 
 
 def resolve_active_account(request: Request, accounts: list[dict] | None = None) -> dict | None:
@@ -100,15 +118,16 @@ def safe_next(raw: str | None, fallback: str = "/anasayfa") -> str:
 def set_session_cookies(
     response: Response, *, lang: str | None = None, account_id: str | None = None, theme: str | None = None
 ) -> None:
+    secure = cookie_secure()
     if lang is not None:
         response.set_cookie(
-            LANGUAGE_COOKIE, lang, max_age=COOKIE_MAX_AGE, path="/", httponly=True, samesite="lax"
+            LANGUAGE_COOKIE, lang, max_age=COOKIE_MAX_AGE, path="/", httponly=True, samesite="lax", secure=secure
         )
     if account_id is not None:
         response.set_cookie(
-            ACCOUNT_COOKIE, account_id, max_age=COOKIE_MAX_AGE, path="/", httponly=True, samesite="lax"
+            ACCOUNT_COOKIE, account_id, max_age=COOKIE_MAX_AGE, path="/", httponly=True, samesite="lax", secure=secure
         )
     if theme is not None:
         response.set_cookie(
-            THEME_COOKIE, theme, max_age=COOKIE_MAX_AGE, path="/", httponly=True, samesite="lax"
+            THEME_COOKIE, theme, max_age=COOKIE_MAX_AGE, path="/", httponly=True, samesite="lax", secure=secure
         )

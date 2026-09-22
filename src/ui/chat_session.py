@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from fastapi import Request, Response
 
 from src.storage.db import get_connection
+from src.ui.session import cookie_secure
 
 CHAT_SESSION_COOKIE = "chat_session"
 CHAT_COOKIE_MAX_AGE = 400 * 24 * 3600  # src/ui/session.py::COOKIE_MAX_AGE ile aynı üst sınır
@@ -32,7 +33,8 @@ def _insert_new_session(account_id: str) -> str:
 
 def _set_session_cookie(response: Response, session_id: str) -> None:
     response.set_cookie(
-        CHAT_SESSION_COOKIE, session_id, max_age=CHAT_COOKIE_MAX_AGE, path="/", httponly=True, samesite="lax"
+        CHAT_SESSION_COOKIE, session_id, max_age=CHAT_COOKIE_MAX_AGE, path="/", httponly=True, samesite="lax",
+        secure=cookie_secure(),
     )
 
 

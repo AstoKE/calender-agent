@@ -340,6 +340,24 @@ def test_post_with_no_fetch_metadata_headers_is_rejected(temp_db, monkeypatch):
     assert response.status_code == 403
 
 
+# --- AUTH-03: Secure çerez bayrağı (bkz. src/ui/session.py::cookie_secure) ---
+
+
+def test_cookies_have_no_secure_flag_by_default(client):
+    response = client.post("/dil", data={"dil": "tr"}, follow_redirects=False)
+    set_cookie_headers = response.headers.get_list("set-cookie")
+    assert set_cookie_headers  # en az bir çerez set edildi (ui_lang)
+    assert not any("secure" in h.lower() for h in set_cookie_headers)
+
+
+def test_cookies_get_secure_flag_when_cookie_secure_env_is_set(client, monkeypatch):
+    monkeypatch.setenv("COOKIE_SECURE", "true")
+    response = client.post("/dil", data={"dil": "tr"}, follow_redirects=False)
+    set_cookie_headers = response.headers.get_list("set-cookie")
+    assert set_cookie_headers
+    assert all("secure" in h.lower() for h in set_cookie_headers)
+
+
 # --- Faz 5: Takvim — bozulma matrisinin dört durumu, hepsi HTTP 200 ---
 
 
