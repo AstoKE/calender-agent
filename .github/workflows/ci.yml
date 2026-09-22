@@ -1,0 +1,39 @@
+name: CI
+
+# OPS-01 (bkz. docs/urunlesme-ve-tasarim-yol-haritasi.md): repoda daha
+# önce hiç CI workflow'u yoktu. windows-latest KASITLI seçildi — Foundry
+# Local SDK (foundry_local_sdk, src/providers/foundry_local.py'de modül
+# seviyesinde import edilir) Windows'a özgü; bu proje zaten yalnızca
+# Windows'ta geliştirilip çalıştırılıyor (bkz. CLAUDE.md), ubuntu-latest'te
+# bu paketin bir Linux wheel'i olmayabilir ve kurulum adımı en baştan
+# başarısız olurdu — gerçek geliştirme/çalıştırma platformuyla eşleşmek,
+# hayali bir çapraz-platform garantisi vermekten daha değerli.
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies (locked snapshot)
+        run: pip install -r requirements-lock.txt
+
+      - name: pyflakes
+        run: python -m pyflakes src/ tests/
+
+      - name: pytest
+        # TEST-01 (bkz. docs/gelistirme-durumu.md kontrol noktası 4): standart
+        # `pytest tests/` komutu kendi kendine tam izole — gerçek kimlik
+        # bilgisi/ağ/kalıcı veriye hiç dokunmuyor, CI için ek bir sarmalayıcı
+        # ya da ortam değişkeni gerekmiyor.
+        run: python -m pytest tests/ -q

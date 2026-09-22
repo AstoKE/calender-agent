@@ -177,6 +177,8 @@ python -m pytest tests/
 
 Kurulum adımları için [README.md](README.md). `tests/`'te ilk pytest dilimi var (deterministik mantık — bkz. yukarıdaki "Güncel durum"), ama asıl doğrulama hâlâ şu şekilde: (a) küçük scripted Python check'leri (syntax/import/pyflakes + hedefli fonksiyon çağrıları), (b) kullanıcının kendi interaktif oturumunda gerçek Gmail/Calendar hesabıyla canlı test. Bir şey bozulduğunda önce `data/debug.log`'a bak.
 
+**CI** (OPS-01, bkz. `.github/workflows/ci.yml`): `master`'a her push/PR'da `windows-latest` üzerinde `requirements-lock.txt`'ten (bkz. altta) kurulum + pyflakes + `pytest tests/` çalışır. `windows-latest` bilinçli seçim — `foundry_local_sdk` Windows'a özgü, proje zaten yalnızca Windows'ta geliştirilip çalıştırılıyor. **`requirements-lock.txt`**: `pip freeze` çıktısı, tam/geçişli sürüm kilidi (OPS-01'in "kilitli bağımlılıklar" maddesi) — `requirements.txt` okunabilir üst-düzey liste olarak kalıyor, bir bağımlılık güncellenince `pip freeze > requirements-lock.txt` ile yeniden üretilmeli.
+
 ## Bu projede nasıl çalışılır (workflow tercihleri)
 
 - **Küçük adımlarla ilerle, her adımdan sonra raporla.** Birçok değişikliği sessizce art arda yapıp sonunda özetleme.
