@@ -25,6 +25,8 @@ from pathlib import Path
 
 import msal
 
+from src.core.token_crypto import decrypt_from_storage, encrypt_for_storage
+
 DATA_DIR = Path(__file__).resolve().parents[2] / "data"
 
 # Google'ın GOOGLE_ACCOUNT_SCOPES'una karşılık — mail + takvim tek seferde
@@ -60,7 +62,7 @@ def load_ms_token_cache(account_id: str) -> msal.SerializableTokenCache:
     cache = msal.SerializableTokenCache()
     token_path = _token_cache_path(account_id)
     if token_path.exists():
-        cache.deserialize(token_path.read_text(encoding="utf-8"))
+        cache.deserialize(decrypt_from_storage(token_path.read_text(encoding="utf-8")))
     return cache
 
 
@@ -73,7 +75,7 @@ def save_ms_token_cache(account_id: str, cache: msal.SerializableTokenCache) -> 
         return
     token_path = _token_cache_path(account_id)
     token_path.parent.mkdir(parents=True, exist_ok=True)
-    token_path.write_text(cache.serialize(), encoding="utf-8")
+    token_path.write_text(encrypt_for_storage(cache.serialize()), encoding="utf-8")
     token_path.chmod(0o600)
 
 

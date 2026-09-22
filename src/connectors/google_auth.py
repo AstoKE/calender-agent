@@ -2,18 +2,23 @@
 
 Kurulum adımları için Task 6 rehberine bakın: bir OAuth client (Desktop app)
 oluşturup indirilen JSON'u ``data/google_oauth_client.json`` olarak kaydedin.
-Token'lar da ``data/`` altında tutulur (gitignore'da, düz metin ama repo
-dışında — tam şifreleme MVP sonrası bir iyileştirme, bkz. plan §13).
+Token'lar da ``data/`` altında tutulur (gitignore'da, repo dışında);
+``TOKEN_ENCRYPTION_KEY`` ayarlıysa diske şifreli yazılır (bkz.
+src/core/token_crypto.py, PRIV-01) — ayarlı değilse (yerel geliştirme
+varsayılanı) düz metin, davranış DEĞİŞMEZ.
 """
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
+
+from src.core.token_crypto import decrypt_from_storage, encrypt_for_storage
 
 DATA_DIR = Path(__file__).resolve().parents[2] / "data"
 DEFAULT_CLIENT_SECRET_PATH = DATA_DIR / "google_oauth_client.json"
@@ -44,8 +49,17 @@ def save_credentials_for_account(account_id: str, creds: Credentials) -> None:
     tamamlanan ayrı bir Authorization Code akışı) PAYLAŞILAN tek yazma noktası."""
     token_path = _token_path(account_id)
     token_path.parent.mkdir(parents=True, exist_ok=True)
-    token_path.write_text(creds.to_json(), encoding="utf-8")
+    token_path.write_text(encrypt_for_storage(creds.to_json()), encoding="utf-8")
     token_path.chmod(0o600)
+
+
+def _load_credentials_from_file(token_path: Path, scopes: list[str]) -> Credentials:
+    """`Credentials.from_authorized_user_file` düz metin bir DOSYA YOLU
+    bekliyor, şifreli içeriği kendisi çözemez — bu yüzden dosyayı elle okuyup
+    (gerekirse) şifresini çözüp `from_authorized_user_info`'ya (dict alan
+    eşdeğer yapıcı) veriyoruz."""
+    raw = decrypt_from_storage(token_path.read_text(encoding="utf-8"))
+    return Credentials.from_authorized_user_info(json.loads(raw), scopes)
 
 
 def get_google_credentials(
@@ -68,7 +82,7 @@ def get_google_credentials(
     creds: Credentials | None = None
 
     if token_path.exists():
-        creds = Credentials.from_authorized_user_file(str(token_path), scopes)
+        creds = _load_credentials_from_file(token_path, scopes)
 
     if not creds or not creds.valid:
         refreshed = False
@@ -112,7 +126,7 @@ def load_credentials_noninteractive(scopes: list[str], account_id: str) -> Crede
     if not token_path.exists():
         return None
 
-    creds = Credentials.from_authorized_user_file(str(token_path), scopes)
+    creds = _load_credentials_from_file(token_path, scopes)
     if creds and creds.valid:
         return creds
 

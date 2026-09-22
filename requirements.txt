@@ -30,6 +30,9 @@ foundry-local-sdk
 # a deliberate opt-in departure from the local/offline default.
 google-genai
 
+# OAuth token encryption at rest (PRIV-01, optional — see src/core/token_crypto.py)
+cryptography
+
 # Config
 python-dotenv
 
