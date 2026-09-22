@@ -5,4 +5,12 @@ __pycache__/
 *.pyc
 .venv/
 
-.claude
+# .claude/skills, .claude/agents, .claude/settings.json artık İZLENİYOR
+# (proje seviyesinde paylaşılan tasarım skill'leri, bkz. docs/gelistirme-
+# durumu.md) — yalnızca makine-yerel olan kısımlar hariç tutuluyor.
+.claude/worktrees/
+.claude/settings.local.json
+# impeccable'ın platforma özgü, ~15MB'lık derlenmiş binary'si — `npx
+# impeccable install` her makinede kendi platformunun binary'sini zaten
+# indiriyor, repoya gerek yok.
+.claude/skills/impeccable/scripts/bin/
