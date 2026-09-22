@@ -439,3 +439,47 @@ Bu commit'i push ettiğinde (ya da bir PR açtığında) GitHub'da "Actions" sek
 **Bu kontrol noktasının sınırı ve sıradaki iş**
 
 Bağımlılık güncellemelerinde `requirements-lock.txt`'in ELLE yeniden üretilmesi gerekiyor (`pip freeze > requirements-lock.txt`) — otomatik bir Dependabot/renovate kurulumu ayrı, isteğe bağlı bir iyileştirme. Staging/migration-versiyonlama/health-readiness/yedekleme prosedürü, OAUTH-01'in dağıtım kararı netleşmeden anlamlı şekilde tasarlanamaz — PRIV-01'in token-şifreleme yarısı ve AUTH-03'ün oturum/cookie yarısıyla AYNI bekleme durumu.
+
+---
+
+**Dağıtım kararı netleşti (2026-09-22):** Kullanıcı, uygulamayı kendi yönettiği bir Linux VPS'e (Docker ya da doğrudan) taşımaya karar verdi — hâlâ esasen tek operatör + birkaç arkadaş/demo izleyicisi (genel/çok kiracılı bir ürün DEĞİL, bu yüzden Google'ın gmail.readonly restricted-scope doğrulama süreci şimdilik gerekmiyor), ve tam kapsamlı ops altyapısı isteniyor (staging + migration + health + yedekleme). Bu karar, önceden "OAUTH-01 netleşmeden anlamsız" diye bekletilen tüm maddeleri açıyor. Sıradaki kontrol noktaları bu kapsamda ilerliyor.
+
+**Kontrol noktası 12 — PRIV-01 (token yarısı): OAuth token'larının diskte şifreli saklanması**
+
+Durum: kullanıcı tarafından onaylandı. Kod ve testler `e926c86` (`Encrypt OAuth tokens at rest when a key is configured (PRIV-01)`) commit'iyle kaydedildi.
+
+Önceden `data/google_token_*.json`/`data/ms_token_*.json` düz metin JSON olarak saklanıyordu (yalnızca dosya izni 0600 + `.gitignore` koruması vardı). Bu, "çalınan bir `data/` yedeği" senaryosunda (VPS'e taşınınca gerçek bir tehdit modeli) OAuth refresh token'larının doğrudan okunabilir olması demekti.
+
+Yeni davranış:
+
+- Yeni `src/core/token_crypto.py`: `TOKEN_ENCRYPTION_KEY` ortam değişkeni ayarlıysa `encrypt_for_storage`/`decrypt_from_storage` Fernet (simetrik, kimlik doğrulamalı şifreleme, `cryptography` kütüphanesi — zaten geçişli bir bağımlılıktı, artık `requirements.txt`'e açıkça eklendi) ile şifreliyor/çözüyor. **Ayarlanmazsa (bugünkü yerel geliştirme varsayılanı) davranış TAMAMEN DEĞİŞMEDİ** — düz metin, eskisi gibi.
+- **Otomatik geçiş**: bir anahtar SONRADAN ayarlanırsa, henüz şifrelenmemiş eski dosyalar `decrypt_from_storage`'ın format-uyuşmazlığında düz metne düşmesi sayesinde hâlâ okunabiliyor; bir sonraki kaydetmede (zaten her token yenilemesinde olduğu gibi) dosya şifreli yazılıyor — elle bir geçiş adımı gerekmiyor.
+- `google_auth.py`/`microsoft_auth.py`'nin okuma/yazma noktaları bu modülü kullanacak şekilde güncellendi. Google tarafında `Credentials.from_authorized_user_file` (yalnızca dosya YOLU kabul ediyor, şifreli içeriği kendisi çözemez) yerine dosyayı elle okuyup çözüp `Credentials.from_authorized_user_info`'ya (dict eşdeğeri) veren yeni bir `_load_credentials_from_file` yardımcısı eklendi.
+- Yanlış biçimli bir anahtar (`TOKEN_ENCRYPTION_KEY` set ama geçersiz) SESSİZCE düz metne düşmüyor — kullanıcı "şifrelendiğini SANIP" aslında düz metin yazdığını fark etmeyebilirdi; bunun yerine açık bir `RuntimeError` fırlatılıyor.
+- `python -m src.core.token_crypto` yeni bir anahtar üretip yazdırıyor (VPS'in `.env`'ine eklenecek).
+- `tests/_isolation.py::CREDENTIAL_ENV_VARS`'a `TOKEN_ENCRYPTION_KEY` eklendi — testler gerçek `.env`'deki bir anahtarı asla görmesin diye (TEST-01 ile aynı ilke).
+
+Kapsam dışı bırakılan: `data/google_oauth_client.json` (uygulamanın KENDİ OAuth client kaydı — kullanıcının token'ı değil; Google'ın "Desktop app" tipi client'lar için bu dosyanın confidential sayılmadığı kendi dokümantasyonuyla tutarlı, PRIV-01'in kapsamı zaten yalnızca "kullanıcının token'ları" idi).
+
+Değişen/yeni dosyalar:
+
+- [token_crypto.py](../src/core/token_crypto.py) (yeni): şifreleme/çözme + anahtar üretme CLI'ı.
+- [google_auth.py](../src/connectors/google_auth.py), [microsoft_auth.py](../src/connectors/microsoft_auth.py): okuma/yazma noktaları.
+- [requirements.txt](../requirements.txt): `cryptography` artık açık bir bağımlılık.
+- [.env.example](../.env.example): `TOKEN_ENCRYPTION_KEY` belgelendi.
+- [_isolation.py](../tests/_isolation.py): yeni env var testlerden temizleniyor.
+- [test_token_crypto.py](../tests/test_token_crypto.py) (yeni, 12 test): çekirdek şifreleme/çözme + otomatik geçiş + geçersiz anahtar hatası + Google/Microsoft entegrasyonlarının ikisi de (anahtarsız değişmez davranış, anahtarlı şifreli yazma, kendi yazdığını geri okuma, anahtar sonradan eklenince eski düz-metin dosyayı hâlâ okuyabilme).
+
+Doğrulama: `decrypt_from_storage`'ın otomatik-geçiş fallback'ini (`except: return stored`) geçici olarak `raise`'e çevirip 3 testin (legacy-plaintext senaryoları) gerçekten kırıldığını doğruladım — bu, "anahtar eklenince eski token dosyaları okunamaz hale gelir" gibi gerçek bir geriye dönük uyumluluk kaybını temsil ediyordu. Sonra geri aldım. Tam paket **634 başarılı** (622 eski + 12 yeni), pyflakes temiz.
+
+**Senin yapacağın manuel kontrol**
+
+1. `python -m src.core.token_crypto` ile bir anahtar üret, `.env`'e `TOKEN_ENCRYPTION_KEY=...` olarak ekle.
+2. Uygulamayı yeniden başlat, bir hesabı yeniden bağla (ya da mevcut bir hesabın token'ı yenilensin — bir sayfa yükle).
+3. `data/google_token_*.json` dosyasını bir metin editöründe aç — artık okunabilir JSON DEĞİL, şifreli/rastgele görünen bir metin olmalı.
+4. Uygulamanın normal çalışmaya devam ettiğini doğrula (mail tarama, takvim erişimi) — şifreleme şeffaf olmalı, hiçbir işlevi bozmamalı.
+5. `.env`'den `TOKEN_ENCRYPTION_KEY`'i kaldırıp uygulamayı tekrar başlatırsan (test etmek istersen) — şifreli dosyalar artık ÇÖZÜLEMEZ (anahtar yoksa okuma başarısız olur, hesabın yeniden bağlanması gerekir） bu YALNIZCA anahtarı kaybedersen/kasıtlı kaldırırsan olur, normal kullanımda anahtarı bir kez ayarlayıp hep aynı `.env`'de tutman yeterli.
+
+**Bu kontrol noktasının sınırı ve sıradaki iş**
+
+Anahtarın KENDİSİNİN güvenliği (VPS'in `.env` dosyasının dosya izinleri, kimin sunucuya erişebildiği) bu checkpoint'in kapsamı dışında — bu bir işletim/operasyon konusu, koddan çözülebilecek bir şey değil; VPS kurulum adımlarında (Docker/deployment checkpoint'inde) ayrıca hatırlatılacak. Gerçek bir KMS/secrets-manager entegrasyonu (anahtarın kendisinin de ayrıca şifrelenmesi) bu ölçekteki bir uygulama için orantısız bulundu.
