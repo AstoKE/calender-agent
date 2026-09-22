@@ -356,7 +356,7 @@ Oturum ömrü (400 gün) ve OAuth callback çerezindeki `Secure` bayrağı BİL�
 
 **Kontrol noktası 10 — JOB-01 (1. dilim): kalıcı tarama işi + arka plan yürütme**
 
-Durum: uygulandı, otomatik doğrulama tamamlandı; kullanıcı testi ve onayı bekleniyor. Bu adım henüz commit edilmedi.
+Durum: kullanıcı tarafından canlı test edilip (gerçek Gmail hesaplarıyla, kota hatası dahil) onaylandı. Kod ve testler `f80fbe0` (`Add persistent scan jobs with background execution (JOB-01)`) commit'iyle kaydedildi.
 
 JOB-01 bulgusu: mail taraması tamamen SENKRONDU — `/tara` isteği taramanın tüm süresi boyunca (dakikalarca) bloklu kalıyordu, ilerleme/kilit yalnızca `app.state.scan_in_progress` (bellek-içi bir set) ile tutuluyordu. Sunucu yeniden başlarsa ya da kullanıcı sayfayı kapatırsa hiçbir iz kalmıyordu, ilerleme görülemiyordu. Hedef: "Kalıcı iş kuyruğu/worker, iş durumu, checkpoint, hesap başına kilit, kontrollü tekrar deneme ve zaman aşımı."
 
