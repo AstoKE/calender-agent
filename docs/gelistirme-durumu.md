@@ -483,3 +483,38 @@ Doğrulama: `decrypt_from_storage`'ın otomatik-geçiş fallback'ini (`except: r
 **Bu kontrol noktasının sınırı ve sıradaki iş**
 
 Anahtarın KENDİSİNİN güvenliği (VPS'in `.env` dosyasının dosya izinleri, kimin sunucuya erişebildiği) bu checkpoint'in kapsamı dışında — bu bir işletim/operasyon konusu, koddan çözülebilecek bir şey değil; VPS kurulum adımlarında (Docker/deployment checkpoint'inde) ayrıca hatırlatılacak. Gerçek bir KMS/secrets-manager entegrasyonu (anahtarın kendisinin de ayrıca şifrelenmesi) bu ölçekteki bir uygulama için orantısız bulundu.
+
+**Kontrol noktası 13 — AUTH-03 (kalanı): kısa/yenilenebilir oturum + Secure çerez bayrağı**
+
+Durum: kullanıcı tarafından onaylandı. Kod ve testler `e9f2c41` (`Shorten and renew sessions, add Secure cookie flag (AUTH-03)`) commit'iyle kaydedildi.
+
+AUTH-03'ün CSRF yarısı zaten Kontrol noktası 9'da tamamlanmıştı. Kalan iki bulgu: (1) oturum ömrü 400 gün, hiç yenilenmiyordu; (2) hiçbir çerezde `Secure` bayrağı yoktu.
+
+Yeni davranış:
+
+- **Kısa + yenilenebilir oturum**: `SESSION_MAX_AGE_DAYS` 400'den **30**'a indirildi. Yeni `touch_session(token)`, `get_current_user`'ın HER başarılı doğrulamasında çağrılıyor — KAYAN bir pencere: aktif bir kullanıcı (her sayfa yüklemesinde `auth_guard_middleware` bunu çağırır) hiç dışarı atılmaz, yalnızca 30 gün boyunca HİÇ istek atmayan bir oturum düşer. Önceden `expires_at` bir kez yazılıp bir daha asla dokunulmuyordu.
+- **`Secure` çerez bayrağı**: yeni `src/ui/session.py::cookie_secure()` — `COOKIE_SECURE=true` ortam değişkeni AÇIKÇA ayarlanmadıkça `False` (varsayılan, yerel `http://localhost` geliştirmeyi hiç etkilemez). **Otomatik algılama (`request.url.scheme` ya da `X-Forwarded-Proto`) BİLEREK kullanılmadı** — VPS dağıtımı bir ters vekil (nginx/Caddy) arkasında çalışacak, sunucu kendisi düz `http://` görebilir; `X-Forwarded-Proto`'ya güvenmek, yalnızca vekilin kendisinden geldiği ayrıca doğrulanmadan istemci tarafından sahteleştirilebilir bir başlığa güvenmek demek olurdu. Açık bir ortam değişkeni, operatörün HTTPS'in gerçekten uçtan uca çalıştığını doğruladıktan SONRA bilinçli olarak açması gereken, sahteye kapalı tek seçenek.
+- Bu bayrak artık uygulamanın attığı **HER** çerezde geçerli — yalnızca oturum çerezi değil: `set_session_cookies` (dil/hesap/tema), `SESSION_COOKIE` (her iki OAuth callback'inde), OAuth state/verifier/intent kısa ömürlü çerezleri (Google + Outlook), sohbet oturumu çerezi.
+- Bir yan-fayda: `oauth_routes.py`/`outlook_oauth_routes.py`'de bağımsız iki yerde ayrı ayrı hardcode edilmiş `400 * 24 * 3600` (session çerezinin tarayıcı-taraflı max-age'i) artık `auth.py::SESSION_MAX_AGE_DAYS`'ten TÜRETİLİYOR — önceden bu, `auth.py`'nin kendi `SESSION_MAX_AGE_DAYS`'inden BAĞIMSIZ, sessizce birbirinden kayabilecek gizli bir kod tekrarıydı.
+
+Değişen dosyalar:
+
+- [session.py](../src/ui/session.py): `cookie_secure()` + `set_session_cookies`'in 3 çağrısına uygulanması.
+- [auth.py](../src/ui/auth.py): `SESSION_MAX_AGE_DAYS = 30`, yeni `touch_session`, `get_current_user`'da çağrılması.
+- [oauth_routes.py](../src/ui/oauth_routes.py), [outlook_oauth_routes.py](../src/ui/outlook_oauth_routes.py): tüm `set_cookie` çağrılarına `secure=cookie_secure()`, session çerezi artık `SESSION_MAX_AGE_DAYS`'ten türetiliyor.
+- [chat_session.py](../src/ui/chat_session.py): sohbet çerezine de aynı bayrak.
+- [.env.example](../.env.example): `COOKIE_SECURE` belgelendi.
+- [_isolation.py](../tests/_isolation.py): `COOKIE_SECURE` da testlerden temizleniyor (TEST-01 ile aynı ilke).
+- [test_auth.py](../tests/test_auth.py): 3 yeni test — oturum ömrünün 30 gün olduğu, `touch_session`'ın süreyi uzattığı, `get_current_user`'ın süresi yaklaşan bir oturumu gerçekten yenilediği.
+- [test_ui_routes.py](../tests/test_ui_routes.py): 2 yeni test — `COOKIE_SECURE` yokken hiçbir çerezde `Secure` olmadığı, varken TÜM çerezlerde olduğu.
+
+Doğrulama: iki noktada testlerin gerçekten bir şey yakaladığını varsaymadım — `cookie_secure()`'ı geçici olarak hep `False` döndürecek şekilde bozup `COOKIE_SECURE=true` iken bile `Secure` bayrağının hiç görünmediğini (test kırıldı); `get_current_user`'daki `touch_session` çağrısını geçici kaldırıp süresi yaklaşan bir oturumun GERÇEKTEN yenilenmediğini (test'in beklediği ~30 günlük yeni süre yerine eski ~1 saatlik süre kaldığını) doğruladım, sonra ikisini de geri aldım. Tam paket **639 başarılı** (634 eski + 5 yeni), pyflakes temiz.
+
+**Senin yapacağın manuel kontrol**
+
+1. Normal (yerel, `COOKIE_SECURE` ayarlanmamış) kullanımda giriş/oturumun her zamanki gibi çalıştığını doğrula (regresyon kontrolü).
+2. VPS'e taşıyıp HTTPS'i (nginx/Caddy + gerçek bir sertifika) doğruladıktan SONRA `.env`'e `COOKIE_SECURE=true` ekle, uygulamayı yeniden başlat, girişin hâlâ çalıştığını doğrula — tarayıcının geliştirici araçlarında (Application/Storage sekmesi) çerezlerin `Secure` sütununda işaretli göründüğünü gör.
+
+**Bu kontrol noktasının sınırı ve sıradaki iş**
+
+`COOKIE_SECURE=true` YANLIŞLIKLA düz `http://` üzerinde set edilirse (HTTPS gerçekte çalışmıyorken) tarayıcı çerezi hiç KABUL ETMEZ — kullanıcı sessizce giriş yapamaz hale gelir, hatanın nedeni ekranda görünmez. Bu, operatörün "HTTPS gerçekten çalışıyor mu" diye ÖNCE doğrulaması gereken bir sıralama sorunu; kodun kendisi bunu tespit edip uyaramaz (sunucu tarafından HTTPS'in gerçekten önde çalışıp çalışmadığını güvenilir şekilde bilmenin yolu yok, bkz. yukarıdaki X-Forwarded-Proto notu) — VPS/Docker deployment checkpoint'inde adım adım yönergeye açık bir uyarı olarak eklenecek.
