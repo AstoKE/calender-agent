@@ -144,3 +144,69 @@ def test_not_worthy_with_attachment_but_text_only_llm_is_skipped(temp_db, monkey
     result = scan_inbox.scan_account_inbox("acc1", _NotWorthyTextOnlyLLM(), _DummyEmbeddingProvider())
 
     assert result == {"total": 1, "candidates_found": 0, "skipped_errors": 0}
+
+
+def test_scan_account_inbox_reports_checkpoints_per_email(temp_db, monkeypatch):
+    # JOB-01 (bkz. docs/urunlesme-ve-tasarim-yol-haritasi.md): on_checkpoint
+    # her mail işlendikten sonra (continue ile çıkılsa bile) çağrılmalı.
+    email_ids = [_insert_account_and_email(email_id=str(uuid.uuid4())) for _ in range(2)]
+    emails = [
+        (
+            eid,
+            UnifiedEmail(
+                provider="gmail", account_id="acc1", message_id=f"msg-{eid}", thread_id=f"thread-{eid}",
+                subject="Davetiye", sender="alerts@example.com", recipients=[],
+                received_at=datetime.now(timezone.utc), body_text="", attachments=[],
+            ),
+        )
+        for eid in email_ids
+    ]
+    monkeypatch.setattr(scan_inbox, "sync_new_emails", lambda account_id: emails)
+
+    checkpoints = []
+    scan_inbox.scan_account_inbox(
+        "acc1", _NotWorthyTextOnlyLLM(), _DummyEmbeddingProvider(), on_checkpoint=checkpoints.append
+    )
+
+    assert checkpoints == [
+        {"total": 2, "processed": 1, "candidates_found": 0, "skipped_errors": 0},
+        {"total": 2, "processed": 2, "candidates_found": 0, "skipped_errors": 0},
+    ]
+
+
+def test_run_scan_job_marks_succeeded_and_updates_progress(temp_db, monkeypatch):
+    from src.services import scan_jobs
+
+    email_id = _insert_account_and_email()
+    email = UnifiedEmail(
+        provider="gmail", account_id="acc1", message_id=f"msg-{email_id}", thread_id=f"thread-{email_id}",
+        subject="Davetiye", sender="alerts@example.com", recipients=[],
+        received_at=datetime.now(timezone.utc), body_text="", attachments=[],
+    )
+    monkeypatch.setattr(scan_inbox, "sync_new_emails", lambda account_id: [(email_id, email)])
+    job_id = scan_jobs.create_scan_job("acc1")
+
+    scan_inbox.run_scan_job(job_id, "acc1", _NotWorthyTextOnlyLLM(), _DummyEmbeddingProvider())
+
+    job = scan_jobs.get_job(job_id)
+    assert job["status"] == scan_jobs.STATUS_SUCCEEDED
+    assert job["total"] == 1
+    assert job["processed"] == 1
+
+
+def test_run_scan_job_marks_failed_on_exception(temp_db, monkeypatch):
+    from src.services import scan_jobs
+
+    _insert_account_and_email()
+
+    def _boom(account_id):
+        raise RuntimeError("Gmail API kapalı")
+
+    monkeypatch.setattr(scan_inbox, "sync_new_emails", _boom)
+    job_id = scan_jobs.create_scan_job("acc1")
+
+    scan_inbox.run_scan_job(job_id, "acc1", _NotWorthyTextOnlyLLM(), _DummyEmbeddingProvider())
+
+    job = scan_jobs.get_job(job_id)
+    assert job["status"] == scan_jobs.STATUS_FAILED
+    assert "Gmail API kapalı" in job["error_message"]

@@ -14,6 +14,8 @@ testlerin o değişiklikte kırılmaması gerekiyor."""
 
 from __future__ import annotations
 
+import threading
+import time
 import uuid
 from datetime import datetime, timezone
 
@@ -496,12 +498,18 @@ def test_anasayfa_pending_preview_uses_same_card_as_oneriler(client, monkeypatch
 
 
 def test_anasayfa_scan_busy_shows_notice(client, monkeypatch):
+    # JOB-01 (bkz. docs/urunlesme-ve-tasarim-yol-haritasi.md): "meşgul"
+    # durumu artık bir query param'dan değil, `scan_jobs`'taki gerçek bir
+    # aktif işten okunuyor.
+    from src.services import scan_jobs
+
     ensure_account_registered(
         "acc1", provider="google", email="a@example.com",
         user_id=client.test_user["id"],
     )
+    scan_jobs.create_scan_job("acc1")
     monkeypatch.setattr("src.ui.routes.get_calendar_or_none", lambda request, account_id: None)
-    response = client.get("/anasayfa?mesgul=1")
+    response = client.get("/anasayfa")
     assert response.status_code == 200
     assert 'class="warning"' in response.text
 
@@ -566,21 +574,63 @@ def test_notification_badge_caps_at_nine_plus(client, monkeypatch):
     assert response.text.count('class="notif-item"') == 5
 
 
-def test_tara_active_account_single_flight_guard(client, monkeypatch):
+def test_tara_starts_a_background_job(client, monkeypatch):
+    # JOB-01 (bkz. docs/urunlesme-ve-tasarim-yol-haritasi.md): istek artık
+    # taramanın BİTMESİNİ beklemiyor — bir `scan_jobs` kaydı oluşturup arka
+    # plan thread'ini başlatıyor, hemen yönlendiriyor.
     ensure_account_registered(
         "acc1", provider="google", email="a@example.com",
         user_id=client.test_user["id"],
     )
+    started = threading.Event()
 
-    def _fake_scan(account_id, llm, embedding_provider):
-        assert account_id in client.app.state.scan_in_progress
-        return {"total": 0, "candidates_found": 0, "skipped_errors": 0}
+    def _fake_run_scan_job(job_id, account_id, llm, embedding_provider):
+        started.set()  # gerçek taramayı hiç çalıştırma, yalnızca çağrıldığını doğrula
 
-    monkeypatch.setattr("src.ui.routes.scan_account_inbox", _fake_scan)
+    monkeypatch.setattr("src.ui.routes.run_scan_job", _fake_run_scan_job)
+
     response = client.post("/tara", follow_redirects=False)
+
     assert response.status_code == 303
-    assert "tarandi" in response.headers["location"]
-    assert client.app.state.scan_in_progress == set()
+    assert response.headers["location"] == "/anasayfa"  # artık ?tarandi=/?mesgul= YOK
+    assert started.wait(timeout=5)
+    with get_connection() as conn:
+        jobs = conn.execute("SELECT * FROM scan_jobs WHERE account_id = 'acc1'").fetchall()
+    assert len(jobs) == 1
+
+
+def test_tara_single_flight_guard_skips_duplicate_job(client, monkeypatch):
+    # Aynı hesap için hâlâ aktif (QUEUED/RUNNING) bir iş varsa ikinci
+    # /tara isteği YENİ bir iş oluşturmamalı (kalıcı kilit, bkz. scan_jobs.py).
+    from src.services import scan_jobs
+
+    ensure_account_registered(
+        "acc1", provider="google", email="a@example.com",
+        user_id=client.test_user["id"],
+    )
+    release = threading.Event()
+
+    def _blocking_run_scan_job(job_id, account_id, llm, embedding_provider):
+        scan_jobs.mark_job_running(job_id)
+        release.wait(timeout=5)
+        scan_jobs.mark_job_succeeded(job_id, total=0, candidates_found=0, skipped_errors=0)
+
+    monkeypatch.setattr("src.ui.routes.run_scan_job", _blocking_run_scan_job)
+
+    client.post("/tara", follow_redirects=False)
+    # Thread'in gerçekten RUNNING'e geçmesini bekle (yarış koşulunu önlemek için).
+    for _ in range(50):
+        if scan_jobs.get_active_scan_job("acc1") is not None:
+            break
+        time.sleep(0.05)
+
+    response = client.post("/tara", follow_redirects=False)
+    release.set()  # arka plan thread'inin bitmesine izin ver (testi temiz bırak)
+
+    assert response.status_code == 303
+    with get_connection() as conn:
+        jobs = conn.execute("SELECT * FROM scan_jobs WHERE account_id = 'acc1'").fetchall()
+    assert len(jobs) == 1  # ikinci istek yeni bir satır eklemedi
 
 
 def test_tara_no_active_account_redirects_home(client):

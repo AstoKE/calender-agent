@@ -41,20 +41,6 @@
 </p>
 {% endif %}
 
-{% if scan_result %}
-<p class="scan-summary">
-    {{ t("hesaplar.scan_summary", total=scan_result.total, found=scan_result.candidates_found) }}
-    {% if scan_result.skipped_errors %}{{ t("hesaplar.scan_errors", errors=scan_result.skipped_errors) }}{% endif %}
-</p>
-{% endif %}
-
-{% if scan_busy %}
-<p class="warning">
-    <svg class="icon" width="18" height="18" aria-hidden="true"><use href="#icon-warning"></use></svg>
-    {{ t("hesaplar.scan_busy") }}
-</p>
-{% endif %}
-
 {% if not accounts %}
 <p class="empty-state">{{ t("hesaplar.empty") }}</p>
 {% endif %}
@@ -71,9 +57,36 @@
         <dt>{{ t("hesaplar.field.connected_at") }}</dt>
         <dd>{{ acc.connected_at }}</dd>
     </dl>
+    {# JOB-01: tarama artık kalıcı — bu hesabın SON işi `scan_jobs`'tan
+       (bkz. src/ui/routes.py::accounts_page) okunuyor, sayfa yenilense/
+       sunucu yeniden başlasa bile doğru durum görünür. #}
+    {% set job = scan_jobs_by_account.get(acc.id) %}
+    {% if job and job.status in ("QUEUED", "RUNNING") %}
+    <p class="warning">
+        <svg class="icon" width="18" height="18" aria-hidden="true"><use href="#icon-warning"></use></svg>
+        {{ t("hesaplar.scan_status.running", processed=job.processed, total=job.total) }}
+    </p>
+    {% else %}
     <form method="post" action="/hesaplar/{{ acc.id }}/tara">
         <button type="submit" class="btn btn-approve">{{ t("hesaplar.scan_now") }}</button>
     </form>
+    {% endif %}
+    {% if job and job.status == "SUCCEEDED" %}
+    <p class="scan-summary">
+        {{ t("hesaplar.scan_status.succeeded", total=job.total, found=job.candidates_found) }}
+        {% if job.skipped_errors %}{{ t("hesaplar.scan_errors", errors=job.skipped_errors) }}{% endif %}
+    </p>
+    {% elif job and job.status == "FAILED" %}
+    <p class="warning">
+        <svg class="icon" width="18" height="18" aria-hidden="true"><use href="#icon-warning"></use></svg>
+        {{ t("hesaplar.scan_status.failed", error=job.error_message) }}
+    </p>
+    {% elif job and job.status == "TIMED_OUT" %}
+    <p class="warning">
+        <svg class="icon" width="18" height="18" aria-hidden="true"><use href="#icon-warning"></use></svg>
+        {{ t("hesaplar.scan_status.timed_out") }}
+    </p>
+    {% endif %}
     <p class="hint">{{ t("hesaplar.scan_hint") }}</p>
 </article>
 {% endfor %}

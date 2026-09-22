@@ -27,6 +27,7 @@ from src.connectors.outlook import OutlookConnector
 from src.core.logging_config import configure_logging, get_logger, redact
 from src.providers.base import EmbeddingProvider, FileInputCapable, LLMProvider
 from src.providers.foundry_local import FoundryLocalEmbeddingProvider, FoundryLocalProvider
+from src.services import scan_jobs
 from src.services.mail_analysis import (
     analyze_possible_update,
     extract_candidate_from_email,
@@ -45,9 +46,17 @@ def scan_account_inbox(
     llm: LLMProvider,
     embedding_provider: EmbeddingProvider,
     on_progress: Callable[[str], None] | None = None,
+    on_checkpoint: Callable[[dict], None] | None = None,
 ) -> dict:
     """Bir hesabın gelen kutusunu tarar, takvimlik mailleri kuyruğa yazar.
-    Döner: {"total": int, "candidates_found": int, "skipped_errors": int}."""
+    Döner: {"total": int, "candidates_found": int, "skipped_errors": int}.
+
+    ``on_checkpoint`` (JOB-01, bkz. docs/urunlesme-ve-tasarim-yol-haritasi.md):
+    her mail işlendikten (başarı/atlama fark etmeksizin) SONRA
+    ``{"total", "processed", "candidates_found", "skipped_errors"}`` ile
+    çağrılır — `run_scan_job` bunu `scan_jobs` tablosuna yazıp taramanın
+    kalıcı ilerleme durumunu günceller. `on_progress` (CLI'nın okunabilir
+    metin satırları) ile KARIŞTIRILMAMALI, ikisi paralel/bağımsız amaçlar."""
 
     def emit(message: str) -> None:
         if on_progress is not None:
@@ -62,102 +71,156 @@ def scan_account_inbox(
 
     candidates_found = 0
     skipped_errors = 0
-    for email_row_id, email in new_emails:
+    for idx, (email_row_id, email) in enumerate(new_emails):
+        # JOB-01: dıştaki try/finally, İÇERİDEKİ hiçbir `continue`/kontrol
+        # akışını DEĞİŞTİRMEDEN her mail için checkpoint çağrısını garanti
+        # eder — Python'da bir döngü gövdesindeki `continue`, çevreleyen
+        # `try`'ın `finally` bloğunu YİNE çalıştırır.
         try:
-            worthy, reason = is_calendar_worthy(llm, embedding_provider, email, user_id=owner_user_id)
-        except Exception as e:
-            # Model bazen boş/geçersiz JSON döndürüyor (canlı testte görüldü).
-            # Tek bir sorunlu mail tüm taramayı çökertmemeli — bu maili
-            # işlenmemiş bırakıp (sonraki taramada tekrar denenir) devam et.
-            logger.warning("is_calendar_worthy failed for %r: %s", redact(email.subject), e)
-            emit(f"[atlandı] {email.subject[:60]!r} sınıflandırılamadı: {e}")
-            skipped_errors += 1
-            continue
-
-        if not worthy:
-            # Metin gövdesi takvimlik görünmüyor ama bir eki (foto/PDF) varsa
-            # asıl bilgi orada olabilir (örn. görsel bir davetiye, gövdede
-            # yalnızca "ekteki davetiyeye bakınız" yazıyor) — yalnızca
-            # LLM_PROVIDER=gemini iken (FileInputCapable) devreye giren bir
-            # FALLBACK, bkz. mail_analysis.py::extract_candidate_from_email_with_attachments
-            # docstring'i. Önce ucuz metin kontrolü yapıldığı için (yukarıda)
-            # gereksiz pahalı/görsel çağrı önlenmiş oluyor.
-            attachment_candidate = None
-            # isinstance kontrolü BURADA (connector kurulmadan önce) —
-            # yalnızca Gemini gibi FileInputCapable bir provider'da anlamlı,
-            # aksi halde her mail için gereksiz bir OAuth/connector kurulumu
-            # (Foundry Local varsayılanında hiçbir zaman kullanılmayacak)
-            # taramayı yavaşlatırdı (canlı testte fark edildi). email.provider
-            # (UnifiedEmail'in kendi alanı) hangi connector'ın kurulacağını
-            # belirliyor — account_id'ye göre TAHMİN etmiyoruz, aksi halde
-            # sync_new_emails'te düzeltilen AYNI yanlış-sağlayıcı hatası
-            # burada da tekrarlanırdı.
-            if email.attachments and isinstance(llm, FileInputCapable):
-                try:
-                    connector_cls = OutlookConnector if email.provider == "outlook" else GmailConnector
-                    mail_connector = connector_cls(account_id=account_id)
-                    attachment_candidate = extract_candidate_from_email_with_attachments(llm, email, mail_connector)
-                except Exception as e:
-                    logger.warning(
-                        "extract_candidate_from_email_with_attachments failed for %r: %s", redact(email.subject), e
-                    )
-
-            if attachment_candidate is None:
-                mark_email_processed(email_row_id)
+            try:
+                worthy, reason = is_calendar_worthy(llm, embedding_provider, email, user_id=owner_user_id)
+            except Exception as e:
+                # Model bazen boş/geçersiz JSON döndürüyor (canlı testte görüldü).
+                # Tek bir sorunlu mail tüm taramayı çökertmemeli — bu maili
+                # işlenmemiş bırakıp (sonraki taramada tekrar denenir) devam et.
+                logger.warning("is_calendar_worthy failed for %r: %s", redact(email.subject), e)
+                emit(f"[atlandı] {email.subject[:60]!r} sınıflandırılamadı: {e}")
+                skipped_errors += 1
                 continue
 
-            apply_retrieved_policies(
-                attachment_candidate, embedding_provider, sender=email.sender, user_id=owner_user_id
-            )
-            save_new_candidate(attachment_candidate, source_email_row_id=email_row_id)
+            if not worthy:
+                # Metin gövdesi takvimlik görünmüyor ama bir eki (foto/PDF) varsa
+                # asıl bilgi orada olabilir (örn. görsel bir davetiye, gövdede
+                # yalnızca "ekteki davetiyeye bakınız" yazıyor) — yalnızca
+                # LLM_PROVIDER=gemini iken (FileInputCapable) devreye giren bir
+                # FALLBACK, bkz. mail_analysis.py::extract_candidate_from_email_with_attachments
+                # docstring'i. Önce ucuz metin kontrolü yapıldığı için (yukarıda)
+                # gereksiz pahalı/görsel çağrı önlenmiş oluyor.
+                attachment_candidate = None
+                # isinstance kontrolü BURADA (connector kurulmadan önce) —
+                # yalnızca Gemini gibi FileInputCapable bir provider'da anlamlı,
+                # aksi halde her mail için gereksiz bir OAuth/connector kurulumu
+                # (Foundry Local varsayılanında hiçbir zaman kullanılmayacak)
+                # taramayı yavaşlatırdı (canlı testte fark edildi). email.provider
+                # (UnifiedEmail'in kendi alanı) hangi connector'ın kurulacağını
+                # belirliyor — account_id'ye göre TAHMİN etmiyoruz, aksi halde
+                # sync_new_emails'te düzeltilen AYNI yanlış-sağlayıcı hatası
+                # burada da tekrarlanırdı.
+                if email.attachments and isinstance(llm, FileInputCapable):
+                    try:
+                        connector_cls = OutlookConnector if email.provider == "outlook" else GmailConnector
+                        mail_connector = connector_cls(account_id=account_id)
+                        attachment_candidate = extract_candidate_from_email_with_attachments(llm, email, mail_connector)
+                    except Exception as e:
+                        logger.warning(
+                            "extract_candidate_from_email_with_attachments failed for %r: %s", redact(email.subject), e
+                        )
+
+                if attachment_candidate is None:
+                    mark_email_processed(email_row_id)
+                    continue
+
+                apply_retrieved_policies(
+                    attachment_candidate, embedding_provider, sender=email.sender, user_id=owner_user_id
+                )
+                save_new_candidate(attachment_candidate, source_email_row_id=email_row_id)
+                mark_email_processed(email_row_id)
+
+                candidates_found += 1
+                emit(f"--- Kuyruğa eklendi ({candidates_found}) ---")
+                emit(f"Konu:            {email.subject}")
+                emit(f"Gönderen:        {email.sender}")
+                emit("Neden önerildi:  Ek dosyadan (foto/PDF) çıkarıldı.")
+                emit(f"Durum:           {attachment_candidate.status}\n")
+                continue
+
+            related = find_related_candidate_by_thread(email.thread_id, exclude_email_row_id=email_row_id)
+            if related is not None:
+                try:
+                    update_result = analyze_possible_update(llm, related["candidate"], email)
+                except Exception as e:
+                    logger.warning("analyze_possible_update failed for %r: %s", redact(email.subject), e)
+                    emit(f"[atlandı] \"{email.subject[:60]}\" güncelleme analizi başarısız oldu: {e}\n")
+                    skipped_errors += 1
+                    continue
+                if update_result["is_update"]:
+                    apply_update_suggestion(
+                        related["candidate"].candidate_id, update_result["changed_fields"], email_row_id
+                    )
+                    mark_email_processed(email_row_id)
+                    emit(f"--- Güncelleme önerisi olarak işlendi: {email.subject} ---\n")
+                    continue
+                # is_update=False: aynı thread ama alakasız konu — normal (bağımsız) akışa devam.
+
+            try:
+                candidate = extract_candidate_from_email(llm, email)
+            except Exception as e:
+                logger.warning("extract_candidate_from_email failed for %r: %s", redact(email.subject), e)
+                emit(f"[atlandı] \"{email.subject[:60]}\" çıkarımı başarısız oldu: {e}\n")
+                skipped_errors += 1
+                continue
+
+            apply_retrieved_policies(candidate, embedding_provider, sender=email.sender, user_id=owner_user_id)
+            save_new_candidate(candidate, source_email_row_id=email_row_id)
             mark_email_processed(email_row_id)
 
             candidates_found += 1
             emit(f"--- Kuyruğa eklendi ({candidates_found}) ---")
             emit(f"Konu:            {email.subject}")
             emit(f"Gönderen:        {email.sender}")
-            emit("Neden önerildi:  Ek dosyadan (foto/PDF) çıkarıldı.")
-            emit(f"Durum:           {attachment_candidate.status}\n")
-            continue
-
-        related = find_related_candidate_by_thread(email.thread_id, exclude_email_row_id=email_row_id)
-        if related is not None:
-            try:
-                update_result = analyze_possible_update(llm, related["candidate"], email)
-            except Exception as e:
-                logger.warning("analyze_possible_update failed for %r: %s", redact(email.subject), e)
-                emit(f"[atlandı] \"{email.subject[:60]}\" güncelleme analizi başarısız oldu: {e}\n")
-                skipped_errors += 1
-                continue
-            if update_result["is_update"]:
-                apply_update_suggestion(
-                    related["candidate"].candidate_id, update_result["changed_fields"], email_row_id
-                )
-                mark_email_processed(email_row_id)
-                emit(f"--- Güncelleme önerisi olarak işlendi: {email.subject} ---\n")
-                continue
-            # is_update=False: aynı thread ama alakasız konu — normal (bağımsız) akışa devam.
-
-        try:
-            candidate = extract_candidate_from_email(llm, email)
-        except Exception as e:
-            logger.warning("extract_candidate_from_email failed for %r: %s", redact(email.subject), e)
-            emit(f"[atlandı] \"{email.subject[:60]}\" çıkarımı başarısız oldu: {e}\n")
-            skipped_errors += 1
-            continue
-
-        apply_retrieved_policies(candidate, embedding_provider, sender=email.sender, user_id=owner_user_id)
-        save_new_candidate(candidate, source_email_row_id=email_row_id)
-        mark_email_processed(email_row_id)
-
-        candidates_found += 1
-        emit(f"--- Kuyruğa eklendi ({candidates_found}) ---")
-        emit(f"Konu:            {email.subject}")
-        emit(f"Gönderen:        {email.sender}")
-        emit(f"Neden önerildi:  {reason}")
-        emit(f"Durum:           {candidate.status}\n")
+            emit(f"Neden önerildi:  {reason}")
+            emit(f"Durum:           {candidate.status}\n")
+        finally:
+            if on_checkpoint is not None:
+                on_checkpoint({
+                    "total": len(new_emails), "processed": idx + 1,
+                    "candidates_found": candidates_found, "skipped_errors": skipped_errors,
+                })
 
     return {"total": len(new_emails), "candidates_found": candidates_found, "skipped_errors": skipped_errors}
+
+
+_RATE_LIMIT_MARKERS = ("ratelimitexceeded", "quotaexceeded", "userratelimitexceeded")
+
+
+def _friendly_scan_error(exc: Exception) -> str:
+    """Ham istisna metnini (örn. Gmail'in `HttpError`'ı — tek satırda tüm
+    JSON hata gövdesini basar, bkz. canlı testte görülen kilometrelerce
+    uzun "Quota exceeded for quota metric..." dökümü) kullanıcıya
+    gösterilecek KISA bir cümleye çevirir. Tam teknik detay zaten
+    `logger.exception` ile data/debug.log'a yazılıyor — burada kaybolmuyor,
+    yalnızca ekranda gösterilmiyor. Tanınmayan hatalar için ham metin
+    olduğu gibi (kısaltılarak) kalır — bilinmeyen bir hatayı SESSİZCE
+    yutmaktansa (hata ayıklamayı zorlaştırır) biraz ham göstermek yeğdir."""
+    text = str(exc)
+    lowered = text.lower()
+    if any(marker in lowered for marker in _RATE_LIMIT_MARKERS):
+        return "E-posta sağlayıcısının API kotası aşıldı — birkaç dakika sonra tekrar deneyin."
+    return text if len(text) <= 300 else text[:300] + "…"
+
+
+def run_scan_job(job_id: str, account_id: str, llm: LLMProvider, embedding_provider: EmbeddingProvider) -> None:
+    """JOB-01: `scan_account_inbox`'ı bir `scan_jobs` kaydının yaşam
+    döngüsüyle sarar — Web UI (bkz. src/ui/routes.py) bunu senkron ÇAĞIRMAZ,
+    bir arka plan thread'inde başlatıp isteği HEMEN döner; ilerleme/sonuç
+    yalnızca `scan_jobs` tablosundan (kalıcı) okunur. CLI'nın `main()`'i
+    hâlâ eski senkron/print davranışını kullanıyor, bu fonksiyonu hiç
+    çağırmaz — job kavramı yalnızca Web UI'nin sorunu."""
+    scan_jobs.mark_job_running(job_id)
+
+    def checkpoint(progress: dict) -> None:
+        scan_jobs.update_job_progress(job_id, **progress)
+
+    try:
+        result = scan_account_inbox(account_id, llm, embedding_provider, on_checkpoint=checkpoint)
+    except Exception as e:
+        logger.exception("Tarama işi başarısız oldu (job_id=%s, account_id=%s)", job_id, account_id)
+        scan_jobs.mark_job_failed(job_id, _friendly_scan_error(e))
+        return
+    scan_jobs.mark_job_succeeded(
+        job_id, total=result["total"], candidates_found=result["candidates_found"],
+        skipped_errors=result["skipped_errors"],
+    )
 
 
 def main() -> None:

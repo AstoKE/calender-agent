@@ -20,6 +20,7 @@ ortadan kalktı; yeni route'lar dosyada istenilen yere eklenebilir."""
 
 from __future__ import annotations
 
+import threading
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 from urllib.parse import quote
@@ -72,7 +73,8 @@ from src.services.calendar_view import (
     parse_calendar_event,
     week_bounds,
 )
-from src.services.scan_inbox import scan_account_inbox
+from src.services import scan_jobs
+from src.services.scan_inbox import run_scan_job
 from src.services.timeutil import DEFAULT_TIMEZONE
 from src.storage.db import DEFAULT_DB_PATH
 from src.storage.preferences import get_preference, set_preference
@@ -124,7 +126,7 @@ def root():
 
 
 @router.get("/anasayfa", response_class=HTMLResponse)
-def home_page(request: Request, mesgul: bool = False):
+def home_page(request: Request):
     active_account = resolve_active_account(request)
 
     today_entries: list = []
@@ -158,6 +160,10 @@ def home_page(request: Request, mesgul: bool = False):
     others_pending = (count_pending_candidates(all_account_ids) - pending_count) if account_id else 0
 
     chat_context = build_chat_widget_context(request, account_id) if CHAT_ENABLED else {}
+    # JOB-01: "mesgul" query param'ı yerine artık `scan_jobs`'a KALICI olarak
+    # bakılıyor — sayfa yenilense/sunucu yeniden başlasa bile doğru durumu
+    # gösterir (bkz. hesaplar.html'deki aynı desen).
+    scan_busy = account_id is not None and scan_jobs.get_active_scan_job(account_id) is not None
 
     return templates.TemplateResponse(
         request,
@@ -170,7 +176,7 @@ def home_page(request: Request, mesgul: bool = False):
             "pending_count": pending_count,
             "others_pending": others_pending,
             "active_policy_count": len(get_active_policies(user_id=request.state.user["id"])),
-            "scan_busy": mesgul,
+            "scan_busy": scan_busy,
             "chat_enabled": CHAT_ENABLED,
             **chat_context,
         },
@@ -213,24 +219,21 @@ def select_account(request: Request, account_id: str = Form(...), next: str = Fo
 @router.get("/hesaplar", response_class=HTMLResponse)
 def accounts_page(
     request: Request,
-    tarandi: int | None = None,
-    bulunan: int | None = None,
-    hatali: int | None = None,
-    mesgul: bool = False,
     hesap_eklendi: bool = False,
     oauth_hata: str | None = None,
 ):
     accounts = list_accounts(user_id=request.state.user["id"])
-    scan_result = None
-    if tarandi is not None:
-        scan_result = {"total": tarandi, "candidates_found": bulunan or 0, "skipped_errors": hatali or 0}
+    # JOB-01 (bkz. docs/urunlesme-ve-tasarim-yol-haritasi.md): tarama durumu
+    # artık query param'larla (bkz. eski ?tarandi=/mesgul=) TAŞINMIYOR —
+    # `scan_jobs` tablosundan hesap başına KALICI olarak okunuyor, sayfa
+    # kapansa/sunucu yeniden başlasa bile doğru durumu gösterir.
+    scan_jobs_by_account = {acc["id"]: scan_jobs.get_latest_job_for_account(acc["id"]) for acc in accounts}
     return templates.TemplateResponse(
         request,
         "hesaplar.html",
         {
             "accounts": accounts,
-            "scan_result": scan_result,
-            "scan_busy": mesgul,
+            "scan_jobs_by_account": scan_jobs_by_account,
             "active_page": "hesaplar",
             "account_added": hesap_eklendi,
             "oauth_error": oauth_hata,
@@ -238,28 +241,27 @@ def accounts_page(
     )
 
 
-def _run_scan(request: Request, account_id: str, redirect_base: str) -> RedirectResponse:
+def _start_scan(request: Request, account_id: str, redirect_base: str) -> RedirectResponse:
     """`/hesaplar/{id}/tara` (belirli hesap) ve `/tara` (aktif hesap, Ana
-    Sayfa) tarafından paylaşılıyor. Tarama dakikalarca blokluyor — aynı
-    hesap için ikinci bir tarama zaten sürüyorsa yeniden BAŞLATMAZ, sadece
-    "meşgul" bilgisiyle geri döner (bkz. app.py::lifespan scan_in_progress)."""
-    in_progress = request.app.state.scan_in_progress
-    if account_id in in_progress:
-        return RedirectResponse(f"{redirect_base}?mesgul=1", status_code=303)
-    in_progress.add(account_id)
-    try:
-        result = scan_account_inbox(account_id, request.app.state.llm, request.app.state.embedding_provider)
-    finally:
-        in_progress.discard(account_id)
-    return RedirectResponse(
-        f"{redirect_base}?tarandi={result['total']}&bulunan={result['candidates_found']}&hatali={result['skipped_errors']}",
-        status_code=303,
-    )
+    Sayfa) tarafından paylaşılıyor. JOB-01: tarama artık bu isteği
+    BLOKLAMIYOR — bir `scan_jobs` kaydı oluşturup arka plan thread'inde
+    başlatıyor, HEMEN yönlendiriyor. Hesap başına aktif (QUEUED/RUNNING) bir
+    iş zaten varsa yenisini BAŞLATMIYOR — kilit artık `scan_jobs` tablosunda
+    (kalıcı, sunucu yeniden başlasa bile doğru), `app.state.scan_in_progress`
+    (bellek-içi, WRITE-01/chat_in_progress ile aynı desendi) YERİNE geçti."""
+    if scan_jobs.get_active_scan_job(account_id) is not None:
+        return RedirectResponse(redirect_base, status_code=303)
+
+    job_id = scan_jobs.create_scan_job(account_id)
+    llm = request.app.state.llm
+    embedding_provider = request.app.state.embedding_provider
+    threading.Thread(target=run_scan_job, args=(job_id, account_id, llm, embedding_provider), daemon=True).start()
+    return RedirectResponse(redirect_base, status_code=303)
 
 
 @router.post("/hesaplar/{account_id}/tara")
 def scan_account(request: Request, account_id: str):
-    return _run_scan(request, account_id, "/hesaplar")
+    return _start_scan(request, account_id, "/hesaplar")
 
 
 @router.post("/tara")
@@ -267,7 +269,7 @@ def scan_active_account(request: Request):
     active_account = resolve_active_account(request)
     if active_account is None:
         return RedirectResponse("/anasayfa", status_code=303)
-    return _run_scan(request, active_account["id"], "/anasayfa")
+    return _start_scan(request, active_account["id"], "/anasayfa")
 
 
 @router.get("/takvim", response_class=HTMLResponse)

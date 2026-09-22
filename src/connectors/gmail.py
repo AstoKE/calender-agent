@@ -28,6 +28,21 @@ def _strip_html(raw_html: str) -> str:
     return html_lib.unescape(_TAG_RE.sub(" ", raw_html)).strip()
 
 
+def _is_rate_limit_error(e: HttpError) -> bool:
+    """429 (Too Many Requests) ya da Gmail'in "kota aşıldı" 403 varyantı
+    (canlı testte görülen gerçek metin: `"reason": "rateLimitExceeded"`,
+    ayrıca `quotaExceeded`/`userRateLimitExceeded` de aynı ailede) — genel
+    bir yetki hatası (gerçek 403 permission-denied) İLE karıştırılmamalı,
+    o durumda hâlâ olduğu gibi yükseltiliyor (bkz. çağıran)."""
+    status = getattr(e.resp, "status", None)
+    if status == 429:
+        return True
+    if status == 403:
+        reason = str(e).lower()
+        return "ratelimitexceeded" in reason or "quotaexceeded" in reason
+    return False
+
+
 def _decode_part_data(data: str) -> str:
     return base64.urlsafe_b64decode(data + "=" * (-len(data) % 4)).decode("utf-8", errors="replace")
 
@@ -99,7 +114,8 @@ class GmailConnector(EmailConnector):
         gerçek çekme işlemi 404 ("Requested entity was not found") ile
         başarısız oluyor (canlı testte görüldü, tüm taramayı çökertiyordu).
         404'ü sessizce atla (o mesaj artık yok, işlenecek bir şey kalmadı);
-        başka bir hata (auth, rate limit) varsa olduğu gibi yükselt."""
+        başka bir hata (auth, rate limit) varsa olduğu gibi yükselt (bkz.
+        `_fetch_messages_resiliently`'nin rate-limit'i AYRICA ele alması)."""
         try:
             return self.get_message(message_id)
         except HttpError as e:
@@ -108,13 +124,46 @@ class GmailConnector(EmailConnector):
                 return None
             raise
 
+    def _fetch_messages_resiliently(self, message_ids) -> tuple[list[UnifiedEmail], bool]:
+        """Mesajları TEK TEK çeker; bir kota/rate-limit hatasına çarparsa
+        (canlı testte görüldü — büyük bir gelen kutusunda tek bir tarama
+        turunda birden fazla hesap taranırken Gmail'in dakika başı kota
+        sınırına takılabiliyor) KALANLARINI denemeden durur ve o ana kadar
+        BAŞARIYLA çekilenleri döner — önceden tek bir mesajın kota hatası
+        TÜM turu çökertip önceki başarıları da kaybediyordu, kullanıcıya
+        ham bir istisna metni (`HttpError 403 ...`) gösteriliyordu.
+
+        Döner: (mesajlar, tamamlandı_mı). ``tamamlandı_mı=False`` çağırana
+        ("bazı mesajlar bu turda hiç çekilmedi, cursor'ı İLERLETME") bkz.
+        `_incremental_sync`."""
+        messages: list[UnifiedEmail] = []
+        for message_id in message_ids:
+            try:
+                message = self._get_message_if_exists(message_id)
+            except HttpError as e:
+                if _is_rate_limit_error(e):
+                    logger.warning(
+                        "Gmail API kota sınırına takıldı (%s), bu turda %d/%d mesaj çekildi — kalanlar bir "
+                        "sonraki taramada denenecek.",
+                        self.account_id, len(messages), len(message_ids),
+                    )
+                    return messages, False
+                raise
+            if message is not None:
+                messages.append(message)
+        return messages, True
+
     def _initial_sync(self, max_results: int = 25) -> tuple[list[UnifiedEmail], str]:
         profile = self._service.users().getProfile(userId="me").execute()
         latest_history_id = profile["historyId"]
 
         list_resp = self._service.users().messages().list(userId="me", maxResults=max_results).execute()
         message_ids = [m["id"] for m in list_resp.get("messages", [])]
-        messages = [m for mid in message_ids if (m := self._get_message_if_exists(mid)) is not None]
+        # İlk senkronizasyon zaten "yalnızca son max_results mesaj" ile
+        # sınırlı bir tasarım kararı (bkz. sync_new_emails docstring'i) —
+        # kota nedeniyle eksik kalması bu kabul edilmiş sınırlamayı
+        # BÜYÜTMÜYOR, `latest_history_id` her durumda ileri alınabilir.
+        messages, _complete = self._fetch_messages_resiliently(message_ids)
         return messages, latest_history_id
 
     def _incremental_sync(self, since_history_id: str) -> tuple[list[UnifiedEmail], str]:
@@ -144,7 +193,16 @@ class GmailConnector(EmailConnector):
             if not page_token:
                 break
 
-        messages = [m for mid in new_message_ids if (m := self._get_message_if_exists(mid)) is not None]
+        messages, complete = self._fetch_messages_resiliently(new_message_ids)
+        if not complete:
+            # Bazı mesajlar hiç çekilemedi — cursor'ı İLERLETMİYORUZ, aksi
+            # halde bu mesajlar gelecekteki incremental sync'lerde bir daha
+            # HİÇ görünmez (history.list yalnızca cursor'DAN SONRAKİ
+            # değişiklikleri döner). Bir sonraki tarama AYNI pencereyi
+            # (zaten çekilenler dahil) tekrar dener — `_upsert_email_message`
+            # INSERT OR IGNORE olduğu için bu zararsız, yalnızca fazladan
+            # birkaç API çağrısına mal olur.
+            return messages, since_history_id
         return messages, latest_history_id
 
     def get_message(self, message_id: str) -> UnifiedEmail:

@@ -34,6 +34,7 @@ from src.connectors.account_registry import list_accounts
 from src.core.logging_config import configure_logging
 from src.providers.foundry_local import FoundryLocalEmbeddingProvider, FoundryLocalProvider
 from src.providers.gemini import GeminiEmbeddingProvider, GeminiProvider
+from src.services.scan_jobs import reconcile_orphaned_jobs_at_startup
 from src.storage.db import init_db
 from src.ui.auth import get_current_user
 from src.ui.security import CSRFGuardMiddleware
@@ -73,24 +74,26 @@ async def lifespan(app: FastAPI):
     # account_id -> GoogleCalendarConnector, ilk kullanımda oluşturulur (OAuth
     # token'ı diskte hazır olduğu sürece interaktif bir şey tetiklemez).
     app.state.calendar_connectors = {}
-    # Tarama dakikalarca blokluyor (senkron istek, arka plan kuyruğu bu
-    # dilimde yok) — aynı hesap için kazara ikinci bir tarama tetiklenmesini
-    # (çift tıklama, iki sekme) engellemek için tek-uçuş koruması. Adversarial
-    # bir senaryo değil, GIL altında set.add/discard bu amaç için yeterli.
-    app.state.scan_in_progress = set()
+    # JOB-01 (bkz. docs/urunlesme-ve-tasarim-yol-haritasi.md): tarama artık
+    # senkron/bellek-içi bir tek-uçuş korumasıyla DEĞİL, `scan_jobs`
+    # tablosundaki kalıcı bir kayıtla ve arka plan thread'iyle yürütülüyor
+    # (bkz. src/ui/routes.py::_start_scan, src/services/scan_inbox.py::run_scan_job)
+    # — sunucu her yeniden başladığında önceki süreçten kalan (tanım gereği
+    # yetim) QUEUED/RUNNING kayıtları hemen çözülür ki hesap başına kalıcı
+    # kilit bir çökme/yeniden başlatmadan sonra sonsuza dek takılı kalmasın.
+    reconcile_orphaned_jobs_at_startup()
     # Çift gönderim koruması (bkz. plan "Web Chatbox" Riskler): aynı sohbet
     # oturumu için art arda iki POST /asistan/mesaj (çift tıklama, iki sekme)
     # aynı adımı (örn. preview_confirm) iki kez işleyip takvime iki kez
-    # yazabilir — scan_in_progress ile aynı bellek-içi tek-uçuş deseni,
-    # session_id bazlı.
+    # yazabilir — bellek-içi bir tek-uçuş deseni, session_id bazlı.
     app.state.chat_in_progress = set()
     # WRITE-01 (bkz. docs/urunlesme-ve-tasarim-yol-haritasi.md): Gelen
     # Öneriler'in onayla route'unda sağlayıcıya yazma (calendar.create_event/
     # update_event) ile DB durum güncellemesi ARASINDA bir pencere vardı —
     # çift tıklama/iki sekme aynı candidate_id için iki eşzamanlı isteği
     # ikisi de "hâlâ beklemede" durumda bulup ikisi de takvime yazabiliyordu.
-    # scan_in_progress/chat_in_progress ile AYNI bellek-içi tek-uçuş deseni,
-    # candidate_id bazlı — bkz. routes.py::approve.
+    # chat_in_progress ile AYNI bellek-içi tek-uçuş deseni, candidate_id
+    # bazlı — bkz. routes.py::approve.
     app.state.candidate_approval_in_progress = set()
     yield
 

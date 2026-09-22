@@ -291,3 +291,27 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     created_at      TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id, id);
+
+-- JOB-01 (bkz. docs/urunlesme-ve-tasarim-yol-haritasi.md): mail taramasının
+-- kalıcı iş durumu. Önceden tarama tamamen senkron/bellek-içiydi
+-- (app.state.scan_in_progress) — sunucu yeniden başlarsa ya da kullanıcı
+-- sayfayı kapatsa hiçbir iz kalmıyordu, ilerleme görülemiyordu. Her tarama
+-- artık bir satır: status ilerledikçe güncellenir (bkz. src/services/scan_jobs.py).
+-- Hesap başına aktif (QUEUED/RUNNING) en fazla BİR satır olması uygulama
+-- seviyesinde kontrol edilir (bu tabloda bir UNIQUE kısıtı YOK — bir işin
+-- SÜRESİ dolup TIMED_OUT olması gerekebiliyor, o an ikinci bir satırın
+-- var olması geçici olarak normal, bkz. get_active_scan_job).
+CREATE TABLE IF NOT EXISTS scan_jobs (
+    id                  TEXT PRIMARY KEY,
+    account_id          TEXT NOT NULL REFERENCES accounts(id),
+    status              TEXT NOT NULL,              -- QUEUED | RUNNING | SUCCEEDED | FAILED | TIMED_OUT
+    total               INTEGER NOT NULL DEFAULT 0,
+    processed           INTEGER NOT NULL DEFAULT 0,
+    candidates_found    INTEGER NOT NULL DEFAULT 0,
+    skipped_errors      INTEGER NOT NULL DEFAULT 0,
+    error_message       TEXT,
+    created_at          TEXT NOT NULL,
+    started_at          TEXT,
+    finished_at         TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_scan_jobs_account ON scan_jobs(account_id, created_at);

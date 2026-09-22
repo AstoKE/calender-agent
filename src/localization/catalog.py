@@ -168,12 +168,27 @@ MESSAGES: dict[str, dict[str, str]] = {
     "hesaplar.field.connected_at": {"tr": "Bağlanma tarihi", "en": "Connected on"},
     "hesaplar.scan_now": {"tr": "Şimdi tara", "en": "Scan now"},
     "hesaplar.scan_hint": {
-        "tr": "Tarama birkaç dakika sürebilir, sayfa o süre boyunca bekler.",
-        "en": "Scanning may take a few minutes; the page will wait.",
+        "tr": "Tarama arka planda çalışır — sayfayı yenileyerek durumu görebilirsiniz.",
+        "en": "Scanning runs in the background — refresh the page to see its status.",
     },
-    "hesaplar.scan_summary": {
-        "tr": "Tarama tamamlandı: {total} mail kontrol edildi, {found} öneri kuyruğa eklendi.",
-        "en": "Scan complete: {total} emails checked, {found} suggestions queued.",
+    # JOB-01 (bkz. docs/urunlesme-ve-tasarim-yol-haritasi.md): tarama artık
+    # bu isteği bloklamıyor, `scan_jobs`'ta kalıcı bir durumu var — bu 4 anahtar
+    # o durumun ekranda gösterilme biçimi (bkz. hesaplar.html).
+    "hesaplar.scan_status.running": {
+        "tr": "Tarama sürüyor... ({processed}/{total} mail işlendi, sayfayı yenileyin)",
+        "en": "Scan in progress... ({processed}/{total} emails processed, refresh to update)",
+    },
+    "hesaplar.scan_status.succeeded": {
+        "tr": "Son tarama: {total} mail kontrol edildi, {found} öneri kuyruğa eklendi.",
+        "en": "Last scan: {total} emails checked, {found} suggestions queued.",
+    },
+    "hesaplar.scan_status.failed": {
+        "tr": "Son tarama başarısız oldu: {error}",
+        "en": "Last scan failed: {error}",
+    },
+    "hesaplar.scan_status.timed_out": {
+        "tr": "Son tarama zaman aşımına uğradı, çok uzun sürdü.",
+        "en": "Last scan timed out — it took too long.",
     },
     "hesaplar.scan_busy": {
         "tr": "Bu hesap için bir tarama zaten sürüyor, bitmesini bekleyin.",

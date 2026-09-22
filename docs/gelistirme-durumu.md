@@ -353,3 +353,65 @@ Doğrulama: `_is_same_origin`'in son `return False`'unu geçici olarak `return T
 **Bu kontrol noktasının sınırı ve sıradaki iş**
 
 Oturum ömrü (400 gün) ve OAuth callback çerezindeki `Secure` bayrağı BİLİNÇLİ olarak kapsam dışı bırakıldı — 400 gün değeri zaten tarayıcıların kendi `Max-Age` üst sınırına denk geliyor (tek kullanıcılı yerel bir uygulamada "hep giriş kalsın" rahatlığı için kasıtlı bir seçim), `Secure` bayrağı ise yalnızca HTTPS altında çalışan bir cookie'yi düz `http://localhost` üzerinde ANLAMSIZ/kırıcı hâle getirir (tarayıcı `Secure` işaretli bir cookie'yi düz HTTP'ye hiç göndermez). Bu ikisi de yol haritasının OAUTH-01 dağıtım kararına (localhost mu, gerçek bir sunucuya mı taşınacak) bağlı — karar netleşmeden anlamlı bir "üretim çerez profili" yazılamaz, PRIV-01'in token-şifreleme yarısıyla aynı bekleme durumu.
+
+**Kontrol noktası 10 — JOB-01 (1. dilim): kalıcı tarama işi + arka plan yürütme**
+
+Durum: uygulandı, otomatik doğrulama tamamlandı; kullanıcı testi ve onayı bekleniyor. Bu adım henüz commit edilmedi.
+
+JOB-01 bulgusu: mail taraması tamamen SENKRONDU — `/tara` isteği taramanın tüm süresi boyunca (dakikalarca) bloklu kalıyordu, ilerleme/kilit yalnızca `app.state.scan_in_progress` (bellek-içi bir set) ile tutuluyordu. Sunucu yeniden başlarsa ya da kullanıcı sayfayı kapatırsa hiçbir iz kalmıyordu, ilerleme görülemiyordu. Hedef: "Kalıcı iş kuyruğu/worker, iş durumu, checkpoint, hesap başına kilit, kontrollü tekrar deneme ve zaman aşımı."
+
+Bu, tek kullanıcılı yerel bir uygulama için gerçek bir mesaj kuyruğu (Celery/Redis vb.) kurmak yerine SADE bir mimariyle çözüldü: yeni bir `scan_jobs` DB tablosu + arka plan `threading.Thread` — süreç kendi içinde kalıyor ama artık kalıcı bir durumu var.
+
+Yeni davranış:
+
+- **Yeni tablo `scan_jobs`** (`src/storage/schema.sql`): her tarama bir satır (`id, account_id, status, total, processed, candidates_found, skipped_errors, error_message, created_at, started_at, finished_at`). `status`: `QUEUED → RUNNING → SUCCEEDED|FAILED|TIMED_OUT`.
+- **`src/services/scan_jobs.py`** (yeni, okuma/yazma katmanı): `create_scan_job`, `mark_job_running`, `update_job_progress`, `mark_job_succeeded`, `mark_job_failed`, `get_job`, `get_latest_job_for_account`, `get_active_scan_job` (hesap başına kalıcı kilit — QUEUED/RUNNING var mı diye bakar), `reconcile_stale_running_jobs` (30 dakikadan uzun RUNNING kalan bir işi TIMED_OUT yapar — bir ağ çağrısının kalıcı takılması durumunda kilit sonsuza dek tutulmasın), `reconcile_orphaned_jobs_at_startup` (sunucu HER başladığında, önceki süreçten kalan TÜM QUEUED/RUNNING satırları — yaşına bakmaksızın, tanım gereği yetim — hemen FAILED yapar). Tüm güncelleme fonksiyonları `WHERE status = 'RUNNING'` koruması taşıyor: bir iş dışarıdan zaten TIMED_OUT/FAILED işaretlendiyse, takılı kalmış eski bir thread'in geç gelen güncellemesi bunu SESSİZCE geri açamaz.
+- **`src/services/scan_inbox.py`**: `scan_account_inbox`'a yeni `on_checkpoint` callback'i eklendi — döngü gövdesi bir `try/finally` ile sarıldı (içerideki HİÇBİR `continue` DEĞİŞMEDİ, Python'da `continue` çevreleyen `finally`'i yine çalıştırır) ki her mail işlendikten sonra (başarı/atlama fark etmeksizin) ilerleme raporlansın. Yeni `run_scan_job(job_id, account_id, llm, embedding_provider)`: bir işin tüm yaşam döngüsünü (`mark_job_running` → checkpoint'leri `update_job_progress`'e yönlendir → `mark_job_succeeded`/`mark_job_failed`) yönetir. CLI'nın `main()`'i DEĞİŞMEDİ, hâlâ eski senkron/`print` davranışını kullanıyor — job kavramı yalnızca Web UI'nin sorunu.
+- **`src/ui/routes.py`**: `_run_scan` → `_start_scan` oldu — artık taramayı SENKRON çağırmıyor, bir `scan_jobs` kaydı oluşturup `threading.Thread(target=run_scan_job, ...).start()` ile arka planda başlatıp HEMEN yönlendiriyor. Kilit kontrolü `app.state.scan_in_progress` yerine `scan_jobs.get_active_scan_job(account_id)` — artık KALICI. `/hesaplar` sayfası artık `?tarandi=/?bulunan=/?hatali=/?mesgul=` query param'larına değil, doğrudan `scan_jobs`'tan (her hesap için `get_latest_job_for_account`) okunan duruma göre render ediyor. Ana Sayfa'daki "tarama sürüyor" uyarısı da aynı şekilde `?mesgul=1`'den `scan_jobs.get_active_scan_job`'a taşındı.
+- **`src/ui/app.py`**: `lifespan` artık `reconcile_orphaned_jobs_at_startup()`'ı çağırıyor — sunucu her başladığında yetim işler temizleniyor. Artık kullanılmayan `app.state.scan_in_progress` kaldırıldı (`chat_in_progress`/`candidate_approval_in_progress` — FARKLI, ayrı sorunlar için — değişmedi, hâlâ bellek-içi, o ikisi tek bir istek içi çift-tıklama koruması, sürekli/uzun süren bir işin kalıcı durumu değil).
+- **`hesaplar.html`**: her hesap kartı artık KENDİ son işinin durumunu gösteriyor (çalışıyor/tamamlandı/başarısız/zaman aşımı) — önceden tek bir global banner tüm hesapları karıştırıyordu. Çalışan bir iş varken "Şimdi tara" butonu gizlenip yerine durum metni gösteriliyor.
+
+Kapsam dışı bırakılanlar (bilinçli, bu "1. dilim" için):
+
+- **Canlı ilerleme (JS polling)** — sayfa şu an tarama sürerken OTOMATİK yenilenmiyor, kullanıcının sayfayı elle yenilemesi gerekiyor. Chat'in AJAX fragment mekanizmasına benzer bir polling eklemek mümkün ama ayrı bir iş; bu dilim öncelik olarak KALICILIĞA (sunucu yeniden başlasa/sayfa kapansa bile durumun kaybolmaması) odaklandı.
+- **Gerçek thread iptali/zaman aşımı zorlaması** — Python'da çalışan bir thread'i güvenle zorla öldürmek mümkün değil; `STALE_RUNNING_MINUTES` (30 dk) yalnızca hesap başına kalıcı KİLİDİ serbest bırakıyor (yeni bir tarama başlatılabilir), takılı thread'in kendisi zararsızca arka planda ölür (WHERE status='RUNNING' koruması sayesinde geç gelen güncellemesi hiçbir şeyi bozmaz).
+- **Kontrollü tekrar deneme**, otomatik/zamanlanmış değil — kullanıcı "Şimdi tara"ya tekrar bastığında zaten var olan `processed` bayrağı (bkz. `email_messages`) sayesinde önceki taramada işlenmiş mailler tekrar işlenmiyor; bu, roadmap'in "checkpoint" isteğinin veri katmanında ZATEN var olan kısmı (bu kontrol noktasından önce de vardı, doğrulandı).
+
+Değişen/yeni dosyalar:
+
+- [schema.sql](../src/storage/schema.sql): yeni `scan_jobs` tablosu.
+- [scan_jobs.py](../src/services/scan_jobs.py) (yeni): okuma/yazma katmanı.
+- [scan_inbox.py](../src/services/scan_inbox.py): `on_checkpoint` + `run_scan_job`.
+- [routes.py](../src/ui/routes.py), [app.py](../src/ui/app.py): arka plan thread + kalıcı kilit + startup uzlaştırma.
+- [hesaplar.html](../src/ui/templates/hesaplar.html), [catalog.py](../src/localization/catalog.py): hesap başına durum gösterimi + yeni çeviri anahtarları.
+- [test_scan_jobs.py](../tests/test_scan_jobs.py) (yeni, 13 test): store fonksiyonlarının hepsi + gerçek FastAPI lifespan'ı tetikleyip startup uzlaştırmasının GERÇEKTEN çalıştığını doğrulayan bir entegrasyon testi.
+- [test_scan_inbox.py](../tests/test_scan_inbox.py): checkpoint sıralamasını + `run_scan_job`'ın başarı/hata yollarını doğrulayan 3 yeni test.
+- [test_ui_routes.py](../tests/test_ui_routes.py): eski `test_tara_active_account_single_flight_guard` iki yeni teste bölündü (arka plan işi başlatma + kalıcı kilidin ikinci isteği engellemesi, gerçek `threading.Event` ile eşzamanlılık kontrollü); `test_anasayfa_scan_busy_shows_notice` query param yerine gerçek bir `scan_jobs` kaydı kullanacak şekilde güncellendi.
+
+Doğrulama: iki ayrı noktada testlerin gerçekten bir şey yakaladığını varsaymadım — `_start_scan`'daki kalıcı kilit kontrolünü geçici devre dışı bırakıp ikinci isteğin GERÇEKTEN ikinci bir `scan_jobs` satırı oluşturduğunu (test `2 == 1` diye başarısız oldu) doğruladım; `app.py`'deki `reconcile_orphaned_jobs_at_startup()` çağrısını geçici kaldırıp yetim bir işin sunucu yeniden başlasa bile RUNNING kaldığını doğruladım. İkisini de sonra geri aldım. Tam paket **612 başarılı** (594 eski + 18 yeni), pyflakes değişen tüm dosyalarda temiz.
+
+**Senin yapacağın manuel kontrol**
+
+1. E-posta Hesapları ekranında "Şimdi tara"ya bas — sayfa artık ANINDA geri dönmeli (taramanın bitmesini beklemeden), hesap kartında "Tarama sürüyor..." görünmeli.
+2. Birkaç saniye/dakika sonra sayfayı elle yenile — durumun "Son tarama: N mail kontrol edildi, M öneri kuyruğa eklendi" şeklinde güncellendiğini gör.
+3. Tarama sürerken "Şimdi tara" butonunun görünmediğini (yerine durum metni olduğunu) doğrula.
+4. İstersen tarama sürerken uygulamayı yeniden başlat (`Ctrl+C` + tekrar `python -m src.ui.app`) — o iş "başarısız oldu" olarak görünmeli (sunucu yeniden başlatıldığı için), YENİ bir tarama denemesi hemen başlatılabilmeli (kilitte takılı kalmamalı).
+
+**Bu kontrol noktasının sınırı ve sıradaki iş**
+
+Bu, JOB-01'in İLK dilimi — canlı/otomatik ilerleme gösterimi (JS polling) ve daha zengin retry/backoff politikası ayrı, isteğe bağlı bir sonraki adım olarak bırakıldı. Mail tarama dışındaki başka uzun-süren bir işlem yok, bu yüzden bu mimari (DB durumu + arka plan thread) şimdilik yalnızca `scan_jobs`'a özel; ileride benzer bir ihtiyaç doğarsa (örn. toplu bir "tüm hesapları tara") aynı desen tekrar kullanılabilir.
+
+**Kullanıcının canlı testinde bulunan gerçek hata (2026-09-20, aynı kontrol noktası kapsamında düzeltildi):** iki gerçek Gmail hesabı taranırken (144 mailli bir gelen kutusu) Gmail'in dakika başı API kotasına takılındı. İki ayrı sorun ortaya çıktı:
+
+1. **Kök neden — tüm ilerleme kayboluyordu:** `GmailConnector._initial_sync`/`_incremental_sync`, ilk senkronizasyonda çekilecek ~25 mesajı TEK TEK çekiyordu (`[m for mid in message_ids if ...]`) — 25 mesajdan 20'si başarıyla çekilse bile, 21.'de bir kota hatası (`HttpError 403 rateLimitExceeded`) TÜM listeyi çökertiyordu, önceki 20 başarı da kayboluyordu (hiçbiri `email_messages`'a yazılmamıştı, `sync_new_emails`'in storage adımı fetch TAMAMLANDIKTAN sonra çalışıyor). Ayrıca `run_scan_job`'ın hata mesajı ham `str(exception)`'ı olduğu gibi gösteriyordu — ekranda kilometrelerce uzun bir JSON dökümü.
+2. Kullanıcının isteği: "eskisi gibi şu kadar mail tarandı, kalanı sonra taranacak" desin.
+
+Düzeltme:
+
+- Yeni `GmailConnector._fetch_messages_resiliently`: mesajları tek tek çekmeye devam ediyor ama bir kota/rate-limit hatasına (`_is_rate_limit_error` — 429 ya da "rateLimitExceeded"/"quotaExceeded" içeren 403, GERÇEK bir izin hatasıyla KARIŞTIRILMIYOR) çarparsa KALANLARI denemeden durup o ana kadar başarıyla çekilenleri döner (`complete=False` ile birlikte).
+- `_incremental_sync`, `complete=False` dönerse cursor'ı İLERLETMİYOR — aksi halde çekilemeyen mesajlar Gmail'in `history.list`'i yalnızca cursor'DAN SONRAKİ değişiklikleri döndürdüğü için bir daha ASLA görünmezdi (gerçek, kalıcı veri kaybı olurdu). Bir sonraki tarama aynı pencereyi (zaten çekilenler dahil) tekrar dener — `INSERT OR IGNORE` sayesinde zararsız, yalnızca birkaç fazladan API çağrısına mal olur. `_initial_sync` için bu risk yok (zaten "yalnızca son ~25 mesaj" kabul edilmiş bir sınırlama, `latest_history_id` her durumda ilerletilebilir).
+- Yeni `scan_inbox.py::_friendly_scan_error`: hâlâ (örn. çok daha erken bir aşamada, `getProfile`/`messages.list` gibi tek seferlik ilk çağrılarda) bir kota hatası bütün turu düşürürse, ham istisna metni yerine "E-posta sağlayıcısının API kotası aşıldı — birkaç dakika sonra tekrar deneyin." gösteriliyor. Tanınmayan hatalar 300 karaktere kısaltılarak (tamamen gizlenmeden) gösterilmeye devam ediyor — tam teknik detay zaten `logger.exception` ile `data/debug.log`'a yazılıyor.
+
+Değişen dosyalar: [gmail.py](../src/connectors/gmail.py), [scan_inbox.py](../src/services/scan_inbox.py), yeni [test_gmail_rate_limit.py](../tests/test_gmail_rate_limit.py) (10 test — gerçek Gmail API'ye dokunmadan sahte `HttpError`/`_service` ile).
+
+Doğrulama: iki noktada testlerin gerçekten bir şey yakaladığını varsaymadım — `_fetch_messages_resiliently`'nin "dur ve kısmi sonucu döndür" satırını geçici olarak `raise`'e çevirip partial-sonuç testinin kırıldığını; `_incremental_sync`'in "cursor'ı ilerletme" korumasını geçici devre dışı bırakıp cursor'ın gerçekten yanlış (ilerletilmiş) değere ilerlediğini (test `'999' == '100'` diye başarısız oldu — bu, sessiz kalıcı mail kaybını temsil ediyordu) doğruladım, sonra ikisini de geri aldım. Tam paket **622 başarılı** (612 eski + 10 yeni), pyflakes temiz.
