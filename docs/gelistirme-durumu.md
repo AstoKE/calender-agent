@@ -415,3 +415,27 @@ Düzeltme:
 Değişen dosyalar: [gmail.py](../src/connectors/gmail.py), [scan_inbox.py](../src/services/scan_inbox.py), yeni [test_gmail_rate_limit.py](../tests/test_gmail_rate_limit.py) (10 test — gerçek Gmail API'ye dokunmadan sahte `HttpError`/`_service` ile).
 
 Doğrulama: iki noktada testlerin gerçekten bir şey yakaladığını varsaymadım — `_fetch_messages_resiliently`'nin "dur ve kısmi sonucu döndür" satırını geçici olarak `raise`'e çevirip partial-sonuç testinin kırıldığını; `_incremental_sync`'in "cursor'ı ilerletme" korumasını geçici devre dışı bırakıp cursor'ın gerçekten yanlış (ilerletilmiş) değere ilerlediğini (test `'999' == '100'` diye başarısız oldu — bu, sessiz kalıcı mail kaybını temsil ediyordu) doğruladım, sonra ikisini de geri aldım. Tam paket **622 başarılı** (612 eski + 10 yeni), pyflakes temiz.
+
+**Kontrol noktası 11 — OPS-01 (kısmi): kilitli bağımlılıklar + CI**
+
+Durum: kullanıcı tarafından onaylandı. Kod `174cd3c` (`Add CI workflow and lock dependency versions (OPS-01)`) commit'iyle kaydedildi. Gerçek bir push ile CI'ın GitHub'da çalışıp yeşil döndüğü henüz doğrulanmadı — kullanıcının push sonrası kontrol etmesi bekleniyor.
+
+OPS-01 bulgusu: "İncelenen depoda CI workflow, sürüm kilidi ve deployment paketi görülmedi." Bu kontrol noktası yalnızca DAĞITIM KARARINDAN bağımsız iki maddeyi ele aldı — CI ve bağımlılık kilitleme. Staging, migration sürümleri, health/readiness, yedekleme/geri yükleme prosedürü BİLİNÇLİ olarak kapsam dışı: bunlar "nereye dağıtılacak" sorusuna (OAUTH-01 ile aynı bekleyen karar) bağlı, localhost'ta çalışan tek-kullanıcılı bir uygulama için "staging ortamı" gibi kavramlar henüz anlamsız.
+
+Yeni davranış:
+
+- **`requirements-lock.txt`** (yeni): `pip freeze` çıktısı — 73 paket, doğrudan + geçişli bağımlılıkların TAM sürümle kilitlenmiş hâli. `requirements.txt` (üst düzey, gevşek liste) DEĞİŞMEDİ, okunabilir kaynak olarak kalıyor; lock dosyası "tam olarak hangi sürümlerle test edildi" sorusuna cevap veriyor.
+- **`.github/workflows/ci.yml`** (yeni): `master`'a her push/PR'da çalışır — `requirements-lock.txt`'ten kurulum, `pyflakes src/ tests/`, `pytest tests/ -q`. **`windows-latest` bilinçli seçim** — `foundry_local_sdk` (modül seviyesinde import edilir, `src/providers/foundry_local.py`) Windows'a özgü bir paket, bu proje zaten yalnızca Windows'ta geliştirilip çalıştırılıyor (bkz. CLAUDE.md); `ubuntu-latest` seçilseydi kurulum adımı muhtemelen en baştan başarısız olurdu (Linux wheel'i olmayabilir) — gerçek geliştirme platformuyla eşleşmek, doğrulanmamış bir çapraz-platform iddiasından daha değerli.
+- **`CLAUDE.md`**: kısa bir "CI" notu eklendi (nasıl çalıştığı + lock dosyasının nasıl yeniden üretileceği).
+
+Değişen/yeni dosyalar: [requirements-lock.txt](../requirements-lock.txt), [.github/workflows/ci.yml](../.github/workflows/ci.yml), [CLAUDE.md](../CLAUDE.md).
+
+Doğrulama: gerçek bir GitHub Actions çalıştırması TETİKLEYEMEDİM (push yapmadım, aşağıya bkz.) — bunun yerine mümkün olan en yakın simülasyonu yaptım: bu makinede (workflow'un `windows-latest` seçimiyle aynı işletim sistemi) tamamen YENİ, boş bir venv kurup `requirements-lock.txt`'ten TÜM bağımlılıkları kurdum (`foundry-local-sdk` dahil, sorunsuz kuruldu), sonra workflow'daki AYNI iki komutu (`pyflakes src/ tests/`, `pytest tests/ -q`) bu temiz venv'in Python'ıyla çalıştırdım — pyflakes temiz, **622/622 test başarılı**. Bu, workflow dosyasının komutlarının gerçekten çalıştığını kanıtlıyor; GERÇEK GitHub Actions ortamının (farklı bir Windows runner image'ı, ağ/DNS farklılıkları vb.) birebir aynı davranacağının garantisi değil.
+
+**Senin yapacağın manuel kontrol**
+
+Bu commit'i push ettiğinde (ya da bir PR açtığında) GitHub'da "Actions" sekmesinde CI'ın gerçekten çalışıp yeşil döndüğünü gör — bu, benim burada YAPAMADIĞIM tek doğrulama adımı (gerçek bir GitHub çalıştırıcısını tetiklemek bir push gerektiriyor, onu senin onayın olmadan yapmadım).
+
+**Bu kontrol noktasının sınırı ve sıradaki iş**
+
+Bağımlılık güncellemelerinde `requirements-lock.txt`'in ELLE yeniden üretilmesi gerekiyor (`pip freeze > requirements-lock.txt`) — otomatik bir Dependabot/renovate kurulumu ayrı, isteğe bağlı bir iyileştirme. Staging/migration-versiyonlama/health-readiness/yedekleme prosedürü, OAUTH-01'in dağıtım kararı netleşmeden anlamlı şekilde tasarlanamaz — PRIV-01'in token-şifreleme yarısı ve AUTH-03'ün oturum/cookie yarısıyla AYNI bekleme durumu.
