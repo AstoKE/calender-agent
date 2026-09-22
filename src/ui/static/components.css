@@ -90,6 +90,12 @@ h1 .icon {
 
 .card-fields dd {
     margin: 0;
+    /* dd bir grid hücresi (1fr) — grid öğeleri varsayılan min-width:auto
+       kullanır, yani e-posta adresi gibi BOŞLUKSUZ uzun bir değer (mail
+       kaynaklı içerik, uzunluğu bizim kontrolümüzde değil) hücreyi
+       kırılma noktası olmadan büyütüp konteynerin taşmasına yol açabilir. */
+    min-width: 0;
+    overflow-wrap: break-word;
 }
 
 .warning {
@@ -410,6 +416,16 @@ h1 .icon {
     box-shadow: var(--shadow-2);
     padding: var(--space-2);
     min-width: 10rem;
+}
+
+/* Canlı testte bulunan gerçek hata: kapalı bir <details>'in yerel
+   gizleme davranışına güvenmek bu panel için yetmiyordu — position:
+   absolute; right: 0 olduğu için, kapalıyken bile düzen kutusu
+   hesaplanıp konteynerin GENİŞLİĞİNE değil VİEWPORT'A göre sağa taşıyor,
+   sayfanın tamamında görünmez ama gerçek bir yatay kaydırma çubuğuna
+   yol açıyordu (mobilde scrollWidth > clientWidth). */
+details:not([open]) > .menu__panel {
+    display: none;
 }
 
 .menu__panel--wide {
@@ -915,8 +931,10 @@ h1 .icon {
 
 .section-heading {
     display: flex;
+    flex-wrap: wrap;
     align-items: baseline;
     justify-content: space-between;
+    gap: var(--space-2) var(--space-3);
     margin-bottom: var(--space-3);
 }
 
@@ -1026,6 +1044,23 @@ h1 .icon {
     padding: var(--space-4) var(--space-5);
     min-width: 9rem;
     flex: 1;
+}
+
+/* Canlı testte bulunan gerçek hata: 3 kart flex-wrap ile "1 tanesi alt
+   satıra düşsün" bekleniyordu, ama flex-basis:0 (flex:1) + min-width:9rem
+   kombinasyonu dar ekranlarda (375px) kalan iki kartı konteynerin
+   GENİŞLİĞİNİ AŞACAK şekilde büyütüyordu — sayfanın tamamı yatayda
+   kayıyordu. Grid'e geçmek boyut hesaplamasını konteynerin GERÇEK
+   genişliğine sabitliyor, taşma imkansız hale geliyor. */
+@media (max-width: 48rem) {
+    .stat-row {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .stat {
+        min-width: 0;
+    }
 }
 
 .stat__icon {

@@ -122,6 +122,15 @@
 
     --color-surface: #202124;
     --color-surface-sunken: #2a2b2e;
+    /* Canlı testte bulunan gerçek hata: bu blok --color-surface-raised'ı
+       hiç override etmiyordu (yalnızca yukarıdaki @media sistem-koyu
+       bloğunda vardı) — kullanıcı temayı ELLE "koyu" seçtiğinde (sistem
+       tercihinden bağımsız, bu attribute selector'ın devreye girdiği
+       durum) TÜM .card yüzeyleri (öneri/kural/düzeltme kartları dahil)
+       hâlâ ışık modunun beyaz rengini kullanıyordu — metin doğru şekilde
+       açık renge dönerken arka plan beyaz kalınca başlıklar neredeyse
+       okunmaz hale geliyordu. */
+    --color-surface-raised: #343538;
     --color-border: #3c4043;
     --color-text: #e8eaed;
     --color-text-muted: #9aa0a6;

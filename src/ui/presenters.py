@@ -6,6 +6,8 @@ from __future__ import annotations
 import hashlib
 from typing import Callable
 
+from src.localization.formatting import format_duration_minutes
+
 # Sabit, erişilebilir (beyaz metinle yeterli kontrast) 6 renklik palet —
 # account_id'den DETERMİNİSTİK seçilir (aynı hesap her zaman aynı renk).
 _AVATAR_PALETTE = ["#1a73e8", "#188038", "#e37400", "#d93025", "#8430ce", "#12805c"]
@@ -33,14 +35,18 @@ def avatar_color(account_id: str) -> str:
 # anahtarı + değeri nasıl biçimlendireceğini bilen bir fonksiyona eşlenir.
 # Yeni bir action tipi (derivation.py'de) eklenince buraya bir satır eklemek
 # yeterli — describe_structured_action'ın kendisi değişmez.
-_ACTION_DESCRIBERS: dict[str, Callable[[object, Callable], str]] = {
-    "default_duration_minutes": lambda v, t: f"{t('kurallarim.action.duration')}: {v} {t('common.minutes')}",
-    "reminder_minutes_before": lambda v, t: f"{t('kurallarim.action.reminder')}: {v} {t('common.minutes')}",
-    "importance": lambda v, t: f"{t('kurallarim.action.importance')}: {t('enum.importance.' + str(v))}",
+# Canlı testte bulunan gerçek hata: değer daha önce ham dakika sayısı olarak
+# basılıyordu ("Hatırlatıcı: 4320 dakika") — bu, `duration_minutes` alanının
+# İÇERİDE dakika cinsinden tutulduğu implementasyon detayını kullanıcıya
+# sızdırıyordu (insan "3 gün önce" der, "4320 dakika önce" demez).
+_ACTION_DESCRIBERS: dict[str, Callable[[object, Callable, str], str]] = {
+    "default_duration_minutes": lambda v, t, lang: f"{t('kurallarim.action.duration')}: {format_duration_minutes(v, lang)}",
+    "reminder_minutes_before": lambda v, t, lang: f"{t('kurallarim.action.reminder')}: {format_duration_minutes(v, lang)}",
+    "importance": lambda v, t, lang: f"{t('kurallarim.action.importance')}: {t('enum.importance.' + str(v))}",
 }
 
 
-def describe_structured_action(action: dict, t: Callable[..., str]) -> list[str]:
+def describe_structured_action(action: dict, t: Callable[..., str], lang: str) -> list[str]:
     """{"default_duration_minutes": 45} -> ["Varsayılan süre: 45 dakika"].
     Kurallarım'ın ham JSON yerine kuralı insan cümlesi olarak göstermesi
     için (bkz. plan §16 "structured_action asla ham JSON değil"). Bilinmeyen
@@ -49,7 +55,7 @@ def describe_structured_action(action: dict, t: Callable[..., str]) -> list[str]
     lines = []
     for key, value in action.items():
         describer = _ACTION_DESCRIBERS.get(key)
-        lines.append(describer(value, t) if describer else f"{key}: {value}")
+        lines.append(describer(value, t, lang) if describer else f"{key}: {value}")
     return lines
 
 

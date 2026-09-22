@@ -12,6 +12,7 @@ kümesi anlamına gelirdi."""
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import Request
@@ -25,6 +26,7 @@ from src.localization.formatting import (
     format_date,
     format_datetime,
     format_day_header,
+    format_duration_minutes,
     format_month_year,
     format_time,
     format_time_range,
@@ -44,6 +46,19 @@ from src.ui.session import resolve_active_account, resolve_language, resolve_the
 logger = get_logger("ui.templating")
 
 
+def _coerce_datetime(dt: datetime | str) -> datetime:
+    """SQLite'tan ham okunan satırlar (accounts.connected_at,
+    user_corrections.created_at gibi) datetime DEĞİL, ISO metin döner —
+    Pydantic modellerinden gelen alanların (CandidateEvent.start_datetime)
+    aksine. fmt_* yardımcılarının HER İKİ kaynağı da aynı şekilde
+    biçimlendirebilmesi için burada tek noktadan çözülüyor (canlı testte
+    bulunan hata: şablonlar bu ham ISO metni hiç biçimlendirmeden
+    bastırıyordu, bkz. '2026-09-25 18:11:00.822352+00:00' gibi çıktı)."""
+    if isinstance(dt, str):
+        return datetime.fromisoformat(dt)
+    return dt
+
+
 def i18n_context(request: Request) -> dict:
     try:
         active_account = getattr(request.state, "active_account", None)
@@ -54,12 +69,14 @@ def i18n_context(request: Request) -> dict:
     return {
         "lang": lang,
         "t": translator_for(lang),
-        "fmt_date": lambda dt: format_date(dt, lang),
-        "fmt_time": lambda dt: format_time(dt, lang),
-        "fmt_datetime": lambda dt: format_datetime(dt, lang),
+        "fmt_date": lambda dt: format_date(_coerce_datetime(dt), lang),
+        "fmt_time": lambda dt: format_time(_coerce_datetime(dt), lang),
+        "fmt_datetime": lambda dt: format_datetime(_coerce_datetime(dt), lang),
+        "fmt_duration": lambda minutes: format_duration_minutes(minutes, lang),
         "fmt_range": lambda a, b: format_time_range(a, b, lang),
         "fmt_day_header": lambda d: format_day_header(d, lang),
         "fmt_month_year": lambda d: format_month_year(d, lang),
+        "describe_structured_action": lambda action, t_: describe_structured_action(action, t_, lang),
         "weekday_short_labels": weekday_short_labels(lang),
         "supported_languages": SUPPORTED_LANGUAGES,
     }
@@ -128,7 +145,6 @@ templates.env.globals["static_version"] = static_version
 templates.env.globals["NAV_ITEMS"] = NAV_ITEMS
 templates.env.globals["initials"] = initials
 templates.env.globals["avatar_color"] = avatar_color
-templates.env.globals["describe_structured_action"] = describe_structured_action
 templates.env.globals["diff_snapshots"] = diff_snapshots
 templates.env.globals["candidate_snapshot"] = candidate_snapshot
 templates.env.globals["translate_field_names"] = translate_field_names

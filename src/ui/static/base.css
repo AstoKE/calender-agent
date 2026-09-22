@@ -2,8 +2,18 @@
    butonlar, erişilebilirlik temelleri (bkz. plan Faz 3). Bileşen-seviyesi
    stiller (kart, çip, avatar, menü) components.css'te. */
 
+/* overflow-wrap: canlı testte bulunan gerçek hata — mobil genişlikte tüm
+   sayfa yatayda taşıyordu (scrollWidth 446px > 375px viewport). Kök neden
+   .stat-row DEĞİL (bkz. components.css'teki ayrı düzeltme) — Ana Sayfa'nın
+   <h1> karşılama metni gerçek bir e-posta adresi
+   ("Merhaba, uzun.kullanici@sirket.com") içeriyor ve tarayıcı e-postayı
+   kırma noktası olmadan tek satırda ölçüyor, konteynerin genişliğini
+   zorluyordu. Bu içerik (mail konuları, göndericiler, LLM'in çıkardığı
+   başlıklar) her yerde beklenmedik uzunlukta olabilir — tek bir yeri
+   düzeltmek yerine global bir güvenlik ağı daha sağlam. */
 * {
     box-sizing: border-box;
+    overflow-wrap: break-word;
 }
 
 html {
@@ -100,6 +110,10 @@ a {
 
 .topbar {
     grid-area: topbar;
+    /* .content'teki min-width:0 notuyla aynı gerekçe — topbar da aynı 1fr
+       grid track'ini paylaşıyor, o da kendi otomatik minimumunu sıfırlamazsa
+       tek başına tüm sayfayı mobilde taşırabiliyordu. */
+    min-width: 0;
     position: sticky;
     top: 0;
     z-index: 20;
@@ -209,6 +223,16 @@ a {
 
 .content {
     grid-area: main;
+    /* Canlı testte bulunan gerçek hata: CSS Grid öğeleri varsayılan
+       min-width:auto kullanır (min-content'e eşit) — bu, overflow-wrap/
+       word-break'i YOK SAYAR (spesifikasyon gereği, satır kırma "son çare"
+       sayılıp otomatik minimum boyuta katılmıyor). Sonuç: içeride kırılması
+       zor tek bir öğe (uzun bir e-posta, sabit genişlikli bir buton/kart)
+       olsa bile bu grid hücresi (1fr) konteynerin gerçek genişliğinden
+       daha büyük bir minimuma sabitlenip TÜM sayfayı mobilde yatay
+       kaydırmaya zorluyordu. min-width:0 bu minimumu kaldırıp hücrenin
+       gerçekten mevcut genişliğe küçülmesine izin veriyor. */
+    min-width: 0;
     padding: var(--space-6);
     max-width: 900px;
     width: 100%;
@@ -457,12 +481,17 @@ legend {
     }
 }
 
-/* Dar telefon genişlikleri (~384px altı): marka metni + menü
-   tetikleyicilerinin metin/ok ikonları topbar'da yer için yarışıp
-   taşabiliyordu (canlı ölçümde 4 menü + marka ~320px'de sığmıyor) — hepsi
-   ikona düşürülüyor, `aria-label` erişilebilir adı korumaya devam ediyor.
-   Ana kırılma noktasından (48rem, tablet) AYRI ve daha dar bir eşik. */
-@media (max-width: 24rem) {
+/* Dar telefon genişlikleri: marka metni + menü tetikleyicilerinin metin/ok
+   ikonları topbar'da yer için yarışıp taşabiliyordu (canlı ölçümde 4 menü +
+   marka ~320px'de sığmıyor) — hepsi ikona düşürülüyor, `aria-label`
+   erişilebilir adı korumaya devam ediyor. Ana kırılma noktasından (48rem,
+   tablet) AYRI ve daha dar bir eşik.
+   Canlı testte bulunan gerçek hata: eşik önceden 24rem (384px) idi ama
+   yaygın telefon genişlikleri (iPhone 390px, Pixel 412px, iPhone Pro Max
+   428px) bunun ÜZERİNDE — o telefonlarda hâlâ görünür bir taşma/üst üste
+   binme oluyordu. 28rem (448px), bilinen tüm telefon genişliklerini (en
+   büyüğü ~430px) güvenli bir payla kapsıyor. */
+@media (max-width: 28rem) {
     .topbar__brand-label,
     .menu__trigger-label,
     .icon--chevron {

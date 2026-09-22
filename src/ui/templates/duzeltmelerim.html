@@ -69,7 +69,7 @@
     <p class="hint">{{ t("duzeltmelerim.no_rule_derived") }}</p>
     {% endif %}
 
-    <p class="source-info">{{ c.created_at }}</p>
+    <p class="source-info">{{ fmt_datetime(c.created_at) }}</p>
 
     <div class="card-actions">
         {% if c.derived_policy_id %}

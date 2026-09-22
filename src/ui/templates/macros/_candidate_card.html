@@ -37,8 +37,8 @@
     <dl class="card-fields">
         <dt>{{ t("oneriler.field.time") }}</dt>
         <dd>
-            {% if c.start_datetime %}{{ c.start_datetime }}{% else %}{{ t("common.unspecified") }}{% endif %}
-            {% if c.duration_minutes %} — {{ c.duration_minutes }} {{ t("common.minutes") }}{% endif %}
+            {% if c.start_datetime %}{{ fmt_datetime(c.start_datetime) }}{% else %}{{ t("common.unspecified") }}{% endif %}
+            {% if c.duration_minutes %} — {{ fmt_duration(c.duration_minutes) }}{% endif %}
         </dd>
         <dt>{{ t("oneriler.field.location") }}</dt>
         <dd>{{ c.location or t("common.unspecified") }}</dd>

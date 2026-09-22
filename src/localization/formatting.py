@@ -115,6 +115,38 @@ def format_relative_day(dt: date, today: date, lang: str) -> str | None:
     return None
 
 
+_DURATION_UNITS: dict[str, dict[str, str]] = {
+    "tr": {"week": "hafta", "day": "gün", "hour": "saat", "minute": "dakika"},
+    "en": {"week": "week", "day": "day", "hour": "hour", "minute": "minute"},
+}
+
+
+def format_duration_minutes(minutes: int, lang: str) -> str:
+    """'90' -> '1 saat 30 dakika' / '1 hour 30 minutes'; '10080' -> '1 hafta'
+    / '1 week'. Kurallarım/Düzeltmelerim/Gelen Öneriler'de ham dakika sayısı
+    (örn. '4320 dakika') kullanıcıya gösteriliyordu — bu implementasyon
+    detayını (`duration_minutes` alanının kendisi dakika cinsinden tutuluyor)
+    dışa sızdırıyordu, insan bir süreyi böyle düşünmez (canlı testte
+    bulundu). En büyük TEK birime yuvarlanmadan (kalan dakika/saat de
+    gösterilir), yalnızca tam bölünen üst birimler (hafta/gün) kısa yazılır
+    — `parse_duration_minutes`'ın (timeutil.py) kabul ettiği aynı birimler."""
+    lang = normalize_language(lang)
+    units = _DURATION_UNITS[lang]
+    if minutes <= 0:
+        return f"0 {units['minute']}"
+    if minutes % (7 * 24 * 60) == 0:
+        return f"{minutes // (7 * 24 * 60)} {units['week']}"
+    if minutes % (24 * 60) == 0:
+        return f"{minutes // (24 * 60)} {units['day']}"
+    hours, remaining_minutes = divmod(minutes, 60)
+    parts: list[str] = []
+    if hours:
+        parts.append(f"{hours} {units['hour']}")
+    if remaining_minutes:
+        parts.append(f"{remaining_minutes} {units['minute']}")
+    return " ".join(parts)
+
+
 def to_display_timezone(dt: datetime, tz_name: str) -> datetime:
     """Aware bir datetime'ı gösterim zaman dilimine çevirir. Naive girişte
     dokunmadan döner (çağıran zaten ensure_timezone ile aware hale getirmeli

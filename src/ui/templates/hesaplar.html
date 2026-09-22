@@ -55,7 +55,7 @@
         <dt>{{ t("hesaplar.field.status") }}</dt>
         <dd>{{ t("common.active") if acc.status == "active" else t("common.inactive") }}</dd>
         <dt>{{ t("hesaplar.field.connected_at") }}</dt>
-        <dd>{{ acc.connected_at }}</dd>
+        <dd>{{ fmt_datetime(acc.connected_at) }}</dd>
     </dl>
     {# JOB-01: tarama artık kalıcı — bu hesabın SON işi `scan_jobs`'tan
        (bkz. src/ui/routes.py::accounts_page) okunuyor, sayfa yenilense/
