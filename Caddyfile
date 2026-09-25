@@ -1,0 +1,7 @@
+# {$DOMAIN} compose'daki .env'den gelir (örn. asistan.example.com).
+# Caddy sertifikayı otomatik alır/yeniler (80 ve 443 dışarıya açık olmalı,
+# alan adı bu VPS'in IP'sine yönlenmiş olmalı).
+{$DOMAIN} {
+	encode gzip
+	reverse_proxy app:8000
+}

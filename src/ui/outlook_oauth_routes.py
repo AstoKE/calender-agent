@@ -29,6 +29,7 @@ döner, isteğin geldiği host'a göre dinamik ÜRETMEZ (bkz. altta)."""
 from __future__ import annotations
 
 import json
+import os
 
 import msal
 import requests
@@ -64,7 +65,9 @@ def _redirect_uri() -> str:
     # uygulamaya 127.0.0.1 üzerinden erişse bile bu sabit değer kullanılıyor
     # — Microsoft'un geri yönlendirmesi yine de aynı
     # sunucuya ulaşır, çünkü ikisi de aynı loopback arayüzüne çözülür.
-    return "http://localhost:8000/hesap-ekle-outlook/callback"
+    # VPS/Docker: Azure'a kayıtlı https adresi MS_REDIRECT_URI ile verilir.
+    # Ayarlanmazsa yerel geliştirme davranışı birebir aynı kalır.
+    return os.environ.get("MS_REDIRECT_URI", "").strip() or "http://localhost:8000/hesap-ekle-outlook/callback"
 
 
 @router.get("/hesap-ekle-outlook")

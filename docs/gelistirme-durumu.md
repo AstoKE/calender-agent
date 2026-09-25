@@ -518,3 +518,24 @@ Doğrulama: iki noktada testlerin gerçekten bir şey yakaladığını varsaymad
 **Bu kontrol noktasının sınırı ve sıradaki iş**
 
 `COOKIE_SECURE=true` YANLIŞLIKLA düz `http://` üzerinde set edilirse (HTTPS gerçekte çalışmıyorken) tarayıcı çerezi hiç KABUL ETMEZ — kullanıcı sessizce giriş yapamaz hale gelir, hatanın nedeni ekranda görünmez. Bu, operatörün "HTTPS gerçekten çalışıyor mu" diye ÖNCE doğrulaması gereken bir sıralama sorunu; kodun kendisi bunu tespit edip uyaramaz (sunucu tarafından HTTPS'in gerçekten önde çalışıp çalışmadığını güvenilir şekilde bilmenin yolu yok, bkz. yukarıdaki X-Forwarded-Proto notu) — VPS/Docker deployment checkpoint'inde adım adım yönergeye açık bir uyarı olarak eklenecek.
+
+**Kontrol noktası 14 — Docker/VPS paketi (kod hazır, dağıtım bekliyor)**
+
+Durum: kod tamamlandı, commit'lenmedi (25 Eylül 2026 itibarıyla working tree'de). İmaj derlendi, konteyner sahte anahtarla `healthy` oldu, `/saglik` 200 döndü; 639 eski + 4 yeni test geçti. `docker-compose.yml`/Caddy gerçek bir alan adı olmadığı için çalıştırılmadı; gerçek Gemini/Google/Outlook akışları denenmedi.
+
+Yapılanlar: `Dockerfile`, `.dockerignore`, `docker-compose.yml` (app + Caddy), `Caddyfile`, `requirements-docker.txt` (kilit dosyasından foundry/onnxruntime/test araçları çıkarılarak türetildi); `foundry_local.py` import-güvenli; `app.py` `HOST`/`PORT` env + `/saglik`; `MS_REDIRECT_URI` env; `docs/kurulum-ve-calistirma.md` 9. bölüm. Konteyner yalnızca `LLM_PROVIDER=gemini` ile çalışır.
+
+**Yapılacaklar (sırayla)**
+
+- [ ] `.env`: `DOMAIN` gerçek alan adıyla doldurulacak (şu an 2 karakter — placeholder gibi görünüyor).
+- [ ] Alan adı edin, `asistan.<alan>` için A kaydını VPS IPv4'üne yönlendir; `nslookup` ile doğrula.
+- [ ] VPS'te 80/443 açık, Docker + Compose kurulu.
+- [ ] Google Cloud'da **Web application** tipinde OAuth client aç; redirect URI `https://<DOMAIN>/hesaplar/oauth/geri-don`; JSON'u indir. Hata olursa consent screen'de *Authorized domains*'e ana alan adını ekle.
+- [ ] (Outlook kullanılacaksa) Azure'a `https://<DOMAIN>/hesap-ekle-outlook/callback` kaydet, `.env`'e `MS_CLIENT_ID` + `MS_REDIRECT_URI`.
+- [ ] `TOKEN_ENCRYPTION_KEY` yedeği güvenli bir yerde (yedeklerden ayrı) sakla.
+- [ ] Yeni dosyaları commit'le, VPS'e klonla; `.env`'i sunucuya elle kopyala (git'te yok).
+- [ ] `docker compose up -d --build`, sonra `google_oauth_client.json`'u `app:/app/data/`'ya kopyala.
+- [ ] `https://<DOMAIN>/saglik` ve Google girişini doğrula; **ancak ondan sonra** `.env`'de `COOKIE_SECURE=true` ekle ve `docker compose up -d`.
+- [ ] `LOG_CONTENT=full` sunucuda KAPALI kalsın.
+
+Sonraki ops işleri (henüz yok): migration sürümleme, staging, otomatik yedek, CI'a Docker build/smoke adımı, `docker compose` gerçek alan adıyla doğrulama.

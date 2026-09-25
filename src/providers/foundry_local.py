@@ -31,8 +31,17 @@ from __future__ import annotations
 
 import re
 
-from foundry_local_sdk import Configuration, FoundryLocalManager
-from foundry_local_sdk.imodel import IModel
+# SDK Docker/Linux imajında KURULU OLMAYABİLİR (bkz. requirements-docker.txt —
+# konteyner yalnızca LLM_PROVIDER=gemini ile çalışır). Modül yine de import
+# edilebilir kalmalı: app.py/scan_inbox.py/vertical_prototype.py bu modülü
+# modül seviyesinde import ediyor ve testler `src.ui.app.FoundryLocalProvider`
+# gibi adları yamalıyor. SDK yoksa hata, sağlayıcı GERÇEKTEN kullanılmaya
+# çalışıldığında (`_get_manager`) açık bir mesajla verilir.
+try:
+    from foundry_local_sdk import Configuration, FoundryLocalManager
+    from foundry_local_sdk.imodel import IModel
+except ImportError:  # pragma: no cover — SDK'lı ortamlarda çalışmaz
+    Configuration = FoundryLocalManager = IModel = None  # type: ignore[assignment,misc]
 
 from src.core.logging_config import get_logger
 from src.providers.base import EmbeddingProvider, LLMProvider
@@ -68,6 +77,12 @@ _UNTRUSTED_CONTEXT_PREAMBLE = (
 
 
 def _get_manager(app_name: str) -> FoundryLocalManager:
+    if FoundryLocalManager is None:
+        raise RuntimeError(
+            "foundry-local-sdk kurulu değil — yerel model kullanılamıyor. "
+            "LLM_PROVIDER=gemini ayarla (Docker imajı yalnızca bunu destekler) "
+            "ya da `pip install foundry-local-sdk` çalıştır."
+        )
     if FoundryLocalManager.instance is None:
         FoundryLocalManager.initialize(Configuration(app_name=app_name))
     return FoundryLocalManager.instance

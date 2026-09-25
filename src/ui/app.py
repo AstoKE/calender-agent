@@ -102,6 +102,23 @@ app = FastAPI(title="Calendar Agent", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=str(Path(__file__).parent / "static")), name="static")
 
 
+@app.get("/saglik", include_in_schema=False)
+def health():
+    """Docker HEALTHCHECK / readiness. Yalnızca DB'nin açılıp sorgu
+    yanıtladığını doğrular — hiçbir kullanıcı verisi döndürmez, oturum
+    gerektirmez (bkz. _AUTH_EXEMPT_PATHS)."""
+    from fastapi.responses import JSONResponse
+
+    from src.storage.db import get_connection
+
+    try:
+        with get_connection() as conn:
+            conn.execute("SELECT 1").fetchone()
+    except Exception:
+        return JSONResponse({"status": "error"}, status_code=503)
+    return {"status": "ok"}
+
+
 @app.exception_handler(404)
 async def not_found(request: Request, exc):
     """Markalı, çevrilmiş 404 — 7 ekranın hepsi gerçek içerik alınca
@@ -163,6 +180,8 @@ _AUTH_EXEMPT_PATHS = {
     "/hesaplar/baglan", "/hesaplar/oauth/geri-don",
     "/hesap-ekle-outlook", "/hesap-ekle-outlook/callback",
     "/favicon.ico",
+    # Docker HEALTHCHECK / ters vekil sağlık kontrolü oturum taşımaz.
+    "/saglik",
 }
 
 
@@ -213,4 +232,15 @@ app.include_router(auth_router)
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    # Varsayılan HÂLÂ yalnızca localhost (yerel geliştirme değişmez). Docker
+    # imajı HOST=0.0.0.0 verir; ters vekil (Caddy) arkasında doğru şema/IP için
+    # --proxy-headers'a eşdeğer ayar burada açılır. forwarded_allow_ips
+    # varsayılanı yalnızca 127.0.0.1 — konteyner ağındaki vekilin başlıklarına
+    # güvenmek için FORWARDED_ALLOW_IPS env'i (örn. "*", yalnızca vekil dışarıya
+    # AÇIK DEĞİLSE) operatör tarafından açıkça verilmeli.
+    uvicorn.run(
+        app,
+        host=os.environ.get("HOST", "127.0.0.1"),
+        port=int(os.environ.get("PORT", "8000")),
+        proxy_headers=True,
+    )

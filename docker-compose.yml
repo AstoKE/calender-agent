@@ -1,0 +1,37 @@
+# Kullanım: docker compose up -d --build
+# Gerekli: .env (bkz. .env.example) ve data/google_oauth_client.json (volume içinde).
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      HOST: 0.0.0.0
+      # Uygulama portu DIŞARIYA AÇILMIYOR (aşağıda ports yok) — yalnızca
+      # Caddy konteyneri bu ağdan erişebilir; bu yüzden vekilin
+      # X-Forwarded-* başlıklarına güvenmek güvenli.
+      FORWARDED_ALLOW_IPS: "*"
+    volumes:
+      - app_data:/app/data
+    expose:
+      - "8000"
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - app
+    environment:
+      DOMAIN: ${DOMAIN:?DOMAIN .env içinde tanımlı olmalı}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  app_data:
+  caddy_data:
+  caddy_config:
