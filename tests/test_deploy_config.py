@@ -33,3 +33,22 @@ def test_outlook_redirect_uri_defaults_to_localhost(monkeypatch):
 def test_outlook_redirect_uri_can_be_overridden_by_env(monkeypatch):
     monkeypatch.setenv("MS_REDIRECT_URI", "https://asistan.example.com/hesap-ekle-outlook/callback")
     assert _redirect_uri() == "https://asistan.example.com/hesap-ekle-outlook/callback"
+
+
+def test_google_login_without_client_file_returns_to_giris_with_error(monkeypatch, tmp_path):
+    import src.ui.oauth_routes as oauth_routes
+
+    monkeypatch.setattr(oauth_routes, "DEFAULT_CLIENT_SECRET_PATH", tmp_path / "yok.json")
+    response = TestClient(app).get("/hesaplar/baglan?niyet=giris", follow_redirects=False)
+    assert response.status_code == 303
+    assert response.headers["location"] == "/giris?oauth_hata=client_yok"
+
+
+def test_giris_page_shows_known_oauth_error_and_ignores_unknown():
+    client = TestClient(app)
+    shown = client.get("/giris?oauth_hata=client_yok")
+    assert shown.status_code == 200
+    assert "google_oauth_client.json" in shown.text
+    unknown = client.get("/giris?oauth_hata=<script>x</script>")
+    assert "<script>x</script>" not in unknown.text
+    assert 'role="alert"' not in unknown.text

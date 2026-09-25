@@ -23,6 +23,12 @@
             </div>
             <h1>{{ t("giris.title") }}</h1>
             <p class="auth-card__subtitle">{{ t("giris.subtitle") }}</p>
+            {% if oauth_error %}
+            <p class="warning" role="alert">
+                <svg class="icon" width="18" height="18" aria-hidden="true"><use href="#icon-warning"></use></svg>
+                {{ t("hesaplar.oauth_error." ~ oauth_error) }}
+            </p>
+            {% endif %}
             <div class="provider-dialog__grid">
                 <a class="provider-option" href="/hesaplar/baglan?niyet=giris">
                     <img class="provider-option__icon" src="/static/logos/gmail.svg?v={{ static_version('logos/gmail.svg') }}" width="48" height="36" alt="" />

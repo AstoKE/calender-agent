@@ -15,16 +15,22 @@ from src.ui.templating import templates
 
 router = APIRouter()
 
+# /giris giriş yapmamış ziyaretçiye açık; sorgu parametresi kullanıcı
+# kontrolünde olduğundan yalnızca bilinen hata kodları şablona geçirilir
+# (catalog.py'deki `hesaplar.oauth_error.*` anahtarlarıyla aynı küme).
+_KNOWN_OAUTH_ERRORS = {"reddedildi", "gecersiz", "basarisiz", "client_yok", "ms_client_yok"}
+
 
 @router.get("/giris")
-def login_page(request: Request):
+def login_page(request: Request, oauth_hata: str | None = None):
     # Zaten geçerli bir oturumu olan biri /giris'e gelirse (örn. geri
     # tuşu) doğrudan Ana Sayfa'ya — auth_guard_middleware bu rotayı MUAF
     # tuttuğu için (giriş yapmanın kendisi buradan geçtiği için) burada
     # kendimiz kontrol etmemiz gerekiyor.
     if request.state.user is not None:
         return RedirectResponse("/anasayfa", status_code=303)
-    return templates.TemplateResponse(request, "giris.html", {})
+    oauth_error = oauth_hata if oauth_hata in _KNOWN_OAUTH_ERRORS else None
+    return templates.TemplateResponse(request, "giris.html", {"oauth_error": oauth_error})
 
 
 @router.post("/cikis")

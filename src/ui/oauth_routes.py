@@ -72,7 +72,11 @@ def _redirect_uri(request: Request) -> str:
 @router.get("/hesaplar/baglan")
 def start_oauth(request: Request, niyet: str | None = None):
     if not DEFAULT_CLIENT_SECRET_PATH.exists():
-        return RedirectResponse("/hesaplar?oauth_hata=client_yok", status_code=303)
+        # Giriş niyetinde /hesaplar giriş ister ve hata parametresini yutup
+        # kullanıcıyı sessizce /giris'e sektirirdi — outlook_oauth_routes.py'deki
+        # ms_client_yok dalıyla AYNI hedef mantığı.
+        target = "/giris" if niyet == "giris" else "/hesaplar"
+        return RedirectResponse(f"{target}?oauth_hata=client_yok", status_code=303)
 
     flow = Flow.from_client_secrets_file(
         str(DEFAULT_CLIENT_SECRET_PATH), scopes=GOOGLE_ACCOUNT_SCOPES, redirect_uri=_redirect_uri(request)
