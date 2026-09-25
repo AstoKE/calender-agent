@@ -26,7 +26,7 @@ from zoneinfo import ZoneInfo
 from urllib.parse import quote
 
 from fastapi import APIRouter, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from src.candidates.store import (
     count_pending_candidates,
@@ -239,6 +239,27 @@ def accounts_page(
             "oauth_error": oauth_hata,
         },
     )
+
+
+@router.get("/hesaplar/tarama-durumu")
+def scan_status(request: Request):
+    """Hesaplar ekranındaki canlı ilerleme için (bkz. hesaplar.html script'i):
+    oturum kullanıcısının hesaplarının SON tarama işi. Yalnızca kendi
+    hesapları döner (list_accounts kullanıcıya scoped) — başka birinin
+    hesap id'si sorgulanamaz. Metin burada DEĞİL istemcide, sunucunun
+    çevirdiği şablondan üretiliyor."""
+    jobs = {}
+    for acc in list_accounts(user_id=request.state.user["id"]):
+        job = scan_jobs.get_latest_job_for_account(acc["id"])
+        if job is None:
+            continue
+        jobs[acc["id"]] = {
+            "status": job["status"],
+            "active": job["status"] in (scan_jobs.STATUS_QUEUED, scan_jobs.STATUS_RUNNING),
+            "processed": job["processed"] or 0,
+            "total": job["total"] or 0,
+        }
+    return JSONResponse({"jobs": jobs}, headers={"Cache-Control": "no-store"})
 
 
 def _start_scan(request: Request, account_id: str, redirect_base: str) -> RedirectResponse:

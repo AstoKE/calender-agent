@@ -27,6 +27,7 @@ from src.connectors.account_registry import ensure_account_registered
 from src.core.models import CandidateEvent, CandidateStatus, EventType, SourceType
 from src.memory.correction_memory import mark_correction_approved, save_user_correction
 from src.policies.store import add_policy, get_policy
+from src.ui.auth import create_user
 from src.providers.base import EmbeddingProvider, LLMProvider
 from src.storage.db import get_connection
 
@@ -1272,3 +1273,57 @@ def test_oneriler_isolated_between_users(client, temp_db, monkeypatch):
 
     assert "A nin onerisi" in client.get("/oneriler").text
     assert "A nin onerisi" not in other.get("/oneriler").text
+
+
+# --- Canlı tarama ilerlemesi (/hesaplar/tarama-durumu) ---
+
+
+def test_scan_status_endpoint_reports_progress_for_own_accounts_only(client):
+    from src.services import scan_jobs
+
+    ensure_account_registered("mine", provider="google", email="m@example.com", user_id=client.test_user["id"])
+    # Başka bir kullanıcıya ait hesabın işi ASLA görünmemeli.
+    other = create_user("other@example.com")
+    ensure_account_registered("theirs", provider="google", email="t@example.com", user_id=other["id"])
+    scan_jobs.create_scan_job("theirs")
+
+    job_id = scan_jobs.create_scan_job("mine")
+    scan_jobs.mark_job_running(job_id)
+    scan_jobs.update_job_progress(job_id, total=25, processed=4, candidates_found=1, skipped_errors=0)
+
+    response = client.get("/hesaplar/tarama-durumu")
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    assert response.json() == {
+        "jobs": {"mine": {"status": "RUNNING", "active": True, "processed": 4, "total": 25}}
+    }
+
+    scan_jobs.mark_job_succeeded(job_id, total=25, candidates_found=1, skipped_errors=0)
+    finished = client.get("/hesaplar/tarama-durumu").json()["jobs"]["mine"]
+    assert finished["active"] is False and finished["status"] == "SUCCEEDED"
+
+
+def test_scan_status_endpoint_requires_login(temp_db, monkeypatch):
+    monkeypatch.setattr("src.ui.app.FoundryLocalProvider", _DummyLLMProvider)
+    monkeypatch.setattr("src.ui.app.FoundryLocalEmbeddingProvider", _DummyEmbeddingProvider)
+    from src.ui.app import app
+
+    with TestClient(app) as anonymous:
+        response = anonymous.get("/hesaplar/tarama-durumu", follow_redirects=False)
+    assert response.status_code == 303
+    assert response.headers["location"] == "/giris"
+
+
+def test_accounts_page_running_scan_has_live_progress_hooks(client):
+    from src.services import scan_jobs
+
+    ensure_account_registered("mine", provider="google", email="m@example.com", user_id=client.test_user["id"])
+    job_id = scan_jobs.create_scan_job("mine")
+    scan_jobs.mark_job_running(job_id)
+    scan_jobs.update_job_progress(job_id, total=25, processed=4, candidates_found=0, skipped_errors=0)
+
+    html = client.get("/hesaplar").text
+    assert 'data-scan-account="mine"' in html
+    assert "4/25" in html  # JS kapalıyken de sunucu render'ı doğru ilerlemeyi gösterir
+    assert "{processed}/{total}" in html  # JS'in dolduracağı şablon
+    assert "sayfayı yenileyin" not in html

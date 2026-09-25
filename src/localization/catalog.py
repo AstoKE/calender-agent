@@ -168,15 +168,15 @@ MESSAGES: dict[str, dict[str, str]] = {
     "hesaplar.field.connected_at": {"tr": "Bağlanma tarihi", "en": "Connected on"},
     "hesaplar.scan_now": {"tr": "Şimdi tara", "en": "Scan now"},
     "hesaplar.scan_hint": {
-        "tr": "Tarama arka planda çalışır — sayfayı yenileyerek durumu görebilirsiniz.",
-        "en": "Scanning runs in the background — refresh the page to see its status.",
+        "tr": "Tarama arka planda çalışır; ilerleme bu sayfada kendiliğinden güncellenir.",
+        "en": "Scanning runs in the background; progress updates on this page automatically.",
     },
     # JOB-01 (bkz. docs/urunlesme-ve-tasarim-yol-haritasi.md): tarama artık
     # bu isteği bloklamıyor, `scan_jobs`'ta kalıcı bir durumu var — bu 4 anahtar
     # o durumun ekranda gösterilme biçimi (bkz. hesaplar.html).
     "hesaplar.scan_status.running": {
-        "tr": "Tarama sürüyor... ({processed}/{total} mail işlendi, sayfayı yenileyin)",
-        "en": "Scan in progress... ({processed}/{total} emails processed, refresh to update)",
+        "tr": "Tarama sürüyor... ({processed}/{total} mail işlendi)",
+        "en": "Scan in progress... ({processed}/{total} emails processed)",
     },
     "hesaplar.scan_status.succeeded": {
         "tr": "Son tarama: {total} mail kontrol edildi, {found} öneri kuyruğa eklendi.",

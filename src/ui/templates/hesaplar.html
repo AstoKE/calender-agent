@@ -62,9 +62,14 @@
        sunucu yeniden başlasa bile doğru durum görünür. #}
     {% set job = scan_jobs_by_account.get(acc.id) %}
     {% if job and job.status in ("QUEUED", "RUNNING") %}
-    <p class="warning">
+    {# Canlı ilerleme: aşağıdaki script /hesaplar/tarama-durumu'nu yoklayıp
+       [data-scan-text]'i günceller, iş bitince sayfayı yeniler. Şablon,
+       sunucunun çevirdiği metin + yer tutucular (dil mantığı JS'e taşınmaz);
+       JS kapalıysa sunucunun ilk render'ı (aşağıdaki metin) yine görünür. #}
+    <p class="warning" role="status" data-scan-account="{{ acc.id }}"
+       data-scan-template="{{ t('hesaplar.scan_status.running', processed='{processed}', total='{total}') }}">
         <svg class="icon" width="18" height="18" aria-hidden="true"><use href="#icon-warning"></use></svg>
-        {{ t("hesaplar.scan_status.running", processed=job.processed, total=job.total) }}
+        <span data-scan-text>{{ t("hesaplar.scan_status.running", processed=job.processed, total=job.total) }}</span>
     </p>
     {% else %}
     <form method="post" action="/hesaplar/{{ acc.id }}/tara">
@@ -94,6 +99,43 @@
 {% endblock %}
 
 {% block scripts %}
+<script>
+// Devam eden taramaların ilerlemesini sayfa yenilemeden gösterir. İş bittiğinde
+// (başarı/hata/zaman aşımı) sayfa bir kez yenilenir ki nihai özet ve "Şimdi
+// tara" düğmesi sunucudan gelsin.
+(function () {
+    var rows = document.querySelectorAll("[data-scan-account]");
+    if (!rows.length) return;
+    var delay = 2000;
+    function render(row, job) {
+        var text = row.querySelector("[data-scan-text]");
+        if (!text) return;
+        text.textContent = row.getAttribute("data-scan-template")
+            .replace("{processed}", job.processed).replace("{total}", job.total);
+    }
+    function tick() {
+        if (document.hidden) { setTimeout(tick, delay); return; }
+        fetch("/hesaplar/tarama-durumu", { headers: { "X-Requested-With": "fetch" }, credentials: "same-origin" })
+            .then(function (r) {
+                if (r.status === 401 || r.redirected) { window.location.reload(); return null; }
+                return r.ok ? r.json() : null;
+            })
+            .then(function (data) {
+                if (!data) { setTimeout(tick, 5000); return; }
+                var finished = false;
+                rows.forEach(function (row) {
+                    var job = data.jobs[row.getAttribute("data-scan-account")];
+                    if (!job || !job.active) { finished = true; return; }
+                    render(row, job);
+                });
+                if (finished) { window.location.reload(); return; }
+                setTimeout(tick, delay);
+            })
+            .catch(function () { setTimeout(tick, 5000); });
+    }
+    setTimeout(tick, delay);
+})();
+</script>
 <script>
 (function () {
     var btn = document.getElementById("add-account-btn");
