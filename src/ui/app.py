@@ -238,9 +238,21 @@ if __name__ == "__main__":
     # varsayılanı yalnızca 127.0.0.1 — konteyner ağındaki vekilin başlıklarına
     # güvenmek için FORWARDED_ALLOW_IPS env'i (örn. "*", yalnızca vekil dışarıya
     # AÇIK DEĞİLSE) operatör tarafından açıkça verilmeli.
+    #
+    # RELOAD: yerel geliştirmede varsayılan AÇIK — `src/` altında bir dosya
+    # değiştiğinde uvicorn süreci kendisi yeniden başlatır, elle Ctrl+C +
+    # tekrar çalıştırmaya gerek kalmaz. Docker imajı bunu ENV RELOAD=false
+    # ile KAPATIR (bkz. Dockerfile) — üretimde dosya izleme gereksiz overhead
+    # + tek worker varsayımını (bellek-içi kilitler, bkz. app.state.*)
+    # yeniden başlatma sırasında kısa süreliğine bozabilir, orada istenmez.
+    # uvicorn.run reload=True'da `app` NESNESİNİ değil bir import string'i
+    # bekliyor (yeniden başlatan alt süreç modülü kendisi import etsin diye).
+    reload_enabled = os.environ.get("RELOAD", "true").strip().lower() in ("1", "true", "yes")
     uvicorn.run(
-        app,
+        "src.ui.app:app" if reload_enabled else app,
         host=os.environ.get("HOST", "127.0.0.1"),
         port=int(os.environ.get("PORT", "8000")),
         proxy_headers=True,
+        reload=reload_enabled,
+        reload_dirs=["src"] if reload_enabled else None,
     )
