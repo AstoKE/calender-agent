@@ -52,9 +52,11 @@ class _FakeModels:
 
 class _FakeClient:
     last_api_key = None
+    last_http_options = None
 
-    def __init__(self, api_key=None):
+    def __init__(self, api_key=None, http_options=None):
         _FakeClient.last_api_key = api_key
+        _FakeClient.last_http_options = http_options
         self.models = _FakeModels()
 
 
@@ -76,6 +78,23 @@ def test_gemini_api_key_env_var_also_accepted(monkeypatch):
     monkeypatch.setenv("GEMINI_API_KEY", "alt-key")
     GeminiProvider()
     assert _FakeClient.last_api_key == "alt-key"
+
+
+def test_chat_client_has_a_request_timeout(fake_genai):
+    # Canlı testte bulundu (2026-09-28): zaman aşımı olmadan bir istek hiç
+    # yanıt vermeden sonsuza kadar askıda kalabiliyordu, "asistan yazıyor..."
+    # göstergesi asla bitmiyordu. Bu test yalnızca `http_options` verildiğini
+    # değil, `timeout`'un GERÇEKTEN pozitif bir milisaniye değeri olduğunu
+    # doğruluyor.
+    GeminiProvider()
+    assert _FakeClient.last_http_options is not None
+    assert _FakeClient.last_http_options.timeout > 0
+
+
+def test_embedding_client_has_a_request_timeout(fake_genai):
+    GeminiEmbeddingProvider()
+    assert _FakeClient.last_http_options is not None
+    assert _FakeClient.last_http_options.timeout > 0
 
 
 def test_generate_uses_default_model_and_passes_system_instruction(fake_genai):

@@ -26,6 +26,19 @@ DEFAULT_CHAT_MODEL = "gemini-3.5-flash-lite"
 DEFAULT_EMBEDDING_MODEL = "gemini-embedding-001"
 DEFAULT_EMBEDDING_DIMENSION = 768
 
+# Canlı testte bulundu (2026-09-28): `genai.Client()` hiçbir zaman aşımı
+# olmadan kuruluyordu — Google tarafında/ağ yolunda bir istek askıda
+# kalırsa (gözlemlendi: bazı `generate_content` çağrıları HİÇ yanıt
+# vermedi, `data/debug.log`'da "call" satırından sonra "raw output" hiç
+# gelmedi) `_client.models.generate_content(...)` sonsuza kadar bloke
+# oluyordu. Bu, web sohbetinde "asistan yazıyor..." göstergesinin asla
+# bitmediği, hiçbir mesajın (hata dahil) hiç görünmediği gerçek bir hatanın
+# kök nedeniydi — `json_generation.py::_retry_and_parse`'ın retry/hata
+# yakalama mantığı zaten vardı ama hiçbir zaman TETİKLENMİYORDU, çünkü
+# çağrının kendisi hiç dönmüyordu. Milisaniye cinsinden — SDK'nın kendi
+# birimi (bkz. google.genai.types.HttpOptions.timeout).
+_REQUEST_TIMEOUT_MS = 20_000
+
 # FoundryLocalProvider.generate'deki context_chunks önsözüyle AYNI (bkz.
 # foundry_local.py) — mail gibi güvenilmeyen kaynaklardan gelen bağlamın
 # komut olarak yorumlanmasını önlemek için, provider'dan bağımsız sabit kural.
@@ -48,7 +61,9 @@ def _api_key() -> str:
 
 class GeminiProvider(LLMProvider, FileInputCapable):
     def __init__(self, model: str = DEFAULT_CHAT_MODEL):
-        self._client = genai.Client(api_key=_api_key())
+        self._client = genai.Client(
+            api_key=_api_key(), http_options=types.HttpOptions(timeout=_REQUEST_TIMEOUT_MS)
+        )
         self._model = model
 
     def generate(
@@ -116,7 +131,9 @@ class GeminiProvider(LLMProvider, FileInputCapable):
 
 class GeminiEmbeddingProvider(EmbeddingProvider):
     def __init__(self, model: str = DEFAULT_EMBEDDING_MODEL, dimension: int = DEFAULT_EMBEDDING_DIMENSION):
-        self._client = genai.Client(api_key=_api_key())
+        self._client = genai.Client(
+            api_key=_api_key(), http_options=types.HttpOptions(timeout=_REQUEST_TIMEOUT_MS)
+        )
         self._model = model
         self._dimension = dimension
 

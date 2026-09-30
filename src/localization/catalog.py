@@ -640,6 +640,9 @@ MESSAGES: dict[str, dict[str, str]] = {
     # --- Chatbox: arayüz (bkz. src/ui/templates/partials/_asistan_chat.html) ---
     "chat.placeholder": {"tr": "Bir şey yazın...", "en": "Type a message..."},
     "chat.send": {"tr": "Gönder", "en": "Send"},
+    # "Yazıyor..." göstergesi (bkz. anasayfa.html script'i) — yalnızca
+    # ekran okuyucu için (sr-only), görsel gösterge üç nokta animasyonu.
+    "chat.assistant_typing": {"tr": "Asistan yazıyor…", "en": "Assistant is typing…"},
     "chat.new_chat": {"tr": "Yeni sohbet", "en": "New chat"},
     "chat.empty_hint": {
         "tr": "Bir etkinlik oluşturmamı, takvimini sorgulamamı ya da bir etkinliği güncellememi isteyebilirsin.",

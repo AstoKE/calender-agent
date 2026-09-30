@@ -122,6 +122,34 @@
         if (input) input.focus();
     }
 
+    // Yanıt beklenirken "asistan yazıyor..." balonu — istek sürerken
+    // eklenir, yanıt gelince #asistan-chat'in tamamı outerHTML ile
+    // değiştiği için ayrıca kaldırmaya gerek yok (yalnızca ağ hatasında,
+    // normal form gönderimine düşülmeden önce, elle kaldırılıyor).
+    function showTypingIndicator(root) {
+        var messages = root.querySelector(".assistant-chat__messages");
+        if (!messages) return null;
+        var emptyState = messages.querySelector(".empty-state");
+        if (emptyState) emptyState.remove();
+        var bubble = document.createElement("p");
+        bubble.className = "chat-bubble chat-bubble--assistant chat-bubble--typing";
+        bubble.setAttribute("aria-live", "polite");
+        var label = document.createElement("span");
+        label.className = "sr-only";
+        label.textContent = messages.getAttribute("data-typing-label") || "";
+        var dots = document.createElement("span");
+        dots.className = "typing-dots";
+        dots.setAttribute("aria-hidden", "true");
+        dots.appendChild(document.createElement("span"));
+        dots.appendChild(document.createElement("span"));
+        dots.appendChild(document.createElement("span"));
+        bubble.appendChild(label);
+        bubble.appendChild(dots);
+        messages.appendChild(bubble);
+        messages.scrollTop = messages.scrollHeight;
+        return bubble;
+    }
+
     // Canlı testte bulunan gerçek bir hata: bir adımda hızlı-yanıt
     // butonları (Onayla/Evet/Sakla/...) VARKEN kullanıcı metin kutusuna
     // yazıp Enter'a basınca, tarayıcının "birden fazla submit butonu olan
@@ -144,10 +172,25 @@
         form.requestSubmit();
     });
 
+    // Canlı testte bulunan ikinci bir gerçek hata: bir istek sürerken
+    // (özellikle sunucu yavaş yanıt verdiğinde) hızlı-yanıt butonları
+    // disabled=true oluyordu (bkz. altta) AMA metin kutusu değil — kullanıcı
+    // sabırsızlanıp metin kutusuna tekrar Enter'a basınca yukarıdaki keydown
+    // dinleyicisi YENİ bir requestSubmit() tetikliyor, bu da AYNI mesajı
+    // sunucuya İKİNCİ kez (sunucudaki chat_in_progress kilidi devreye
+    // girmeden önce, aradaki kısa pencerede) gönderebiliyordu — canlı
+    // testte `data/debug.log`'da aynı mesajın bir saniye arayla iki kez
+    // işlendiği doğrulandı. Modül seviyesinde tek bir bayrak (bir DOM
+    // düğümüne değil, "o an süren tek istek"e bağlı — #asistan-chat AJAX
+    // yanıtıyla değişse bile doğru çalışır, ses kaydı bayraklarıyla AYNI
+    // desen) ikinci submit'i sessizce yok sayıyor.
+    var chatRequestInFlight = false;
+
     document.addEventListener("submit", function (event) {
         var form = event.target;
         if (!form.matches(".assistant-chat__form, .assistant-chat__reset-form")) return;
         event.preventDefault();
+        if (form.matches(".assistant-chat__form") && chatRequestInFlight) return;
         // Onayla/Düzenle/Reddet gibi hızlı-yanıt butonları (name="action")
         // formda birden fazla submit butonu olduğu için `new FormData(form)`
         // TEK BAŞINA hangisine tıklandığını bilemiyor — tıklanan butonun
@@ -158,10 +201,33 @@
         if (event.submitter && event.submitter.name) {
             formData.set(event.submitter.name, event.submitter.value);
         }
+        // Yalnızca mesaj formunda (yeni-sohbet formunda değil) yazıyor
+        // göstergesi gösterilir ve düğmeler kilitlenir — çift gönderimi
+        // önler, sunucu tarafındaki chat_in_progress korumasının
+        // (bkz. src/ui/app.py) istemci tarafındaki karşılığı.
+        var isMessageForm = form.matches(".assistant-chat__form");
+        var root = document.getElementById("asistan-chat");
+        var typingBubble = isMessageForm && root ? showTypingIndicator(root) : null;
+        var buttons = isMessageForm ? form.querySelectorAll("button") : [];
+        buttons.forEach(function (b) { b.disabled = true; });
+        if (isMessageForm) chatRequestInFlight = true;
+        // Sunucu tarafı LLM çağrısına artık bir zaman aşımı koyuyor (bkz.
+        // src/providers/gemini.py::_REQUEST_TIMEOUT_MS — canlı testte bir
+        // isteğin HİÇ yanıt vermeden sonsuza kadar askıda kaldığı, "asistan
+        // yazıyor..." göstergesinin hiç bitmediği gerçek bir hata bulundu),
+        // ama burada da bağımsız bir istemci-taraflı üst sınır var — sunucu
+        // farklı bir sebeple (örn. tamamen çökmüş bir süreç) hiç yanıt
+        // vermezse tarayıcı da sonsuza kadar beklemesin. 90sn, tek bir
+        // sohbet turunun birden fazla LLM çağrısı yapabildiği (niyet +
+        // alan çıkarımı) en kötü durumu (2 × 2 deneme × 20sn) rahatça
+        // karşılıyor.
+        var timeoutController = new AbortController();
+        var timeoutId = window.setTimeout(function () { timeoutController.abort(); }, 90000);
         fetch(form.getAttribute("action"), {
             method: "POST",
             body: formData,
             headers: { "X-Requested-With": "fetch" },
+            signal: timeoutController.signal,
         })
             .then(function (response) {
                 if (!response.ok) throw new Error("chat request failed");
@@ -173,7 +239,13 @@
                 scrollAndFocus();
             })
             .catch(function () {
-                form.submit(); // ağ/JS hatasında normal form gönderimine düş
+                if (typingBubble) typingBubble.remove();
+                buttons.forEach(function (b) { b.disabled = false; });
+                form.submit(); // ağ/JS hatasında (zaman aşımı dahil) normal form gönderimine düş
+            })
+            .finally(function () {
+                window.clearTimeout(timeoutId);
+                if (isMessageForm) chatRequestInFlight = false;
             });
     });
 

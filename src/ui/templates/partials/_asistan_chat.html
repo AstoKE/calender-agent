@@ -28,7 +28,12 @@
         </div>
     </div>
 
-    <div class="assistant-chat__messages">
+    {# data-typing-label: anasayfa.html'deki script "yazıyor" balonunu
+       burada YAZMAK yerine JS'den ekliyor (istek sürerken gösterilip yanıt
+       gelince outerHTML değişimiyle zaten kayboluyor) — metni JS'e
+       gömmemek için sunucunun çevirdiği etiket buradan okunuyor
+       (hesaplar.html'deki data-scan-template ile AYNI desen). #}
+    <div class="assistant-chat__messages" data-typing-label="{{ t('chat.assistant_typing') }}">
         {% if not chat_messages %}
         <p class="empty-state">{{ t("chat.empty_hint") }}</p>
         {% else %}
